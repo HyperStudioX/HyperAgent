@@ -7,13 +7,13 @@
 @layer base {
   :root {
     /* Warm Stone Light - Soft cream/stone palette */
-    --background: 40 20% 97%;
+    --background: 40 25% 96%;
     --foreground: 30 10% 15%;
     --card: 40 25% 99%;
     --card-foreground: 30 10% 15%;
     --popover: 40 25% 99%;
     --popover-foreground: 30 10% 15%;
-    --primary: 30 10% 18%;
+    --primary: 30 15% 15%;
     --primary-foreground: 40 20% 97%;
     --secondary: 35 15% 93%;
     --secondary-foreground: 30 10% 20%;
@@ -27,11 +27,15 @@
     --input: 35 12% 88%;
     --ring: 30 10% 25%;
     --radius: 0.5rem;
+
+    /* Vibrant accent for CTAs and highlights */
+    --accent-vibrant: 210 85% 52%;
+    --accent-vibrant-foreground: 0 0% 100%;
   }
 
   .dark {
     /* Refined Ink Dark - Deep blue-gray with warmth */
-    --background: 220 15% 13%;
+    --background: 220 18% 12%;
     --foreground: 40 15% 92%;
     --card: 220 14% 16%;
     --card-foreground: 40 15% 92%;
@@ -50,6 +54,10 @@
     --border: 220 10% 25%;
     --input: 220 10% 25%;
     --ring: 40 15% 85%;
+
+    /* Vibrant accent for CTAs and highlights */
+    --accent-vibrant: 45 95% 60%;
+    --accent-vibrant-foreground: 220 18% 12%;
   }
 }
 
@@ -151,7 +159,7 @@ code:not(pre code) {
   @apply border-l-2 border-border pl-4 italic text-muted-foreground;
 }
 
-/* Animation utilities - simple fades only */
+/* Animation utilities - enhanced set */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -168,12 +176,63 @@ code:not(pre code) {
   }
 }
 
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .animate-fade-in {
   animation: fade-in 0.2s ease-out forwards;
 }
 
 .animate-slide-up {
   animation: slide-up 0.3s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.3s ease-out forwards;
 }
 
 /* Touch targets */

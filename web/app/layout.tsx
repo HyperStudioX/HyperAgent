@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
+import { SessionProvider } from "@/components/providers/session-provider";
+import { AuthGuard } from "@/components/auth/auth-guard";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -36,9 +38,11 @@ export default async function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <NextIntlClientProvider messages={messages}>
-          {children}
-        </NextIntlClientProvider>
+        <SessionProvider>
+          <NextIntlClientProvider messages={messages}>
+            <AuthGuard>{children}</AuthGuard>
+          </NextIntlClientProvider>
+        </SessionProvider>
       </body>
     </html>
   );

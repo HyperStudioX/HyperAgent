@@ -15,6 +15,7 @@ import {
   Circle,
   ArrowLeft,
   AlertCircle,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ResearchResultView } from "@/components/query/research-result-view";
@@ -63,6 +64,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
   const [error, setError] = useState<string | null>(null);
   const [hasStarted, setHasStarted] = useState(false);
   const [isExistingTask, setIsExistingTask] = useState(false);
+  const [progressPanelOpen, setProgressPanelOpen] = useState(false);
 
   // Load task from store or localStorage after hydration
   useEffect(() => {
@@ -228,10 +230,6 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
     router.push("/");
   };
 
-  const handleNewSearch = () => {
-    router.push("/");
-  };
-
   const handleRetry = () => {
     if (taskInfo) {
       setHasStarted(true);
@@ -281,23 +279,23 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
     <div className="flex-1 flex overflow-hidden">
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+        <div className="px-4 md:px-6 py-3 md:py-4 border-b border-border">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3 md:gap-4 min-w-0">
               <button
                 onClick={handleBack}
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+                className="shrink-0 p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   {SCENARIO_ICONS[taskInfo.scenario]}
                   <span className="text-xs text-muted-foreground uppercase tracking-wider">
                     {tResearch(`${taskInfo.scenario}.name`)}
                   </span>
                 </div>
-                <h2 className="text-lg font-semibold text-foreground">{taskInfo.query}</h2>
+                <h2 className="text-base md:text-lg font-semibold text-foreground truncate">{taskInfo.query}</h2>
                 <p className="text-sm text-muted-foreground">
                   {error ? (
                     <span className="text-destructive">{t("researchFailed")}</span>
@@ -309,17 +307,18 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                 </p>
               </div>
             </div>
+            {/* Mobile toggle for progress panel */}
             <button
-              onClick={handleNewSearch}
-              className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 rounded-lg transition-colors"
+              onClick={() => setProgressPanelOpen(!progressPanelOpen)}
+              className="md:hidden px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 rounded-lg transition-colors self-start"
             >
-              {t("newSearch")}
+              {t("progress")} ({steps.length})
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-6 py-6">
+          <div className="max-w-3xl mx-auto px-4 md:px-6 py-4 md:py-6">
             {error ? (
               <div className="flex items-center justify-center min-h-[40vh]">
                 <div className="text-center">
@@ -350,10 +349,40 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
         </div>
       </div>
 
+      {/* Mobile backdrop */}
+      {progressPanelOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden transition-opacity"
+          onClick={() => setProgressPanelOpen(false)}
+        />
+      )}
+
       {/* Progress sidebar */}
-      <div className="w-72 border-l border-border flex flex-col bg-card">
-        <div className="px-4 py-3 border-b border-border">
+      <div
+        className={cn(
+          "flex flex-col bg-card",
+          // Desktop: sidebar
+          "md:w-72 md:border-l md:border-border md:relative",
+          // Mobile: bottom sheet
+          "fixed bottom-0 left-0 right-0 z-50",
+          "md:translate-y-0", // Always visible on desktop
+          "max-h-[70vh] md:max-h-none",
+          "rounded-t-2xl md:rounded-none",
+          "shadow-2xl md:shadow-none",
+          "border-t border-border md:border-t-0",
+          "transition-transform duration-300 ease-out",
+          progressPanelOpen ? "translate-y-0" : "translate-y-full md:translate-y-0"
+        )}
+      >
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <h3 className="text-sm font-medium text-foreground">{t("progress")}</h3>
+          {/* Mobile close button */}
+          <button
+            onClick={() => setProgressPanelOpen(false)}
+            className="md:hidden p-1.5 -mr-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -364,11 +393,11 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                 <div key={step.id} className="flex items-center gap-3">
                   <div className="relative">
                     {step.status === "completed" ? (
-                      <CheckCircle2 className="w-5 h-5 text-green-500" />
+                      <CheckCircle2 className="w-5 h-5 text-green-500 animate-bounce-in" />
                     ) : step.status === "running" ? (
                       <Loader2 className="w-5 h-5 text-foreground animate-spin" />
                     ) : step.status === "failed" ? (
-                      <AlertCircle className="w-5 h-5 text-destructive" />
+                      <AlertCircle className="w-5 h-5 text-destructive animate-scale-in" />
                     ) : (
                       <Circle className="w-5 h-5 text-muted-foreground/40" />
                     )}

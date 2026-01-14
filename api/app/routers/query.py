@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
 from app.models.schemas import (
@@ -48,7 +49,11 @@ If you're unsure about something, say so rather than making things up."""
 
 
 @router.post("/", response_model=UnifiedQueryResponse)
-async def query(request: UnifiedQueryRequest, db: AsyncSession = Depends(get_db)):
+async def query(
+    request: UnifiedQueryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Unified entry point for chat and research modes."""
     if request.mode == QueryMode.CHAT:
         # Handle chat mode
@@ -92,6 +97,7 @@ async def query(request: UnifiedQueryRequest, db: AsyncSession = Depends(get_db)
             query=request.message,
             depth=request.depth.value,
             scenario=request.scenario.value,
+            user_id=current_user.id,
         )
 
         logger.info("research_task_created", task_id=task_id, query=request.message[:50])
@@ -106,7 +112,11 @@ async def query(request: UnifiedQueryRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/stream")
-async def stream_query(request: UnifiedQueryRequest, db: AsyncSession = Depends(get_db)):
+async def stream_query(
+    request: UnifiedQueryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Stream response for both chat and research modes."""
     if request.mode == QueryMode.CHAT:
         # Stream chat response
@@ -153,6 +163,7 @@ async def stream_query(request: UnifiedQueryRequest, db: AsyncSession = Depends(
             query=request.message,
             depth=request.depth.value,
             scenario=request.scenario.value,
+            user_id=current_user.id,
         )
         await db.commit()
 
@@ -295,7 +306,11 @@ async def get_db_session() -> AsyncSession:
 
 
 @router.get("/status/{task_id}")
-async def get_query_status(task_id: str, db: AsyncSession = Depends(get_db)):
+async def get_query_status(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get the status of a research task."""
     task_data = await storage_service.get_task_dict(db, task_id)
 

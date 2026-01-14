@@ -23,6 +23,7 @@ class StorageService:
         query: str,
         depth: str,
         scenario: str,
+        user_id: str | None = None,
     ) -> ResearchTask:
         """Create a new research task.
 
@@ -32,6 +33,7 @@ class StorageService:
             query: Research query
             depth: Research depth level
             scenario: Research scenario type
+            user_id: Optional user identifier
 
         Returns:
             Created ResearchTask instance
@@ -42,6 +44,7 @@ class StorageService:
             depth=depth,
             scenario=scenario,
             status="pending",
+            user_id=user_id,
         )
         db.add(task)
         await db.flush()

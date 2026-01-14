@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "console"
 
+    # Authentication
+    nextauth_secret: str = ""
+    google_client_id: str = ""
+    auth_enabled: bool = True
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""

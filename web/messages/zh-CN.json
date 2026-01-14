@@ -8,6 +8,11 @@
     "recentTasks": "最近任务",
     "lightMode": "浅色模式",
     "darkMode": "深色模式",
+    "theme": "主题",
+    "auto": "自动",
+    "light": "浅色",
+    "dark": "深色",
+    "language": "语言",
     "noConversations": "暂无对话",
     "startChatOrResearch": "开始聊天或研究任务",
     "today": "今天",
@@ -19,7 +24,9 @@
     "hoursAgo": "{hours}小时前",
     "daysAgo": "{days}天前",
     "research": "研究",
-    "chat": "聊天"
+    "chat": "聊天",
+    "chatDescription": "快速提问与对话",
+    "researchDescription": "深度分析与报告"
   },
   "home": {
     "welcomeTitle": "有什么我可以帮助您的？",
@@ -100,5 +107,8 @@
   },
   "common": {
     "error": "错误"
+  },
+  "signin": {
+    "continueWithGoogle": "使用 Google 继续"
   }
 }

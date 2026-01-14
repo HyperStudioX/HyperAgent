@@ -25,6 +25,7 @@ dependencies = [
     "sse-starlette>=2.2.0",
     "tavily-python>=0.5.0",
     "structlog>=24.0.0",
+    "PyJWT>=2.8.0",
 ]
 
 [project.optional-dependencies]
@@ -44,8 +45,8 @@ select = ["E", "F", "I", "W"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",

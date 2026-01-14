@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   Send,
@@ -12,6 +12,7 @@ import {
   Code2,
   Newspaper,
   ChevronDown,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
@@ -29,6 +30,7 @@ const SCENARIO_KEYS: ResearchScenario[] = ["academic", "market", "technical", "n
 
 export function UnifiedInterface() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const t = useTranslations("home");
   const tResearch = useTranslations("research");
   const tChat = useTranslations("chat");
@@ -38,6 +40,18 @@ export function UnifiedInterface() {
   const [streamingContent, setStreamingContent] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Check for scenario from URL query parameter (from sidebar menu)
+  useEffect(() => {
+    const scenarioParam = searchParams.get("scenario");
+    if (scenarioParam && SCENARIO_KEYS.includes(scenarioParam as ResearchScenario)) {
+      setSelectedScenario(scenarioParam as ResearchScenario);
+      // Clean up the URL
+      router.replace("/", { scroll: false });
+      // Focus the input
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [searchParams, router]);
 
   const {
     activeConversationId,
@@ -83,7 +97,7 @@ export function UnifiedInterface() {
     }
   };
 
-  const handleChat = async (userMessage: string) => {
+  const handleChat = async (userMessage: string, skipUserMessage = false) => {
     setStreamingContent("");
 
     let conversationId = activeConversationId;
@@ -91,10 +105,13 @@ export function UnifiedInterface() {
       conversationId = createConversation("chat");
     }
 
-    addMessage(conversationId, {
-      role: "user",
-      content: userMessage,
-    });
+    // Only add user message if not regenerating
+    if (!skipUserMessage) {
+      addMessage(conversationId, {
+        role: "user",
+        content: userMessage,
+      });
+    }
 
     setLoading(true);
     setStreaming(true);
@@ -203,8 +220,8 @@ export function UnifiedInterface() {
     // Remove the assistant message
     removeMessage(activeConversationId, messageId);
 
-    // Regenerate the response
-    await handleChat(userMessage);
+    // Regenerate the response (skip adding user message since it already exists)
+    await handleChat(userMessage, true);
   };
 
   const isProcessing = isLoading;
@@ -219,7 +236,7 @@ export function UnifiedInterface() {
       {/* Messages area (for chat mode) */}
       {hasMessages && (
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-4 py-6">
+          <div className="max-w-2xl mx-auto px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-1">
               {messages.map((message, index) => (
                 <div
@@ -264,7 +281,7 @@ export function UnifiedInterface() {
       )}>
         <div className={cn(
           "w-full",
-          hasMessages ? "max-w-2xl mx-auto px-4 py-4" : "max-w-xl px-4"
+          hasMessages ? "max-w-2xl mx-auto px-4 md:px-6 py-3 md:py-4" : "max-w-xl px-4 md:px-6"
         )}>
           {/* Welcome message (only when no messages) */}
           {!hasMessages && (
@@ -305,7 +322,7 @@ export function UnifiedInterface() {
                   ? t("researchPlaceholder", { scenario: getScenarioName(selectedScenario) })
                   : t("inputPlaceholder")
                 }
-                className="flex-1 min-h-[80px] max-h-[200px] px-5 py-4 bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
+                className="flex-1 min-h-[60px] md:min-h-[80px] max-h-[150px] md:max-h-[200px] px-4 md:px-5 py-3 md:py-4 bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
                 rows={3}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
@@ -319,9 +336,9 @@ export function UnifiedInterface() {
                   onClick={handleSubmit}
                   disabled={!input.trim() || isProcessing}
                   className={cn(
-                    "p-2.5 rounded-xl transition-colors",
+                    "p-2.5 rounded-xl transition-all",
                     input.trim() && !isProcessing
-                      ? "bg-foreground text-background hover:bg-foreground/90"
+                      ? "bg-foreground text-background hover:opacity-90"
                       : "bg-secondary text-muted-foreground"
                   )}
                 >
@@ -340,9 +357,9 @@ export function UnifiedInterface() {
             <button
               onClick={() => setShowScenarios(!showScenarios)}
               className={cn(
-                "flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
+                "flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-all",
                 selectedScenario
-                  ? "bg-foreground text-background"
+                  ? "bg-accent-vibrant text-accent-vibrant-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary"
               )}
             >
@@ -372,6 +389,7 @@ export function UnifiedInterface() {
                 </>
               ) : (
                 <>
+                  <MessageCircle className="w-4 h-4" />
                   <span>{t("deepResearch")}</span>
                   <ChevronDown className={cn(
                     "w-3 h-3 transition-transform",
@@ -383,8 +401,8 @@ export function UnifiedInterface() {
 
             {/* Scenario options */}
             {showScenarios && !selectedScenario && (
-              <div className="grid grid-cols-2 gap-2 mt-2 animate-fade-in">
-                {SCENARIO_KEYS.map((scenario) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                {SCENARIO_KEYS.map((scenario, index) => (
                   <button
                     key={scenario}
                     onClick={() => {
@@ -392,7 +410,8 @@ export function UnifiedInterface() {
                       setShowScenarios(false);
                       inputRef.current?.focus();
                     }}
-                    className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-border bg-card text-left text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-border bg-card text-left text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors animate-scale-in"
+                    style={{ animationDelay: `${index * 50}ms` }}
                   >
                     {SCENARIO_ICONS[scenario]}
                     <div className="flex-1 min-w-0">

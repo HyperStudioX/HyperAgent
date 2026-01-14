@@ -3,8 +3,12 @@
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTranslations } from "next-intl";
+import Image from "next/image";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check, Terminal, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/lib/hooks/use-theme";
 import type { Message } from "@/lib/types";
 
 interface MessageBubbleProps {
@@ -31,24 +35,40 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
       )}
     >
       {isUser ? (
-        <div className="relative max-w-[80%] animate-in slide-in-from-right-2 fade-in duration-300">
+        <div className="relative max-w-[95%] md:max-w-[80%] animate-in slide-in-from-right-2 fade-in duration-300">
           <div
             className={cn(
               "relative px-5 py-3.5",
-              "bg-gradient-to-br from-primary via-primary to-primary/90",
-              "text-primary-foreground",
-              "rounded-[20px] rounded-br-[6px]",
-              "shadow-[0_2px_12px_-2px] shadow-primary/25",
-              "ring-1 ring-primary/10 ring-inset"
+              "bg-foreground text-background",
+              "rounded-2xl rounded-br-md",
+              "shadow-sm"
             )}
           >
-            <p className="text-[15px] leading-[1.65] tracking-[-0.01em] whitespace-pre-wrap font-[450]">
+            <p className="text-[15px] leading-[1.65] tracking-[-0.01em] whitespace-pre-wrap font-medium">
               {message.content}
             </p>
           </div>
         </div>
       ) : (
         <div className="max-w-full animate-in slide-in-from-left-2 fade-in duration-300">
+          {/* Assistant header with icon and name */}
+          <div className="flex items-center gap-2 mb-4">
+            <Image
+              src="/images/logo-dark.svg"
+              alt="HyperAgent"
+              width={24}
+              height={24}
+              className="dark:hidden rounded-md"
+            />
+            <Image
+              src="/images/logo-light.svg"
+              alt="HyperAgent"
+              width={24}
+              height={24}
+              className="hidden dark:block rounded-md"
+            />
+            <span className="text-base font-semibold text-foreground">HyperAgent</span>
+          </div>
           <div
             className={cn(
               "prose prose-neutral dark:prose-invert max-w-none",
@@ -232,10 +252,45 @@ interface CodeBlockProps {
   children: string;
 }
 
+const darkCodeTheme: { [key: string]: React.CSSProperties } = {
+  ...oneDark,
+  'pre[class*="language-"]': {
+    ...oneDark['pre[class*="language-"]'],
+    background: "transparent",
+    margin: 0,
+    padding: 0,
+  },
+  'code[class*="language-"]': {
+    ...oneDark['code[class*="language-"]'],
+    background: "transparent",
+    fontSize: "13px",
+    lineHeight: "1.7",
+  },
+};
+
+const lightCodeTheme: { [key: string]: React.CSSProperties } = {
+  ...oneLight,
+  'pre[class*="language-"]': {
+    ...oneLight['pre[class*="language-"]'],
+    background: "transparent",
+    margin: 0,
+    padding: 0,
+  },
+  'code[class*="language-"]': {
+    ...oneLight['code[class*="language-"]'],
+    background: "transparent",
+    fontSize: "13px",
+    lineHeight: "1.7",
+  },
+};
+
 function CodeBlock({ language, children }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const { resolvedTheme } = useTheme();
   const t = useTranslations("chat");
+
+  const isDark = resolvedTheme === "dark";
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(children);
@@ -247,11 +302,13 @@ function CodeBlock({ language, children }: CodeBlockProps) {
     <div
       className={cn(
         "my-5 rounded-xl overflow-hidden",
-        "bg-[#1a1b26] dark:bg-[#0d0e14]",
-        "ring-1 ring-white/[0.08]",
-        "shadow-[0_4px_24px_-4px] shadow-black/20",
-        "transition-all duration-300",
-        isHovered && "shadow-[0_8px_32px_-4px] shadow-black/30 ring-white/[0.12]"
+        "ring-1 shadow-[0_4px_24px_-4px] transition-all duration-300",
+        isDark
+          ? "bg-[#282c34] ring-white/[0.08] shadow-black/20"
+          : "bg-[#fafafa] ring-black/[0.08] shadow-black/5",
+        isHovered && (isDark
+          ? "shadow-[0_8px_32px_-4px] shadow-black/30 ring-white/[0.12]"
+          : "shadow-[0_8px_32px_-4px] shadow-black/10 ring-black/[0.12]")
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -260,24 +317,29 @@ function CodeBlock({ language, children }: CodeBlockProps) {
       <div
         className={cn(
           "flex items-center justify-between",
-          "px-4 py-2.5",
-          "bg-white/[0.03]",
-          "border-b border-white/[0.06]"
+          "px-3 md:px-4 py-2 md:py-2.5",
+          "border-b",
+          isDark
+            ? "bg-white/[0.03] border-white/[0.06]"
+            : "bg-black/[0.02] border-black/[0.06]"
         )}
       >
-        <div className="flex items-center gap-2.5">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]/80" />
-            <div className="w-2.5 h-2.5 rounded-full bg-[#febc2e]/80" />
-            <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]/80" />
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            "w-5 h-5 rounded flex items-center justify-center",
+            isDark ? "bg-white/5" : "bg-black/5"
+          )}>
+            <Terminal className={cn(
+              "w-3 h-3",
+              isDark ? "text-white/40" : "text-black/40"
+            )} />
           </div>
-          <div className="w-px h-3.5 bg-white/10 ml-1" />
-          <div className="flex items-center gap-1.5">
-            <Terminal className="w-3.5 h-3.5 text-white/40" />
-            <span className="text-[11px] font-mono font-medium text-white/50 uppercase tracking-wider">
-              {language}
-            </span>
-          </div>
+          <span className={cn(
+            "text-[11px] font-mono font-medium uppercase tracking-wider",
+            isDark ? "text-white/50" : "text-black/50"
+          )}>
+            {language}
+          </span>
         </div>
 
         <button
@@ -289,8 +351,10 @@ function CodeBlock({ language, children }: CodeBlockProps) {
             "rounded-md",
             "transition-all duration-200",
             copied
-              ? "text-emerald-400 bg-emerald-500/10"
-              : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+              ? "text-emerald-600 bg-emerald-500/10"
+              : isDark
+                ? "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+                : "text-black/40 hover:text-black/70 hover:bg-black/[0.06]"
           )}
         >
           {copied ? (
@@ -308,31 +372,23 @@ function CodeBlock({ language, children }: CodeBlockProps) {
       </div>
 
       {/* Code Content */}
-      <div className="relative">
-        <pre
-          className={cn(
-            "p-4 overflow-x-auto",
-            "scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10",
-            "hover:scrollbar-thumb-white/20"
-          )}
+      <div className="relative p-3 md:p-4 overflow-x-auto">
+        <SyntaxHighlighter
+          language={language}
+          style={isDark ? darkCodeTheme : lightCodeTheme}
+          customStyle={{ background: "transparent", margin: 0, padding: 0 }}
         >
-          <code
-            className={cn(
-              "text-[13px] leading-[1.7] font-mono",
-              "text-[#a9b1d6]",
-              "selection:bg-primary/30"
-            )}
-          >
-            {children}
-          </code>
-        </pre>
+          {children}
+        </SyntaxHighlighter>
 
         {/* Subtle gradient fade at bottom */}
         <div
           className={cn(
             "absolute bottom-0 left-0 right-0 h-6",
-            "bg-gradient-to-t from-[#1a1b26] dark:from-[#0d0e14] to-transparent",
             "pointer-events-none opacity-0",
+            isDark
+              ? "bg-gradient-to-t from-[#282c34] to-transparent"
+              : "bg-gradient-to-t from-[#fafafa] to-transparent",
             children.split("\n").length > 10 && "opacity-100"
           )}
         />

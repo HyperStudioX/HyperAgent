@@ -8,6 +8,11 @@
     "recentTasks": "Recent Tasks",
     "lightMode": "Light mode",
     "darkMode": "Dark mode",
+    "theme": "Theme",
+    "auto": "Auto",
+    "light": "Light",
+    "dark": "Dark",
+    "language": "Language",
     "noConversations": "No conversations yet",
     "startChatOrResearch": "Start a chat or research task",
     "today": "Today",
@@ -19,7 +24,9 @@
     "hoursAgo": "{hours}h ago",
     "daysAgo": "{days}d ago",
     "research": "Research",
-    "chat": "Chat"
+    "chat": "Chat",
+    "chatDescription": "Quick questions & conversations",
+    "researchDescription": "In-depth analysis & reports"
   },
   "home": {
     "welcomeTitle": "What can I help you with?",
@@ -100,5 +107,8 @@
   },
   "common": {
     "error": "Error"
+  },
+  "signin": {
+    "continueWithGoogle": "Continue with Google"
   }
 }

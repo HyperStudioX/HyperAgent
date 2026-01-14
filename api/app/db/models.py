@@ -8,6 +8,39 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 
+class User(Base):
+    """User model for authentication."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    image: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    research_tasks: Mapped[list["ResearchTask"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "email": self.email,
+            "name": self.name,
+            "image": self.image,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class ResearchTask(Base):
     """Research task model."""
 
@@ -24,8 +57,12 @@ class ResearchTask(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relationships
+    user: Mapped["User"] = relationship(back_populates="research_tasks")
     steps: Mapped[list["ResearchStep"]] = relationship(
         back_populates="task", cascade="all, delete-orphan", order_by="ResearchStep.created_at"
     )
@@ -43,6 +80,7 @@ class ResearchTask(Base):
             "status": self.status,
             "report": self.report,
             "error": self.error,
+            "user_id": self.user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "steps": [step.to_dict() for step in self.steps],

@@ -1,18 +1,31 @@
 import { NextRequest } from "next/server";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  // Use 127.0.0.1 to bypass proxy
+  const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace("localhost", "127.0.0.1");
+
+  // Get NextAuth session token from cookies
+  const sessionToken =
+    request.cookies.get("next-auth.session-token")?.value ||
+    request.cookies.get("__Secure-next-auth.session-token")?.value;
 
   try {
     const body = await request.json();
 
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+    };
+
+    // Forward NextAuth JWT to backend
+    if (sessionToken) {
+      headers["Authorization"] = `Bearer ${sessionToken}`;
+    }
+
     const response = await fetch(`${apiUrl}/api/v1/query/stream`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(body),
     });
 
