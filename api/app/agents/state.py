@@ -6,6 +6,8 @@ import operator
 from enum import Enum
 from typing import Annotated, Any, TypedDict
 
+from langchain_core.messages import BaseMessage
+
 from app.models.schemas import ResearchDepth, ResearchScenario
 from app.services.search import SearchResult
 
@@ -50,6 +52,7 @@ class ChatState(SupervisorState, total=False):
 
     # Chat-specific fields
     system_prompt: str
+    lc_messages: list[BaseMessage]  # LangChain messages for tool calling
 
 
 class ResearchState(SupervisorState, total=False):
@@ -61,6 +64,10 @@ class ResearchState(SupervisorState, total=False):
     system_prompt: str
     report_structure: list[str]
     depth_config: dict[str, Any]
+
+    # Tool calling support
+    lc_messages: list[BaseMessage]  # LangChain messages for ReAct loop
+    search_complete: bool  # Flag to exit search loop
 
     # Research outputs
     sources: list[SearchResult]

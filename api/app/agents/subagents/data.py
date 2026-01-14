@@ -186,8 +186,11 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
             )),
         ]):
             if chunk.content:
-                response_chunks.append(chunk.content)
-                events.append({"type": "token", "content": chunk.content})
+                from app.services.llm import extract_text_from_content
+                content = extract_text_from_content(chunk.content)
+                if content:  # Only append non-empty content
+                    response_chunks.append(content)
+                    events.append({"type": "token", "content": content})
 
         response = "".join(response_chunks)
 
@@ -467,8 +470,11 @@ Provide a clear, concise summary of:
             HumanMessage(content=summary_prompt),
         ]):
             if chunk.content:
-                response_chunks.append(chunk.content)
-                events.append({"type": "token", "content": chunk.content})
+                from app.services.llm import extract_text_from_content
+                content = extract_text_from_content(chunk.content)
+                if content:  # Only append non-empty content
+                    response_chunks.append(content)
+                    events.append({"type": "token", "content": content})
 
         summary = "".join(response_chunks)
 

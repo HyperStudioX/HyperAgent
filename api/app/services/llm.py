@@ -1,4 +1,4 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Any
 
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -8,6 +8,62 @@ from langchain_core.language_models import BaseChatModel
 
 from app.config import settings
 from app.models.schemas import LLMProvider, ChatMessage, MessageRole
+
+
+def extract_text_from_content(content: Any) -> str:
+    """Extract text content from structured LLM chunk content.
+    
+    Handles various content formats:
+    - String: returns as-is
+    - List of content blocks: extracts text from text blocks, skips tool_use blocks
+    - Dict: extracts text field if present
+    - Other: converts to string
+    
+    Args:
+        content: Content from LLM chunk (can be str, list, dict, etc.)
+        
+    Returns:
+        Extracted text as string
+    """
+    if isinstance(content, str):
+        return content
+    
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict):
+                # Extract text from text blocks
+                if item.get("type") == "text" and "text" in item:
+                    text_parts.append(str(item["text"]))
+                # Skip tool_use blocks (not meant for display)
+                elif item.get("type") == "tool_use":
+                    continue
+                # Skip input_json_delta (intermediate states)
+                elif item.get("type") == "input_json_delta":
+                    continue
+                # Try to extract text field if present
+                elif "text" in item:
+                    text_parts.append(str(item["text"]))
+            elif isinstance(item, str):
+                text_parts.append(item)
+            else:
+                # Fallback: convert to string
+                text_parts.append(str(item))
+        return "".join(text_parts)
+    
+    if isinstance(content, dict):
+        # Try to extract text field
+        if "text" in content:
+            return str(content["text"])
+        # Skip tool_use blocks
+        if content.get("type") == "tool_use":
+            return ""
+        # Skip input_json_delta
+        if content.get("type") == "input_json_delta":
+            return ""
+    
+    # Fallback: convert to string
+    return str(content)
 
 
 class LLMService:
@@ -114,7 +170,7 @@ class LLMService:
 
         async for chunk in llm.astream(messages):
             if chunk.content:
-                yield chunk.content
+                yield extract_text_from_content(chunk.content)
 
 
 # Global instance

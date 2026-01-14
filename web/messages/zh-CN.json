@@ -86,6 +86,17 @@
     "news": {
       "name": "新闻资讯",
       "description": "最新新闻、趋势分析、时间线追踪"
+    },
+    "depth": {
+      "label": "深度",
+      "fast": {
+        "name": "快速",
+        "description": "快速搜索，简洁报告"
+      },
+      "deep": {
+        "name": "深度",
+        "description": "多次搜索，全面分析"
+      }
     }
   },
   "task": {

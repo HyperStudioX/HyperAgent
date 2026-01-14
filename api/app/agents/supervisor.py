@@ -62,7 +62,7 @@ async def research_node(state: SupervisorState) -> dict:
         Dict with research results and events
     """
     # Get research-specific parameters
-    depth = state.get("depth", ResearchDepth.STANDARD)
+    depth = state.get("depth", ResearchDepth.FAST)
     scenario = state.get("scenario", ResearchScenario.ACADEMIC)
 
     # Invoke research subgraph
@@ -275,6 +275,9 @@ class AgentSupervisor:
             thread_id=thread_id,
         )
 
+        # Track current node to filter tokens appropriately
+        current_node = None
+
         try:
             # Stream events from the graph
             async for event in self.graph.astream_events(
@@ -288,11 +291,34 @@ class AgentSupervisor:
 
                 event_type = event.get("event")
 
+                # Track which node we're currently in
+                if event_type == "on_chain_start":
+                    node_name = event.get("name", "")
+                    if node_name in ("write", "chat", "code", "writing", "data"):
+                        current_node = node_name
+                elif event_type == "on_chain_end":
+                    node_name = event.get("name", "")
+                    if node_name == current_node:
+                        current_node = None
+
                 # Handle streaming tokens from LLM in real-time
+                # Only stream tokens from write node (for research) or other content-generating nodes
                 if event_type == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk and hasattr(chunk, "content") and chunk.content:
-                        yield {"type": "token", "content": chunk.content}
+                    # For research mode, only stream tokens from the write phase
+                    # For other modes, stream all tokens
+                    should_stream = (
+                        mode != "research" or 
+                        current_node == "write" or
+                        event.get("tags", []) and "write" in str(event.get("tags", []))
+                    )
+                    
+                    if should_stream:
+                        chunk = event.get("data", {}).get("chunk")
+                        if chunk and hasattr(chunk, "content") and chunk.content:
+                            from app.services.llm import extract_text_from_content
+                            content = extract_text_from_content(chunk.content)
+                            if content:  # Only yield non-empty content
+                                yield {"type": "token", "content": content}
 
                 # Extract non-token events from state updates (steps, sources, etc.)
                 elif event_type == "on_chain_end":

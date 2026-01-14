@@ -24,7 +24,7 @@ Usage:
     async for event in agent_supervisor.run(
         query="Research AI trends",
         mode="research",
-        depth=ResearchDepth.STANDARD,
+        depth=ResearchDepth.FAST,
     ):
         print(event)
 """

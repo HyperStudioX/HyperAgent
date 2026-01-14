@@ -296,6 +296,24 @@ class StorageService:
             return task.retry_count
         return 0
 
+    async def delete_task(self, db: AsyncSession, task_id: str) -> bool:
+        """Delete a research task.
+
+        Args:
+            db: Database session
+            task_id: Task identifier
+
+        Returns:
+            True if deleted, False if not found
+        """
+        task = await self.get_task(db, task_id)
+        if task:
+            await db.delete(task)
+            await db.flush()
+            logger.info("task_deleted", task_id=task_id)
+            return True
+        return False
+
 
 # Global instance
 storage_service = StorageService()

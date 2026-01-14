@@ -199,8 +199,11 @@ async def write_content_node(state: WritingState) -> dict:
             ]
         ):
             if chunk.content:
-                content_chunks.append(chunk.content)
-                events.append({"type": "token", "content": chunk.content})
+                from app.services.llm import extract_text_from_content
+                content = extract_text_from_content(chunk.content)
+                if content:  # Only append non-empty content
+                    content_chunks.append(content)
+                    events.append({"type": "token", "content": content})
 
         content = "".join(content_chunks)
 

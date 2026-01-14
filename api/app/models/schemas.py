@@ -70,8 +70,7 @@ class StreamEvent(BaseModel):
 
 # Research Schemas
 class ResearchDepth(str, Enum):
-    QUICK = "quick"
-    STANDARD = "standard"
+    FAST = "fast"
     DEEP = "deep"
 
 
@@ -79,7 +78,7 @@ class ResearchRequest(BaseModel):
     """Request to start a research task."""
 
     query: str
-    depth: ResearchDepth = ResearchDepth.STANDARD
+    depth: ResearchDepth = ResearchDepth.FAST
     scenario: ResearchScenario = ResearchScenario.ACADEMIC
     conversation_id: str | None = None
 
@@ -145,7 +144,7 @@ class UnifiedQueryRequest(BaseModel):
     message: str
     mode: QueryMode = QueryMode.CHAT
     scenario: ResearchScenario | None = None
-    depth: ResearchDepth = ResearchDepth.STANDARD
+    depth: ResearchDepth = ResearchDepth.FAST
     conversation_id: str | None = None
     provider: LLMProvider = LLMProvider.ANTHROPIC
     model: str | None = None

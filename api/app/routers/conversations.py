@@ -68,7 +68,10 @@ async def create_conversation(
         await db.commit()
         await db.refresh(conversation)
 
-        return ConversationResponse(**conversation.to_dict(include_messages=True))
+        # New conversations have no messages, return with empty list
+        conv_dict = conversation.to_dict(include_messages=False)
+        conv_dict["messages"] = []
+        return ConversationResponse(**conv_dict)
     except Exception as e:
         await db.rollback()
         logger.error("create_conversation_error", error=str(e), user_id=current_user.id)
@@ -119,7 +122,9 @@ async def update_conversation(
     """Update a conversation."""
     try:
         result = await db.execute(
-            select(Conversation).where(
+            select(Conversation)
+            .options(selectinload(Conversation.messages))
+            .where(
                 Conversation.id == conversation_id,
                 Conversation.user_id == current_user.id,
             )
@@ -133,7 +138,7 @@ async def update_conversation(
             conversation.title = request.title
 
         await db.commit()
-        await db.refresh(conversation)
+        await db.refresh(conversation, ["messages"])
 
         return ConversationResponse(**conversation.to_dict(include_messages=True))
     except HTTPException:

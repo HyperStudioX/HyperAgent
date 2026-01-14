@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -16,11 +16,13 @@ import {
   BarChart3,
   Search,
   Check,
+  Zap,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import type { AgentType, ResearchScenario } from "@/lib/types";
+import type { AgentType, ResearchScenario, ResearchDepth } from "@/lib/types";
 
 // Larger icons for better visual presence
 const AGENT_ICONS: Record<AgentType, React.ReactNode> = {
@@ -40,6 +42,12 @@ const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
 
 const AGENT_KEYS: AgentType[] = ["research", "code", "writing", "data"];
 const SCENARIO_KEYS: ResearchScenario[] = ["academic", "market", "technical", "news"];
+const DEPTH_KEYS: ResearchDepth[] = ["fast", "deep"];
+
+const DEPTH_ICONS: Record<ResearchDepth, React.ReactNode> = {
+  fast: <Zap className="w-4 h-4" />,
+  deep: <Layers className="w-4 h-4" />,
+};
 
 export function UnifiedInterface() {
   const router = useRouter();
@@ -52,11 +60,26 @@ export function UnifiedInterface() {
   const [input, setInput] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<ResearchScenario | null>(null);
+  const [selectedDepth, setSelectedDepth] = useState<ResearchDepth>("fast");
   const [showResearchSubmenu, setShowResearchSubmenu] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const researchRef = useRef<HTMLDivElement>(null);
+  const streamingContentRef = useRef("");
+  const updateScheduledRef = useRef(false);
+
+  // Throttled streaming content update using requestAnimationFrame
+  const updateStreamingContent = useCallback((content: string) => {
+    streamingContentRef.current = content;
+    if (!updateScheduledRef.current) {
+      updateScheduledRef.current = true;
+      requestAnimationFrame(() => {
+        setStreamingContent(streamingContentRef.current);
+        updateScheduledRef.current = false;
+      });
+    }
+  }, []);
 
   // Close research submenu when clicking outside
   useEffect(() => {
@@ -194,10 +217,10 @@ export function UnifiedInterface() {
               const event = JSON.parse(jsonStr);
               if (event.type === "token" && event.data) {
                 fullContent += event.data;
-                setStreamingContent(fullContent);
+                updateStreamingContent(fullContent);
               } else if (event.type === "error") {
                 fullContent = `Error: ${event.data}`;
-                setStreamingContent(fullContent);
+                updateStreamingContent(fullContent);
               }
             } catch (e) {
               console.error("Parse error:", e);
@@ -277,10 +300,10 @@ export function UnifiedInterface() {
               const event = JSON.parse(jsonStr);
               if (event.type === "token" && event.data) {
                 fullContent += event.data;
-                setStreamingContent(fullContent);
+                updateStreamingContent(fullContent);
               } else if (event.type === "error") {
                 fullContent = `Error: ${event.data}`;
-                setStreamingContent(fullContent);
+                updateStreamingContent(fullContent);
               }
             } catch (e) {
               console.error("Parse error:", e);
@@ -305,7 +328,7 @@ export function UnifiedInterface() {
   const handleResearch = (query: string) => {
     if (!selectedScenario) return;
     const taskId = crypto.randomUUID();
-    const taskInfo = { query, scenario: selectedScenario, depth: "standard" };
+    const taskInfo = { query, scenario: selectedScenario, depth: selectedDepth };
     localStorage.setItem(`task-${taskId}`, JSON.stringify(taskInfo));
     router.push(`/task/${taskId}`);
   };
@@ -554,7 +577,7 @@ export function UnifiedInterface() {
                         <span>{tAgents(`${agent}.name`)}</span>
                         {agent === "research" && selectedScenario && (
                           <span className="text-xs text-muted-foreground">
-                            · {tResearch(`${selectedScenario}.name`)}
+                            · {tResearch(`${selectedScenario}.name`)} · {tResearch(`depth.${selectedDepth}.name`)}
                           </span>
                         )}
                       </button>
@@ -598,6 +621,32 @@ export function UnifiedInterface() {
                                 </div>
                               </button>
                             ))}
+                            {/* Depth selector */}
+                            <div className="border-t border-border px-3 py-2">
+                              <div className="text-xs text-muted-foreground mb-2">
+                                {tResearch("depth.label")}
+                              </div>
+                              <div className="flex gap-2">
+                                {DEPTH_KEYS.map((depth) => (
+                                  <button
+                                    key={depth}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedDepth(depth);
+                                    }}
+                                    className={cn(
+                                      "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                                      selectedDepth === depth
+                                        ? "bg-foreground text-background"
+                                        : "bg-secondary text-muted-foreground hover:text-foreground"
+                                    )}
+                                  >
+                                    {DEPTH_ICONS[depth]}
+                                    {tResearch(`depth.${depth}.name`)}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       )}

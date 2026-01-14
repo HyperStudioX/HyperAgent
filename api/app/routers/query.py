@@ -293,11 +293,14 @@ async def stream_query(
                         }
 
                     elif event["type"] == "token":
-                        report_content.append(event["content"])
-                        yield {
-                            "event": "message",
-                            "data": json.dumps({"type": "token", "data": event["content"]}),
-                        }
+                        from app.services.llm import extract_text_from_content
+                        content = extract_text_from_content(event["content"])
+                        if content:  # Only append non-empty content
+                            report_content.append(content)
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"type": "token", "data": content}),
+                            }
 
                 # Update task as completed with report
                 async with (await get_db_session()) as session:

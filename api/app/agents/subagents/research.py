@@ -1,36 +1,63 @@
-"""Research subagent for multi-step deep research tasks."""
+"""Research subagent for multi-step deep research tasks with tool calling."""
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from typing import Literal
+
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langgraph.graph import END, StateGraph
+from langgraph.prebuilt import ToolNode
 
 from app.agents.prompts import get_analysis_prompt, get_report_prompt, get_synthesis_prompt
 from app.agents.scenarios import get_scenario_config
 from app.agents.state import ResearchState
+from app.agents.tools import parse_search_results, web_search
 from app.core.logging import get_logger
 from app.models.schemas import ResearchDepth, ResearchScenario
 from app.services.llm import llm_service
-from app.services.search import SearchResult, search_service
+from app.services.search import SearchResult
 
 logger = get_logger(__name__)
 
+# Tools available for research
+RESEARCH_TOOLS = [web_search]
+
 # Depth-based configuration
 DEPTH_CONFIG = {
-    ResearchDepth.QUICK: {
+    ResearchDepth.FAST: {
         "analysis_detail": "brief",
         "skip_synthesis": True,
         "report_length": "concise",
-    },
-    ResearchDepth.STANDARD: {
-        "analysis_detail": "thorough",
-        "skip_synthesis": False,
-        "report_length": "comprehensive",
+        "max_searches": 1,
+        "search_depth": "basic",
     },
     ResearchDepth.DEEP: {
         "analysis_detail": "in-depth with follow-up questions",
         "skip_synthesis": False,
         "report_length": "detailed and extensive",
+        "max_searches": 5,
+        "search_depth": "advanced",
     },
 }
+
+SEARCH_SYSTEM_PROMPT = """You are a research assistant that gathers information from the web.
+
+Your task is to search for relevant information on the given topic. You have access to a web_search tool.
+
+Guidelines:
+1. Start with a broad search to understand the topic
+2. Follow up with specific searches to fill in gaps
+3. For {scenario} research, focus on: {search_focus}
+4. Search depth: {depth} - adjust your search strategy accordingly
+5. Maximum searches allowed: {max_searches}
+
+When you have gathered enough information to write a comprehensive {report_length} report,
+respond with "SEARCH_COMPLETE" to proceed to analysis.
+
+Do NOT write the report yet - just gather sources."""
 
 
 async def init_config_node(state: ResearchState) -> dict:
@@ -42,11 +69,20 @@ async def init_config_node(state: ResearchState) -> dict:
     Returns:
         Dict with configuration fields
     """
-    depth = state.get("depth", ResearchDepth.STANDARD)
+    depth = state.get("depth", ResearchDepth.FAST)
     scenario = state.get("scenario", ResearchScenario.ACADEMIC)
 
     config = get_scenario_config(scenario)
-    depth_config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG[ResearchDepth.STANDARD])
+    depth_config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG[ResearchDepth.FAST])
+
+    # Build search system prompt
+    search_prompt = SEARCH_SYSTEM_PROMPT.format(
+        scenario=config["name"],
+        search_focus=", ".join(config.get("search_focus", [])),
+        depth=depth.value if isinstance(depth, ResearchDepth) else depth,
+        max_searches=depth_config["max_searches"],
+        report_length=depth_config["report_length"],
+    )
 
     logger.info(
         "research_config_initialized",
@@ -58,80 +94,196 @@ async def init_config_node(state: ResearchState) -> dict:
         "system_prompt": config["system_prompt"],
         "report_structure": config["report_structure"],
         "depth_config": depth_config,
+        "lc_messages": [
+            SystemMessage(content=search_prompt),
+            HumanMessage(content=f"Research topic: {state.get('query', '')}"),
+        ],
+        "sources": [],
+        "search_complete": False,
         "events": [
             {
                 "type": "config",
                 "depth": depth.value if isinstance(depth, ResearchDepth) else depth,
                 "scenario": scenario.value if isinstance(scenario, ResearchScenario) else scenario,
-            }
+            },
+            {
+                "type": "step",
+                "step_type": "search",
+                "description": "Searching for sources...",
+                "status": "running",
+            },
         ],
     }
 
 
-async def search_node(state: ResearchState) -> dict:
-    """Search for sources relevant to the research query.
+async def search_agent_node(state: ResearchState) -> dict:
+    """ReAct agent node that decides whether to search or finish.
 
     Args:
-        state: Current research state with query
+        state: Current research state
 
     Returns:
-        Dict with sources and events
+        Dict with updated messages and events
     """
-    query = state.get("query", "")
-    depth = state.get("depth", ResearchDepth.STANDARD)
-    scenario = state.get("scenario", ResearchScenario.ACADEMIC)
-    config = get_scenario_config(scenario)
+    lc_messages = state.get("lc_messages", [])
+    depth_config = state.get("depth_config", {})
+
+    logger.info("search_agent_processing", message_count=len(lc_messages))
+
+    events = []
+
+    # Get LLM with tools bound
+    llm = llm_service.get_llm()
+    llm_with_tools = llm.bind_tools(RESEARCH_TOOLS)
+
+    try:
+        response = await llm_with_tools.ainvoke(lc_messages)
+        lc_messages = lc_messages + [response]
+
+        # Check if search is complete
+        if response.content and "SEARCH_COMPLETE" in response.content:
+            logger.info("search_phase_complete")
+            return {
+                "lc_messages": lc_messages,
+                "search_complete": True,
+                "events": events,
+            }
+
+        # Log tool calls
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                events.append(
+                    {
+                        "type": "tool_call",
+                        "tool": tool_call["name"],
+                        "args": tool_call["args"],
+                    }
+                )
+            logger.info(
+                "search_tool_calls",
+                tools=[tc["name"] for tc in response.tool_calls],
+            )
+
+        return {
+            "lc_messages": lc_messages,
+            "events": events,
+        }
+
+    except Exception as e:
+        logger.error("search_agent_failed", error=str(e))
+        # On error, mark search complete to proceed
+        return {
+            "lc_messages": lc_messages,
+            "search_complete": True,
+            "events": [
+                {
+                    "type": "step",
+                    "step_type": "search",
+                    "description": f"Search error: {str(e)}",
+                    "status": "completed",
+                }
+            ],
+        }
+
+
+async def search_tools_node(state: ResearchState) -> dict:
+    """Execute search tool calls and collect results.
+
+    Args:
+        state: Current research state with pending tool calls
+
+    Returns:
+        Dict with tool results and collected sources
+    """
+    lc_messages = state.get("lc_messages", [])
+    sources = list(state.get("sources", []))
+
+    events = []
+
+    # Get the last AI message with tool calls
+    last_message = lc_messages[-1] if lc_messages else None
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return {"lc_messages": lc_messages, "events": events}
+
+    # Execute tools
+    tool_executor = ToolNode(RESEARCH_TOOLS)
+    tool_results = await tool_executor.ainvoke({"messages": [last_message]})
+
+    # Process results
+    for msg in tool_results.get("messages", []):
+        lc_messages = lc_messages + [msg]
+        if isinstance(msg, ToolMessage):
+            # Parse structured results from tool output
+            new_sources = parse_search_results(msg.content)
+            sources.extend(new_sources)
+
+            # Emit source events
+            for source in new_sources:
+                events.append(
+                    {
+                        "type": "source",
+                        "title": source.title,
+                        "url": source.url,
+                        "snippet": source.snippet,
+                        "relevance_score": source.relevance_score,
+                    }
+                )
+
+    logger.info("search_tools_executed", new_sources=len(sources))
+
+    return {
+        "lc_messages": lc_messages,
+        "sources": sources,
+        "events": events,
+    }
+
+
+def should_continue_search(state: ResearchState) -> Literal["tools", "collect"]:
+    """Determine whether to execute tools or finish search phase.
+
+    Args:
+        state: Current research state
+
+    Returns:
+        Next node: "tools" if tool calls pending, "collect" if done
+    """
+    # Check if search is marked complete
+    if state.get("search_complete", False):
+        return "collect"
+
+    lc_messages = state.get("lc_messages", [])
+    if not lc_messages:
+        return "collect"
+
+    last_message = lc_messages[-1]
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        return "tools"
+    return "collect"
+
+
+async def collect_sources_node(state: ResearchState) -> dict:
+    """Finalize source collection and prepare for analysis.
+
+    Args:
+        state: Current research state
+
+    Returns:
+        Dict with finalized sources and events
+    """
+    sources = state.get("sources", [])
 
     events = [
         {
             "type": "step",
             "step_type": "search",
-            "description": f"Searching for {config['name'].lower()} sources...",
-            "status": "running",
+            "description": f"Found {len(sources)} sources",
+            "status": "completed",
         }
     ]
 
-    try:
-        search_results = await search_service.search(
-            query=query,
-            depth=depth,
-            scenario=scenario,
-        )
-    except ValueError as e:
-        # API key not configured - fall back to mock results
-        logger.warning("search_fallback_to_mock", error=str(e))
-        search_results = _get_mock_results(query, config)
-    except Exception as e:
-        logger.error("search_failed", error=str(e))
-        search_results = _get_mock_results(query, config)
+    logger.info("sources_collected", count=len(sources))
 
-    # Emit source events
-    for result in search_results:
-        events.append(
-            {
-                "type": "source",
-                "title": result.title,
-                "url": result.url,
-                "snippet": result.snippet,
-                "relevance_score": result.relevance_score,
-            }
-        )
-
-    events.append(
-        {
-            "type": "step",
-            "step_type": "search",
-            "description": f"Found {len(search_results)} sources",
-            "status": "completed",
-        }
-    )
-
-    logger.info("search_completed", query=query[:50], count=len(search_results))
-
-    return {
-        "sources": search_results,
-        "events": events,
-    }
+    return {"events": events}
 
 
 async def analyze_node(state: ResearchState) -> dict:
@@ -299,8 +451,11 @@ async def write_node(state: ResearchState) -> dict:
             ]
         ):
             if chunk.content:
-                report_chunks.append(chunk.content)
-                events.append({"type": "token", "content": chunk.content})
+                from app.services.llm import extract_text_from_content
+                content = extract_text_from_content(chunk.content)
+                if content:  # Only append non-empty content
+                    report_chunks.append(content)
+                    events.append({"type": "token", "content": content})
 
         logger.info("report_completed", query=query[:50])
     except Exception as e:
@@ -340,6 +495,9 @@ def should_synthesize(state: ResearchState) -> str:
 
 def _format_sources(results: list[SearchResult]) -> str:
     """Format search results for LLM prompts."""
+    if not results:
+        return "No sources available."
+
     formatted = []
     for i, result in enumerate(results, 1):
         score_str = f" (relevance: {result.relevance_score:.2f})" if result.relevance_score else ""
@@ -347,35 +505,17 @@ def _format_sources(results: list[SearchResult]) -> str:
     return "\n\n".join(formatted)
 
 
-def _get_mock_results(query: str, config: dict) -> list[SearchResult]:
-    """Generate mock results when search API is unavailable."""
-    search_focus = config.get("search_focus", ["information"])
-    return [
-        SearchResult(
-            title=f"{config['name']} - {query}",
-            url="https://example.com/article1",
-            snippet=f"Comprehensive {search_focus[0]} on {query}. This source provides detailed information and analysis.",
-        ),
-        SearchResult(
-            title=f"Understanding {query}",
-            url="https://example.com/article2",
-            snippet=f"Key {search_focus[1] if len(search_focus) > 1 else 'insights'} about {query}. An overview of important concepts.",
-        ),
-        SearchResult(
-            title=f"{query}: A Comprehensive Guide",
-            url="https://example.com/article3",
-            snippet=f"In-depth guide covering all aspects of {query}. Includes examples and best practices.",
-        ),
-    ]
-
-
 def create_research_graph() -> StateGraph:
-    """Create the research subagent graph.
+    """Create the research subagent graph with ReAct search pattern.
 
     Graph structure:
-    [init_config] → [search] → [analyze] → [synthesize?] → [write] → [END]
-                                              ↓ (skip if QUICK)
-                                            [write]
+    [init_config] → [search_agent] ⟲ [search_tools] (ReAct loop)
+                            ↓
+                    [collect_sources]
+                            ↓
+                      [analyze]
+                            ↓
+                    [synthesize?] → [write] → [END]
 
     Returns:
         Compiled research graph
@@ -384,7 +524,9 @@ def create_research_graph() -> StateGraph:
 
     # Add nodes
     graph.add_node("init_config", init_config_node)
-    graph.add_node("search", search_node)
+    graph.add_node("search_agent", search_agent_node)
+    graph.add_node("search_tools", search_tools_node)
+    graph.add_node("collect_sources", collect_sources_node)
     graph.add_node("analyze", analyze_node)
     graph.add_node("synthesize", synthesize_node)
     graph.add_node("write", write_node)
@@ -392,11 +534,24 @@ def create_research_graph() -> StateGraph:
     # Set entry point
     graph.set_entry_point("init_config")
 
-    # Add edges
-    graph.add_edge("init_config", "search")
-    graph.add_edge("search", "analyze")
+    # Build graph
+    graph.add_edge("init_config", "search_agent")
 
-    # Conditional edge: skip synthesis for QUICK depth
+    # ReAct loop for search
+    graph.add_conditional_edges(
+        "search_agent",
+        should_continue_search,
+        {
+            "tools": "search_tools",
+            "collect": "collect_sources",
+        },
+    )
+    graph.add_edge("search_tools", "search_agent")
+
+    # Analysis pipeline
+    graph.add_edge("collect_sources", "analyze")
+
+    # Conditional synthesis
     graph.add_conditional_edges(
         "analyze",
         should_synthesize,

@@ -42,7 +42,7 @@ class SubmitResearchRequest(BaseModel):
 
     query: str = Field(..., min_length=1, max_length=5000)
     scenario: ResearchScenario = ResearchScenario.ACADEMIC
-    depth: ResearchDepth = ResearchDepth.STANDARD
+    depth: ResearchDepth = ResearchDepth.FAST
 
 
 class TaskStatusResponse(BaseModel):
@@ -194,12 +194,12 @@ async def get_task_result(
 
 
 @router.delete("/{task_id}")
-async def cancel_task(
+async def delete_task(
     task_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Cancel a pending or running task."""
+    """Delete a task. If running, it will be cancelled first."""
     task = await storage_service.get_task(db, task_id)
 
     if not task:
@@ -208,22 +208,20 @@ async def cancel_task(
     if task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if task.status in ("completed", "failed", "cancelled"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot cancel task with status: {task.status}",
-        )
+    # If task is active, try to cancel in queue first
+    if task.status in ("pending", "queued", "running"):
+        job_id = task.worker_job_id
+        if job_id:
+            try:
+                await task_queue.cancel_job(job_id)
+            except Exception as e:
+                logger.warning("failed_to_cancel_job", job_id=job_id, error=str(e))
 
-    # Try to cancel in queue
-    job_id = task.worker_job_id
-    if job_id:
-        await task_queue.cancel_job(job_id)
-
-    # Update database status
-    await storage_service.update_task_status(db, task_id, "cancelled")
+    # Delete from database
+    await storage_service.delete_task(db, task_id)
     await db.commit()
 
-    return {"task_id": task_id, "status": "cancelled"}
+    return {"task_id": task_id, "status": "deleted"}
 
 
 @router.get("/{task_id}/stream")

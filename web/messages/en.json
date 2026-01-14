@@ -86,6 +86,17 @@
     "news": {
       "name": "News & Current Events",
       "description": "Latest news, trend analysis, timeline tracking"
+    },
+    "depth": {
+      "label": "Depth",
+      "fast": {
+        "name": "Fast",
+        "description": "Quick search, concise report"
+      },
+      "deep": {
+        "name": "Deep",
+        "description": "Multiple searches, comprehensive analysis"
+      }
     }
   },
   "task": {

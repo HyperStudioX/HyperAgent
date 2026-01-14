@@ -25,8 +25,7 @@ class SearchResult:
 
 # Depth configuration: number of results to fetch
 DEPTH_CONFIG = {
-    ResearchDepth.QUICK: {"max_results": 3, "search_depth": "basic"},
-    ResearchDepth.STANDARD: {"max_results": 5, "search_depth": "basic"},
+    ResearchDepth.FAST: {"max_results": 3, "search_depth": "basic"},
     ResearchDepth.DEEP: {"max_results": 10, "search_depth": "advanced"},
 }
 
@@ -45,10 +44,68 @@ class SearchService:
             self._client = AsyncTavilyClient(api_key=settings.tavily_api_key)
         return self._client
 
+    async def search_raw(
+        self,
+        query: str,
+        max_results: int = 5,
+        search_depth: str = "basic",
+        include_raw_content: bool = False,
+    ) -> list[SearchResult]:
+        """Perform a raw search using Tavily API.
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results
+            search_depth: "basic" or "advanced"
+            include_raw_content: Whether to include full page content
+
+        Returns:
+            List of search results
+        """
+        client = self._get_client()
+
+        logger.info(
+            "search_raw_started",
+            query=query,
+            max_results=max_results,
+            search_depth=search_depth,
+        )
+
+        try:
+            response = await client.search(
+                query=query,
+                max_results=max_results,
+                search_depth=search_depth,
+                include_raw_content=include_raw_content,
+            )
+
+            results = []
+            for item in response.get("results", []):
+                results.append(
+                    SearchResult(
+                        title=item.get("title", "Untitled"),
+                        url=item.get("url", ""),
+                        snippet=item.get("content", "")[:500] if item.get("content") else "",
+                        content=item.get("raw_content") if include_raw_content else None,
+                        relevance_score=item.get("score"),
+                    )
+                )
+
+            logger.info(
+                "search_raw_completed",
+                query=query,
+                results_count=len(results),
+            )
+            return results
+
+        except Exception as e:
+            logger.error("search_raw_failed", query=query, error=str(e))
+            raise
+
     async def search(
         self,
         query: str,
-        depth: ResearchDepth = ResearchDepth.STANDARD,
+        depth: ResearchDepth = ResearchDepth.FAST,
         scenario: ResearchScenario = ResearchScenario.ACADEMIC,
     ) -> list[SearchResult]:
         """Perform a search using Tavily API.
@@ -62,7 +119,7 @@ class SearchService:
             List of search results
         """
         client = self._get_client()
-        config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG[ResearchDepth.STANDARD])
+        config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG[ResearchDepth.FAST])
         scenario_config = get_scenario_config(scenario)
 
         # Enhance query with scenario-specific focus
