@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation References
+
+Refer to these docs for detailed guidelines:
+
+- `docs/Development.md` — Setup, tech stack, project structure, and API reference
+- `docs/Design-Style-Guide.md` — UI components, semantic color tokens, typography, and design patterns
+
 ## Development Commands
 
 ```bash
@@ -44,7 +51,7 @@ Two Zustand stores with persistence to localStorage:
 
 ### Design System
 - **Theme**: Warm stone (light) / Refined ink (dark) with auto mode following system preference
-- **Typography**: IBM Plex Sans (body) & IBM Plex Mono (code)
+- **Typography**: System fonts (SF Pro, Segoe UI, etc.) for body, system monospace for code - no external font loading
 - **Color System**: HSL-based CSS variables in `app/globals.css`
 - **Theme Hook**: `lib/hooks/use-theme.ts` returns `theme` (preference: auto/light/dark), `resolvedTheme` (actual: light/dark), and `setTheme`
 - **Icons**: Lucide React

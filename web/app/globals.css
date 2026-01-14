@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -67,15 +65,12 @@
   }
 
   html {
-    font-feature-settings: "ss01", "ss02", "cv01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    line-height: 1.6;
   }
 }
 
@@ -118,16 +113,12 @@
 }
 
 /* Code styling */
-code, pre {
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-}
-
 pre {
-  @apply bg-secondary rounded-lg p-4 overflow-x-auto text-sm;
+  @apply font-mono bg-secondary rounded-lg p-4 overflow-x-auto text-sm;
 }
 
 code:not(pre code) {
-  @apply bg-secondary px-1.5 py-0.5 rounded text-sm font-medium;
+  @apply font-mono bg-secondary px-1.5 py-0.5 rounded text-sm;
 }
 
 /* Prose styling */

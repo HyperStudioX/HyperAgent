@@ -50,8 +50,17 @@ className="hover:bg-gray-100 dark:hover:bg-gray-700"
 
 ### Font Family
 
-- **Primary:** Noto Sans with locale variants (SC, TC, KR for CJK support)
-- **Usage:** `font-sans` for body, `font-display` for headings
+Uses native system fonts for optimal performance and a native feel on each platform:
+
+| Type | Stack | Renders As |
+|------|-------|------------|
+| `font-sans` | system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif | SF Pro (Mac), Segoe UI (Win), Roboto (Android) |
+| `font-mono` | ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace | SF Mono (Mac), Consolas (Win) |
+
+**Benefits:**
+- No external font loading (faster page loads)
+- Native look and feel on every platform
+- Excellent CJK support built into system fonts
 
 ### Font Size Scale
 

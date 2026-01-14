@@ -39,12 +39,13 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
           <div
             className={cn(
               "relative px-5 py-3.5",
-              "bg-foreground text-background",
+              "bg-card text-foreground",
               "rounded-2xl rounded-br-md",
+              "border border-border",
               "shadow-sm"
             )}
           >
-            <p className="text-[15px] leading-[1.65] tracking-[-0.01em] whitespace-pre-wrap font-medium">
+            <p className="text-base leading-relaxed whitespace-pre-wrap">
               {message.content}
             </p>
           </div>
@@ -79,7 +80,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
             <ReactMarkdown
               components={{
                 p: ({ children }) => (
-                  <p className="mb-4 last:mb-0 text-[15px] leading-[1.75] tracking-[-0.01em] text-foreground/90">
+                  <p className="mb-4 last:mb-0 text-base leading-relaxed text-foreground/90">
                     {children}
                   </p>
                 ),
@@ -87,7 +88,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                   <ul className="my-4 ml-1 space-y-2 list-none">
                     {React.Children.map(children, (child) =>
                       React.isValidElement(child) ? (
-                        <li className="relative pl-5 text-[15px] leading-[1.7] text-foreground/90 before:absolute before:left-0 before:top-[0.6em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-primary/60">
+                        <li className="relative pl-5 text-base leading-relaxed text-foreground/90 before:absolute before:left-0 before:top-[0.6em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-primary/60">
                           {child.props.children}
                         </li>
                       ) : null
@@ -95,12 +96,12 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                   </ul>
                 ),
                 ol: ({ children }) => (
-                  <ol className="my-4 ml-1 space-y-2 list-none counter-reset-[list-counter]">
+                  <ol className="my-4 ml-1 space-y-2 list-none">
                     {React.Children.map(children, (child, index) =>
                       React.isValidElement(child) ? (
-                        <li className="relative pl-7 text-[15px] leading-[1.7] text-foreground/90">
-                          <span className="absolute left-0 top-0 font-mono text-xs font-semibold text-primary/70 tabular-nums">
-                            {String(index + 1).padStart(2, "0")}.
+                        <li className="relative pl-6 text-base leading-relaxed text-foreground/90">
+                          <span className="absolute left-0 top-0 font-mono text-xs text-muted-foreground tabular-nums">
+                            {index + 1}.
                           </span>
                           {child.props.children}
                         </li>
@@ -109,18 +110,14 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                   </ol>
                 ),
                 li: ({ children }) => (
-                  <li className="leading-[1.7]">{children}</li>
+                  <li className="leading-relaxed">{children}</li>
                 ),
                 a: ({ href, children }) => (
                   <a
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={cn(
-                      "text-primary font-medium",
-                      "underline decoration-primary/30 underline-offset-[3px] decoration-[1.5px]",
-                      "hover:decoration-primary/60 transition-colors duration-200"
-                    )}
+                    className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
                   >
                     {children}
                   </a>
@@ -131,15 +128,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
 
                   if (isInline) {
                     return (
-                      <code
-                        className={cn(
-                          "px-1.5 py-0.5 mx-0.5",
-                          "text-[13px] font-mono font-medium",
-                          "bg-secondary/80 text-foreground/90",
-                          "rounded-md",
-                          "ring-1 ring-border/50"
-                        )}
-                      >
+                      <code className="px-1.5 py-0.5 font-mono text-sm bg-secondary rounded">
                         {children}
                       </code>
                     );
@@ -152,44 +141,30 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                   );
                 },
                 blockquote: ({ children }) => (
-                  <blockquote
-                    className={cn(
-                      "my-5 py-3 pl-5 pr-4",
-                      "border-l-[3px] border-primary/40",
-                      "bg-gradient-to-r from-muted/50 to-transparent",
-                      "rounded-r-lg",
-                      "[&>p]:text-muted-foreground [&>p]:italic [&>p]:text-[15px]"
-                    )}
-                  >
+                  <blockquote className="my-4 pl-4 border-l-2 border-border text-muted-foreground italic">
                     {children}
                   </blockquote>
                 ),
                 h1: ({ children }) => (
-                  <h1 className="mt-8 mb-4 first:mt-0 text-xl font-semibold tracking-tight text-foreground">
+                  <h1 className="mt-6 mb-3 first:mt-0 text-xl font-semibold text-foreground">
                     {children}
                   </h1>
                 ),
                 h2: ({ children }) => (
-                  <h2 className="mt-7 mb-3 first:mt-0 text-lg font-semibold tracking-tight text-foreground">
+                  <h2 className="mt-5 mb-2 first:mt-0 text-lg font-semibold text-foreground">
                     {children}
                   </h2>
                 ),
                 h3: ({ children }) => (
-                  <h3 className="mt-6 mb-2.5 first:mt-0 text-base font-semibold tracking-tight text-foreground">
+                  <h3 className="mt-4 mb-2 first:mt-0 text-base font-medium text-foreground">
                     {children}
                   </h3>
                 ),
-                hr: () => (
-                  <hr className="my-6 border-none h-px bg-gradient-to-r from-transparent via-border to-transparent" />
-                ),
+                hr: () => <hr className="my-6 border-t border-border" />,
                 strong: ({ children }) => (
-                  <strong className="font-semibold text-foreground">
-                    {children}
-                  </strong>
+                  <strong className="font-semibold">{children}</strong>
                 ),
-                em: ({ children }) => (
-                  <em className="italic text-foreground/80">{children}</em>
-                ),
+                em: ({ children }) => <em className="italic">{children}</em>,
               }}
             >
               {message.content}
@@ -335,7 +310,7 @@ function CodeBlock({ language, children }: CodeBlockProps) {
             )} />
           </div>
           <span className={cn(
-            "text-[11px] font-mono font-medium uppercase tracking-wider",
+            "text-xs font-mono",
             isDark ? "text-white/50" : "text-black/50"
           )}>
             {language}
@@ -346,15 +321,15 @@ function CodeBlock({ language, children }: CodeBlockProps) {
           onClick={handleCopy}
           className={cn(
             "flex items-center gap-1.5",
-            "px-2.5 py-1.5 -my-1",
-            "text-[11px] font-medium tracking-wide uppercase",
-            "rounded-md",
-            "transition-all duration-200",
+            "px-2 py-1 -my-0.5",
+            "text-xs",
+            "rounded",
+            "transition-colors",
             copied
               ? "text-emerald-600 bg-emerald-500/10"
               : isDark
-                ? "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
-                : "text-black/40 hover:text-black/70 hover:bg-black/[0.06]"
+                ? "text-white/40 hover:text-white/70 hover:bg-white/5"
+                : "text-black/40 hover:text-black/70 hover:bg-black/5"
           )}
         >
           {copied ? (
