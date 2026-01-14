@@ -66,6 +66,11 @@ async def run_research_task(
 
     async with async_session_maker() as db:
         try:
+            # Clear any existing data from previous runs (retry scenario)
+            await storage_service.clear_task_steps(db, task_id)
+            await storage_service.clear_task_sources(db, task_id)
+            await storage_service.update_task_report(db, task_id, "")
+
             # Update task status to running
             await storage_service.update_task_status(db, task_id, "running")
             await storage_service.update_task_worker_info(db, task_id, job_id, worker_name)

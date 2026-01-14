@@ -72,9 +72,9 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
 
                     {!isTocCollapsed && (
                         <nav className="space-y-1 border-l border-border ml-2 animate-in fade-in duration-300">
-                            {toc.map((item) => (
+                            {toc.map((item, index) => (
                                 <a
-                                    key={`${item.id}-${item.level}`}
+                                    key={`${item.id}-${item.level}-${index}`}
                                     href={`#${item.id}`}
                                     className={cn(
                                         "block py-2 px-4 text-sm transition-colors hover:bg-secondary/50 border-l-2 -ml-[1px]",

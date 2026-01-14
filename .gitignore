@@ -71,3 +71,6 @@ yarn-error.log*
 # Database
 *.db
 *.sqlite3
+
+# Uploaded files (local development)
+api/uploads/

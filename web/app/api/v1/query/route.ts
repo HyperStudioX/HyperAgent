@@ -9,7 +9,7 @@ async function handler(
 ) {
     const { searchParams } = new URL(request.url);
     const queryString = searchParams.toString();
-    const url = `${API_URL}/api/v1/tasks${queryString ? `?${queryString}` : ""}`;
+    const url = `${API_URL}/api/v1/query${queryString ? `?${queryString}` : ""}`;
 
     // Forward headers
     const headers = new Headers();
@@ -55,14 +55,6 @@ async function handler(
                 responseHeaders.set(key, value);
             }
         });
-
-        // Support streaming for SSE (/stream endpoints)
-        if (response.headers.get("content-type")?.includes("text/event-stream")) {
-            return new Response(response.body, {
-                status: response.status,
-                headers: responseHeaders
-            });
-        }
 
         // For regular JSON or other responses
         const contentType = response.headers.get("content-type");

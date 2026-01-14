@@ -1,61 +1,85 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = "nodejs";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace("localhost", "127.0.0.1");
 
-export async function POST(request: NextRequest) {
-  // Use 127.0.0.1 to bypass proxy
-  const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace("localhost", "127.0.0.1");
+export const dynamic = "force-dynamic";
 
-  // Get NextAuth session token from cookies
-  const sessionToken =
-    request.cookies.get("next-auth.session-token")?.value ||
-    request.cookies.get("__Secure-next-auth.session-token")?.value;
+async function handler(
+    request: NextRequest
+) {
+    const { searchParams } = new URL(request.url);
+    const queryString = searchParams.toString();
+    const url = `${API_URL}/api/v1/query/stream${queryString ? `?${queryString}` : ""}`;
 
-  try {
-    const body = await request.json();
-
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-    };
-
-    // Forward NextAuth JWT to backend
-    if (sessionToken) {
-      headers["Authorization"] = `Bearer ${sessionToken}`;
-    }
-
-    const response = await fetch(`${apiUrl}/api/v1/query/stream`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
+    // Forward headers
+    const headers = new Headers();
+    request.headers.forEach((value, key) => {
+        // Avoid forwarding restricted headers
+        if (key.toLowerCase() !== 'host' && key.toLowerCase() !== 'connection') {
+            headers.set(key, value);
+        }
     });
 
-    if (!response.ok) {
-      return new Response(
-        JSON.stringify({ error: `Backend error: ${response.status}` }),
-        { status: response.status, headers: { "Content-Type": "application/json" } }
-      );
+    // Ensure NextAuth session is converted to Bearer token for the backend
+    const sessionToken =
+        request.cookies.get("next-auth.session-token")?.value ||
+        request.cookies.get("__Secure-next-auth.session-token")?.value;
+
+    if (sessionToken && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${sessionToken}`);
     }
 
-    if (!response.body) {
-      return new Response(
-        JSON.stringify({ error: "No response body from backend" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    const method = request.method;
+    const hasBody = !["GET", "HEAD"].includes(method);
 
-    // Stream the response directly to the client
-    return new Response(response.body, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        "Connection": "keep-alive",
-      },
-    });
-  } catch (error) {
-    console.error("Stream proxy error:", error);
-    return new Response(
-      JSON.stringify({ error: "Failed to connect to backend" }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
-    );
-  }
+    try {
+        const fetchOptions: RequestInit = {
+            method,
+            headers,
+            cache: "no-store",
+        };
+
+        if (hasBody) {
+            // Use arrayBuffer or blob for body forwarding
+            fetchOptions.body = await request.arrayBuffer();
+            // @ts-ignore
+            fetchOptions.duplex = 'half';
+        }
+
+        const response = await fetch(url, fetchOptions);
+
+        // Filter response headers to avoid issues with Next.js
+        const responseHeaders = new Headers();
+        response.headers.forEach((value, key) => {
+            if (key.toLowerCase() !== 'content-encoding' && key.toLowerCase() !== 'transfer-encoding') {
+                responseHeaders.set(key, value);
+            }
+        });
+
+        // Support streaming for SSE (/stream endpoints)
+        if (response.headers.get("content-type")?.includes("text/event-stream")) {
+            return new Response(response.body, {
+                status: response.status,
+                headers: responseHeaders
+            });
+        }
+
+        // For regular JSON or other responses
+        const contentType = response.headers.get("content-type");
+        if (contentType?.includes("application/json")) {
+            const data = await response.json();
+            return NextResponse.json(data, { status: response.status, headers: responseHeaders });
+        }
+
+        return new Response(response.body, {
+            status: response.status,
+            headers: responseHeaders
+        });
+
+    } catch (error) {
+        console.error(`[API Proxy] Error for ${url}:`, error);
+        return NextResponse.json({ error: "Backend error" }, { status: 502 });
+    }
 }
+
+export { handler as GET, handler as POST, handler as DELETE, handler as PUT, handler as PATCH };

@@ -39,10 +39,12 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
 
     # Storage
+    storage_backend: Literal["r2", "local"] = "local"  # r2 for production, local for dev
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_bucket_name: str = "hyperagent"
     r2_endpoint_url: str = ""
+    local_storage_path: str = "./uploads"  # For local development
 
     # E2B Sandbox
     e2b_api_key: str = ""

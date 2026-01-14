@@ -6,12 +6,14 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
+from app.db.models import File as FileModel
 from app.models.schemas import (
     QueryMode,
     UnifiedQueryRequest,
@@ -48,6 +50,39 @@ Be concise, accurate, and helpful. When providing code, use proper formatting wi
 If you're unsure about something, say so rather than making things up."""
 
 
+async def get_file_context(
+    db: AsyncSession,
+    attachment_ids: list[str],
+    user_id: str,
+) -> str:
+    """Get extracted text from attached files for LLM context."""
+    if not attachment_ids:
+        return ""
+
+    result = await db.execute(
+        select(FileModel).where(
+            FileModel.id.in_(attachment_ids),
+            FileModel.user_id == user_id,
+        )
+    )
+    files = result.scalars().all()
+
+    context_parts = []
+    for file in files:
+        if file.extracted_text:
+            context_parts.append(
+                f"[Attached file: {file.original_filename}]\n{file.extracted_text}\n"
+            )
+        else:
+            context_parts.append(
+                f"[Attached file: {file.original_filename} - binary content not extracted]\n"
+            )
+
+    if context_parts:
+        return "\n---\n".join(context_parts)
+    return ""
+
+
 @router.post("/", response_model=UnifiedQueryResponse)
 async def query(
     request: UnifiedQueryRequest,
@@ -58,12 +93,24 @@ async def query(
     if request.mode == QueryMode.CHAT:
         # Handle chat mode
         try:
+            # Get file context if attachments provided
+            file_context = await get_file_context(
+                db,
+                request.attachment_ids,
+                current_user.id,
+            )
+
+            # Enhance system prompt with file context
+            system_prompt = CHAT_SYSTEM_PROMPT
+            if file_context:
+                system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
+
             response = await llm_service.chat(
                 message=request.message,
                 history=request.history,
                 provider=request.provider,
                 model=request.model,
-                system_prompt=CHAT_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
             )
 
             return UnifiedQueryResponse(
@@ -119,6 +166,18 @@ async def stream_query(
 ):
     """Stream response for chat, research, and other agent modes."""
     if request.mode == QueryMode.CHAT:
+        # Get file context if attachments provided
+        file_context = await get_file_context(
+            db,
+            request.attachment_ids,
+            current_user.id,
+        )
+
+        # Enhance system prompt with file context
+        system_prompt = CHAT_SYSTEM_PROMPT
+        if file_context:
+            system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
+
         # Stream chat response
         async def chat_generator() -> AsyncGenerator[str, None]:
             try:
@@ -127,7 +186,7 @@ async def stream_query(
                     history=request.history,
                     provider=request.provider,
                     model=request.model,
-                    system_prompt=CHAT_SYSTEM_PROMPT,
+                    system_prompt=system_prompt,
                 ):
                     data = json.dumps({"type": "token", "data": token})
                     yield f"data: {data}\n\n"

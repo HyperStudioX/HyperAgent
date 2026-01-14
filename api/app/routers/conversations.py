@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
-from app.db.models import Conversation, ConversationMessage
+from app.db.models import Conversation, ConversationMessage, File, MessageAttachment
 from app.models.schemas import (
     ConversationListResponse,
     ConversationMessageResponse,
@@ -88,7 +88,11 @@ async def get_conversation(
     try:
         result = await db.execute(
             select(Conversation)
-            .options(selectinload(Conversation.messages))
+            .options(
+                selectinload(Conversation.messages).selectinload(
+                    ConversationMessage.attachments
+                ).selectinload(MessageAttachment.file)
+            )
             .where(
                 Conversation.id == conversation_id,
                 Conversation.user_id == current_user.id,
@@ -123,7 +127,11 @@ async def update_conversation(
     try:
         result = await db.execute(
             select(Conversation)
-            .options(selectinload(Conversation.messages))
+            .options(
+                selectinload(Conversation.messages).selectinload(
+                    ConversationMessage.attachments
+                ).selectinload(MessageAttachment.file)
+            )
             .where(
                 Conversation.id == conversation_id,
                 Conversation.user_id == current_user.id,
@@ -220,8 +228,50 @@ async def create_message(
             message_metadata=request.metadata,
         )
         db.add(message)
+        await db.flush()  # Flush to get the message ID before creating attachments
+
+        # Handle attachments if provided
+        if request.attachment_ids:
+            # Verify files exist and belong to user
+            result = await db.execute(
+                select(File).where(
+                    File.id.in_(request.attachment_ids),
+                    File.user_id == current_user.id,
+                )
+            )
+            files = result.scalars().all()
+
+            # Verify all attachment IDs are valid
+            found_file_ids = {f.id for f in files}
+            invalid_ids = set(request.attachment_ids) - found_file_ids
+            if invalid_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid attachment IDs: {', '.join(invalid_ids)}",
+                )
+
+            # Create MessageAttachment records
+            for file in files:
+                attachment = MessageAttachment(
+                    id=str(uuid.uuid4()),
+                    message_id=message.id,
+                    file_id=file.id,
+                )
+                db.add(attachment)
+
         await db.commit()
-        await db.refresh(message)
+
+        # Reload message with attachments and their file information
+        result = await db.execute(
+            select(ConversationMessage)
+            .options(
+                selectinload(ConversationMessage.attachments).selectinload(
+                    MessageAttachment.file
+                )
+            )
+            .where(ConversationMessage.id == message.id)
+        )
+        message = result.scalar_one()
 
         return ConversationMessageResponse(**message.to_dict())
     except HTTPException:

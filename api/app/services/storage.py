@@ -314,6 +314,50 @@ class StorageService:
             return True
         return False
 
+    async def clear_task_steps(self, db: AsyncSession, task_id: str) -> int:
+        """Clear all steps for a task (used when retrying).
+
+        Args:
+            db: Database session
+            task_id: Task identifier
+
+        Returns:
+            Number of steps deleted
+        """
+        result = await db.execute(
+            select(ResearchStep).where(ResearchStep.task_id == task_id)
+        )
+        steps = result.scalars().all()
+        count = len(steps)
+        for step in steps:
+            await db.delete(step)
+        await db.flush()
+        if count > 0:
+            logger.info("task_steps_cleared", task_id=task_id, count=count)
+        return count
+
+    async def clear_task_sources(self, db: AsyncSession, task_id: str) -> int:
+        """Clear all sources for a task (used when retrying).
+
+        Args:
+            db: Database session
+            task_id: Task identifier
+
+        Returns:
+            Number of sources deleted
+        """
+        result = await db.execute(
+            select(ResearchSource).where(ResearchSource.task_id == task_id)
+        )
+        sources = result.scalars().all()
+        count = len(sources)
+        for source in sources:
+            await db.delete(source)
+        await db.flush()
+        if count > 0:
+            logger.info("task_sources_cleared", task_id=task_id, count=count)
+        return count
+
 
 # Global instance
 storage_service = StorageService()

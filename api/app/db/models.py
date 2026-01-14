@@ -32,6 +32,9 @@ class User(Base):
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    files: Mapped[list["File"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
@@ -269,6 +272,9 @@ class ConversationMessage(Base):
 
     # Relationships
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+    attachments: Mapped[list["MessageAttachment"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan"
+    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
@@ -279,4 +285,86 @@ class ConversationMessage(Base):
             "content": self.content,
             "metadata": self.message_metadata,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "attachments": [
+                {
+                    "id": att.file.id,
+                    "filename": att.file.original_filename,
+                    "content_type": att.file.content_type,
+                    "file_size": att.file.file_size,
+                }
+                for att in self.attachments
+            ] if self.attachments else [],
+        }
+
+
+class File(Base):
+    """File model for uploaded files."""
+
+    __tablename__ = "files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # File metadata
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size: Mapped[int] = mapped_column(nullable=False)
+
+    # Storage info
+    storage_key: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
+    storage_bucket: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # Content extraction (for LLM context)
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extraction_status: Mapped[str] = mapped_column(String(20), default="pending")
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="files")
+    message_attachments: Mapped[list["MessageAttachment"]] = relationship(
+        back_populates="file", cascade="all, delete-orphan"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "filename": self.original_filename,
+            "content_type": self.content_type,
+            "file_size": self.file_size,
+            "extraction_status": self.extraction_status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class MessageAttachment(Base):
+    """Junction table linking files to conversation messages."""
+
+    __tablename__ = "message_attachments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    message_id: Mapped[str] = mapped_column(
+        ForeignKey("conversation_messages.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_id: Mapped[str] = mapped_column(
+        ForeignKey("files.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Relationships
+    message: Mapped["ConversationMessage"] = relationship(back_populates="attachments")
+    file: Mapped["File"] = relationship(back_populates="message_attachments")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "message_id": self.message_id,
+            "file_id": self.file_id,
         }

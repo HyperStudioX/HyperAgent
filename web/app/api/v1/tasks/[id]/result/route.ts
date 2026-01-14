@@ -5,11 +5,14 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").rep
 export const dynamic = "force-dynamic";
 
 async function handler(
-    request: NextRequest
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
 ) {
+    const { id } = await params;
     const { searchParams } = new URL(request.url);
     const queryString = searchParams.toString();
-    const url = `${API_URL}/api/v1/tasks${queryString ? `?${queryString}` : ""}`;
+
+    const url = `${API_URL}/api/v1/tasks/${id}/result${queryString ? `?${queryString}` : ""}`;
 
     // Forward headers
     const headers = new Headers();
@@ -29,24 +32,16 @@ async function handler(
         headers.set("Authorization", `Bearer ${sessionToken}`);
     }
 
-    const method = request.method;
-    const hasBody = !["GET", "HEAD"].includes(method);
-
     try {
         const fetchOptions: RequestInit = {
-            method,
+            method: "GET",
             headers,
             cache: "no-store",
         };
 
-        if (hasBody) {
-            // Use arrayBuffer or blob for body forwarding
-            fetchOptions.body = await request.arrayBuffer();
-            // @ts-ignore
-            fetchOptions.duplex = 'half';
-        }
-
+        console.log(`[API Proxy /tasks/${id}/result] Forwarding GET request to: ${url}`);
         const response = await fetch(url, fetchOptions);
+        console.log(`[API Proxy /tasks/${id}/result] Backend response: ${response.status} ${response.statusText}`);
 
         // Filter response headers to avoid issues with Next.js
         const responseHeaders = new Headers();
@@ -55,14 +50,6 @@ async function handler(
                 responseHeaders.set(key, value);
             }
         });
-
-        // Support streaming for SSE (/stream endpoints)
-        if (response.headers.get("content-type")?.includes("text/event-stream")) {
-            return new Response(response.body, {
-                status: response.status,
-                headers: responseHeaders
-            });
-        }
 
         // For regular JSON or other responses
         const contentType = response.headers.get("content-type");
@@ -82,4 +69,4 @@ async function handler(
     }
 }
 
-export { handler as GET, handler as POST, handler as DELETE, handler as PUT, handler as PATCH };
+export { handler as GET };

@@ -73,65 +73,144 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
     const [hasStarted, setHasStarted] = useState(false);
     const [isExistingTask, setIsExistingTask] = useState(false);
     const [progressPanelOpen, setProgressPanelOpen] = useState(false);
+    // Start expanded when running, will collapse when report is ready
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [hasAutoCollapsed, setHasAutoCollapsed] = useState(false);
 
-    // Load task from store or localStorage after hydration
+    // Load task from store or API
     useEffect(() => {
-        // Wait for store to hydrate
-        if (!hasHydrated) {
-            return;
-        }
+        console.log(`[TaskProgress] Fetching task ${taskId} from API...`);
+        const fetchTask = async () => {
+            try {
+                // Always try to fetch fresh data from the API first
+                // Use /result endpoint to get full task data including report, steps, and sources
+                const response = await fetch(`/api/v1/tasks/${taskId}/result`);
+                console.log(`[TaskProgress] API response status: ${response.status} for task ${taskId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log(`[TaskProgress] Task data received:`, data);
 
-        // First check if task exists in store (returning to completed task)
-        const existingTask = tasks.find((t) => t.id === taskId);
+                    // Update store with fresh data
+                    setTaskInfo({
+                        query: data.query,
+                        scenario: data.scenario,
+                        depth: data.depth,
+                    });
 
-        if (existingTask) {
-            setTaskInfo({
-                query: existingTask.query,
-                scenario: existingTask.scenario,
-                depth: existingTask.depth,
-            });
-            setSteps(existingTask.steps);
-            setSources(existingTask.sources);
-            // Ensure result is always a string
-            let resultString = "";
-            if (typeof existingTask.result === "string") {
-                resultString = existingTask.result;
-            } else if (Array.isArray(existingTask.result)) {
-                // If it's an array of strings, join them
-                resultString = (existingTask.result as any[]).map((item: any) => typeof item === "string" ? item : String(item)).join("");
-            } else if (existingTask.result != null) {
-                // For objects, try to extract meaningful content or stringify
-                resultString = String(existingTask.result);
+                    // Map steps and sources from backend format to frontend format
+                    if (data.steps) {
+                        const mappedSteps = data.steps.map((s: any) => ({
+                            id: s.id,
+                            type: s.type,
+                            description: s.description,
+                            status: s.status,
+                        }));
+                        // Deduplicate steps by type, keeping the latest one (last in array)
+                        const uniqueSteps = mappedSteps.reduce((acc: typeof mappedSteps, step: typeof mappedSteps[0]) => {
+                            const existingIndex = acc.findIndex((s: typeof step) => s.type === step.type);
+                            if (existingIndex >= 0) {
+                                acc[existingIndex] = step; // Replace with latest
+                            } else {
+                                acc.push(step);
+                            }
+                            return acc;
+                        }, []);
+                        setSteps(uniqueSteps);
+                        updateTaskSteps(taskId, uniqueSteps);
+                    }
+
+                    if (data.sources) {
+                        const mappedSources = data.sources.map((s: any) => ({
+                            id: s.id,
+                            title: s.title,
+                            url: s.url,
+                            snippet: s.snippet,
+                        }));
+                        // Deduplicate sources by URL
+                        const uniqueSources = mappedSources.reduce((acc: typeof mappedSources, source: typeof mappedSources[0]) => {
+                            if (!acc.some((s: typeof source) => s.url === source.url)) {
+                                acc.push(source);
+                            }
+                            return acc;
+                        }, []);
+                        setSources(uniqueSources);
+                        updateTaskSources(taskId, uniqueSources);
+                    }
+
+                    if (data.report) {
+                        setResearchResult(data.report);
+                        updateTaskResult(taskId, data.report);
+                    }
+
+                    setError(data.error || null);
+                    setIsExistingTask(true);
+                    setActiveTask(taskId);
+
+                    // If task is still active, we need to handle it accordingly
+                    // (But usually the backend list only shows completed or failed tasks if we aren't streaming)
+                    if (data.status === "completed") {
+                        setHasStarted(true);
+                        setIsResearching(false);
+                    } else if (data.status === "failed") {
+                        setHasStarted(true);
+                        setIsResearching(false);
+                    } else {
+                        // For pending/running/queued
+                        setHasStarted(false);
+                    }
+                    return;
+                } else {
+                    console.warn(`[TaskProgress] API returned non-OK status ${response.status} for task ${taskId}`);
+                    const errorText = await response.text().catch(() => "Unknown error");
+                    console.warn(`[TaskProgress] Error response:`, errorText);
+                }
+            } catch (err) {
+                console.error("[TaskProgress] API fetch failed:", err);
             }
-            setResearchResult(resultString);
-            setError(existingTask.error || null);
-            setIsExistingTask(true);
-            setActiveTask(taskId);
 
-            // If task is still running or pending, we need to restart
-            if (existingTask.status === "running" || existingTask.status === "pending") {
-                setHasStarted(false);
+            // Fallback to local store if API fails (only if store is hydrated)
+            if (hasHydrated) {
+                const existingTask = tasks.find((t) => t.id === taskId);
+
+                if (existingTask) {
+                    setTaskInfo({
+                        query: existingTask.query,
+                        scenario: existingTask.scenario,
+                        depth: existingTask.depth,
+                    });
+                    setSteps(existingTask.steps);
+                    setSources(existingTask.sources);
+                    setResearchResult(existingTask.result);
+                    setError(existingTask.error || null);
+                    setIsExistingTask(true);
+                    setActiveTask(taskId);
+
+                    if (existingTask.status === "running" || existingTask.status === "pending") {
+                        setHasStarted(false);
+                    } else {
+                        setHasStarted(true);
+                        setIsResearching(false);
+                    }
+                    return;
+                }
+            }
+
+            // Check localStorage for new task
+            const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
+            if (storedTaskInfo) {
+                const info = JSON.parse(storedTaskInfo) as TaskInfo;
+                setTaskInfo(info);
+                localStorage.removeItem(`task-${taskId}`);
+                createTask(taskId, info.query, info.scenario, info.depth);
+                setActiveTask(taskId);
             } else {
-                setHasStarted(true);
-                setIsResearching(false);
+                setError(t("taskNotFoundMessage"));
             }
-            return;
-        }
+        };
 
-        // Check localStorage for new task (only if task doesn't exist in store)
-        const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
-        if (storedTaskInfo) {
-            const info = JSON.parse(storedTaskInfo) as TaskInfo;
-            setTaskInfo(info);
-            // Create task in store - remove localStorage entry immediately to prevent duplicates
-            localStorage.removeItem(`task-${taskId}`);
-            createTask(taskId, info.query, info.scenario, info.depth);
-            setActiveTask(taskId);
-        } else {
-            setError(t("taskNotFoundMessage"));
-        }
-    }, [taskId, hasHydrated, tasks, createTask, setActiveTask, t]);
+        fetchTask();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [taskId]); // Only depend on taskId - API call should happen immediately on mount/taskId change
 
     // Memoize startResearch to avoid recreation
     const startResearch = useCallback(async (info: TaskInfo) => {
@@ -245,6 +324,26 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
         }
     }, [taskInfo, hasStarted, isExistingTask, startResearch]);
 
+    // Auto-collapse sidebar when report is ready (task completed)
+    useEffect(() => {
+        // If researching, ensure sidebar is expanded
+        if (isResearching) {
+            setIsSidebarCollapsed(false);
+            setHasAutoCollapsed(false);
+            return;
+        }
+
+        // Auto-collapse when report is generated (only once)
+        const hasReport = typeof researchResult === "string"
+            ? researchResult.length > 0
+            : Array.isArray(researchResult) && researchResult.length > 0;
+
+        if (hasReport && !hasAutoCollapsed && !error) {
+            setIsSidebarCollapsed(true);
+            setHasAutoCollapsed(true);
+        }
+    }, [isResearching, researchResult, hasAutoCollapsed, error]);
+
     const handleBack = () => {
         router.push("/");
     };
@@ -253,18 +352,11 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
         if (taskInfo) {
             setHasStarted(true);
             setIsExistingTask(false);
+            setHasAutoCollapsed(false); // Reset so sidebar stays expanded during retry
+            setIsSidebarCollapsed(false); // Expand sidebar for retry
             startResearch(taskInfo);
         }
     };
-
-    // Loading state - wait for hydration
-    if (!hasHydrated) {
-        return (
-            <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-        );
-    }
 
     // Error state - task not found
     if (error && !taskInfo) {

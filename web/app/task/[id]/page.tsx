@@ -11,7 +11,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
   const { id } = await params;
   return (
     <MainLayout>
-      <TaskProgress taskId={id} />
+      <TaskProgress key={id} taskId={id} />
     </MainLayout>
   );
 }

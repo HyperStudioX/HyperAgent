@@ -5,11 +5,14 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").rep
 export const dynamic = "force-dynamic";
 
 async function handler(
-    request: NextRequest
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
 ) {
+    const { id } = await params;
     const { searchParams } = new URL(request.url);
     const queryString = searchParams.toString();
-    const url = `${API_URL}/api/v1/tasks${queryString ? `?${queryString}` : ""}`;
+
+    const url = `${API_URL}/api/v1/tasks/${id}${queryString ? `?${queryString}` : ""}`;
 
     // Forward headers
     const headers = new Headers();
@@ -46,7 +49,9 @@ async function handler(
             fetchOptions.duplex = 'half';
         }
 
+        console.log(`[API Proxy /tasks/${id}] Forwarding ${method} request to: ${url}`);
         const response = await fetch(url, fetchOptions);
+        console.log(`[API Proxy /tasks/${id}] Backend response: ${response.status} ${response.statusText}`);
 
         // Filter response headers to avoid issues with Next.js
         const responseHeaders = new Headers();

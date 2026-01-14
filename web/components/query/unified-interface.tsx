@@ -22,7 +22,11 @@ import {
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import type { AgentType, ResearchScenario, ResearchDepth } from "@/lib/types";
+import { FileUploadButton } from "@/components/chat/file-upload-button";
+import { AttachmentPreview } from "@/components/chat/attachment-preview";
+import { useFileUpload } from "@/lib/hooks/use-file-upload";
+import { useGoogleDrivePicker } from "@/lib/hooks/use-google-drive-picker";
+import type { AgentType, ResearchScenario, ResearchDepth, FileAttachment } from "@/lib/types";
 
 // Larger icons for better visual presence
 const AGENT_ICONS: Record<AgentType, React.ReactNode> = {
@@ -68,6 +72,34 @@ export function UnifiedInterface() {
   const researchRef = useRef<HTMLDivElement>(null);
   const streamingContentRef = useRef("");
   const updateScheduledRef = useRef(false);
+
+  // File upload hook
+  const {
+    attachments,
+    isUploading,
+    addFiles,
+    removeAttachment,
+    clearAttachments,
+    getUploadedFileIds,
+  } = useFileUpload({ maxFiles: 10 });
+
+  // Google Drive picker hook
+  const { openPicker: openGoogleDrivePicker, error: googleDriveError } = useGoogleDrivePicker({
+    onFilesSelected: (driveFiles) => {
+      // TODO: Download Google Drive files and convert to local files
+      console.log("Google Drive files selected:", driveFiles);
+      // For now, just show a placeholder
+      alert(`Selected ${driveFiles.length} file(s) from Google Drive. Download functionality coming soon!`);
+    },
+    multiSelect: true,
+  });
+
+  // Handle attachment source selection
+  const handleSourceSelect = (sourceId: string) => {
+    if (sourceId === "google-drive") {
+      openGoogleDrivePicker();
+    }
+  };
 
   // Throttled streaming content update using requestAnimationFrame
   const updateStreamingContent = useCallback((content: string) => {
@@ -155,21 +187,29 @@ export function UnifiedInterface() {
   }, [input]);
 
   const handleSubmit = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || isUploading) return;
 
     const userMessage = input.trim();
+    const attachmentIds = getUploadedFileIds();
+    const messageAttachments = attachments.filter(a => a.status === 'uploaded');
     setInput("");
+    clearAttachments();
 
     if (selectedAgent === "research" && selectedScenario) {
       handleResearch(userMessage);
     } else if (selectedAgent && selectedAgent !== "chat") {
-      await handleAgentTask(userMessage, selectedAgent);
+      await handleAgentTask(userMessage, selectedAgent, attachmentIds, messageAttachments);
     } else {
-      await handleChat(userMessage);
+      await handleChat(userMessage, false, attachmentIds, messageAttachments);
     }
   };
 
-  const handleChat = async (userMessage: string, skipUserMessage = false) => {
+  const handleChat = async (
+    userMessage: string,
+    skipUserMessage = false,
+    attachmentIds: string[] = [],
+    messageAttachments: FileAttachment[] = []
+  ) => {
     setStreamingContent("");
 
     let conversationId = activeConversationId;
@@ -178,7 +218,11 @@ export function UnifiedInterface() {
     }
 
     if (!skipUserMessage) {
-      await addMessage(conversationId, { role: "user", content: userMessage });
+      await addMessage(conversationId, {
+        role: "user",
+        content: userMessage,
+        attachments: messageAttachments
+      });
     }
 
     setLoading(true);
@@ -190,7 +234,7 @@ export function UnifiedInterface() {
       const response = await fetch("/api/v1/query/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, mode: "chat" }),
+        body: JSON.stringify({ message: userMessage, mode: "chat", attachment_ids: attachmentIds }),
       });
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -242,7 +286,12 @@ export function UnifiedInterface() {
     }
   };
 
-  const handleAgentTask = async (userMessage: string, agentType: AgentType) => {
+  const handleAgentTask = async (
+    userMessage: string,
+    agentType: AgentType,
+    attachmentIds: string[] = [],
+    messageAttachments: FileAttachment[] = []
+  ) => {
     setStreamingContent("");
 
     // Determine the conversation type based on agent
@@ -263,7 +312,15 @@ export function UnifiedInterface() {
       console.log(`[UnifiedInterface] Reusing existing ${conversationType} conversation`);
     }
 
-    await addMessage(conversationId, { role: "user", content: userMessage });
+    if (!conversationId) {
+      throw new Error("Failed to get conversation ID");
+    }
+
+    await addMessage(conversationId, {
+      role: "user",
+      content: userMessage,
+      attachments: messageAttachments
+    });
     setLoading(true);
     setStreaming(true);
 
@@ -273,7 +330,7 @@ export function UnifiedInterface() {
       const response = await fetch("/api/v1/query/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, mode: agentType }),
+        body: JSON.stringify({ message: userMessage, mode: agentType, attachment_ids: attachmentIds }),
       });
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -494,41 +551,63 @@ export function UnifiedInterface() {
               "relative flex flex-col bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors",
               !hasMessages && "shadow-sm"
             )}>
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={getPlaceholder()}
-                className={cn(
-                  "flex-1 w-full bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed",
-                  hasMessages
-                    ? "min-h-[64px] max-h-[160px] px-4 py-3 text-base"
-                    : "min-h-[100px] md:min-h-[110px] max-h-[200px] px-5 py-4 text-base"
-                )}
-                rows={hasMessages ? 2 : 3}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    handleSubmit();
-                  }
-                }}
+              {/* Attachment preview */}
+              <AttachmentPreview
+                attachments={attachments}
+                onRemove={removeAttachment}
               />
+
+              {/* Main input row with plus button */}
+              <div className="flex items-end">
+                {/* Plus button - LEFT of textarea */}
+                <div className="flex items-center px-2 pb-3">
+                  <FileUploadButton
+                    onFilesSelected={addFiles}
+                    onSourceSelect={handleSourceSelect}
+                    disabled={isProcessing || isUploading}
+                  />
+                </div>
+
+                {/* Textarea */}
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={getPlaceholder()}
+                  className={cn(
+                    "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed",
+                    hasMessages
+                      ? "min-h-[64px] max-h-[160px] py-3 pr-4 text-base"
+                      : "min-h-[100px] md:min-h-[110px] max-h-[200px] py-4 pr-5 text-base"
+                  )}
+                  rows={hasMessages ? 2 : 3}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      handleSubmit();
+                    }
+                  }}
+                />
+              </div>
+
               {/* Bottom bar with hint and send button */}
               <div className="flex items-center justify-between px-4 md:px-6 py-3 border-t border-border/50">
                 <p className="text-xs text-muted-foreground">
-                  {tChat("pressEnterToSend")}
+                  {attachments.length > 0
+                    ? `${attachments.length} file(s) attached`
+                    : tChat("pressEnterToSend")}
                 </p>
                 <button
                   onClick={handleSubmit}
-                  disabled={!input.trim() || isProcessing}
+                  disabled={!input.trim() || isProcessing || isUploading}
                   className={cn(
                     "px-4 py-2 rounded-lg transition-colors min-h-[44px] flex items-center justify-center gap-2 font-medium text-sm",
-                    input.trim() && !isProcessing
+                    input.trim() && !isProcessing && !isUploading
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : "bg-secondary text-muted-foreground"
                   )}
                 >
-                  {isProcessing ? (
+                  {isProcessing || isUploading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <>

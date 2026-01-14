@@ -7,15 +7,41 @@ import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Copy, Check, Terminal, RotateCcw } from "lucide-react";
+import { Copy, Check, Terminal, RotateCcw, FileText, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
-import type { Message } from "@/lib/types";
+import type { Message, FileAttachment } from "@/lib/types";
 
 interface MessageBubbleProps {
   message: Message;
   onRegenerate?: () => void;
   isStreaming?: boolean;
+}
+
+function MessageAttachments({ attachments }: { attachments: FileAttachment[] }) {
+  if (!attachments || attachments.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 mt-2">
+      {attachments.map((attachment) => {
+        const isImage = attachment.contentType.startsWith("image/");
+
+        return (
+          <div
+            key={attachment.id}
+            className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/50 text-sm"
+          >
+            {isImage ? (
+              <ImageIcon className="w-4 h-4 text-muted-foreground" />
+            ) : (
+              <FileText className="w-4 h-4 text-muted-foreground" />
+            )}
+            <span className="max-w-[150px] truncate">{attachment.filename}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function MessageBubble({ message, onRegenerate, isStreaming = false }: MessageBubbleProps) {
@@ -50,6 +76,9 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false }: Me
             <p className="text-base leading-relaxed whitespace-pre-wrap">
               {message.content}
             </p>
+            {message.attachments && message.attachments.length > 0 && (
+              <MessageAttachments attachments={message.attachments} />
+            )}
           </div>
         </div>
       ) : (

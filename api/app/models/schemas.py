@@ -149,6 +149,7 @@ class UnifiedQueryRequest(BaseModel):
     provider: LLMProvider = LLMProvider.ANTHROPIC
     model: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
+    attachment_ids: list[str] = Field(default_factory=list)
 
 
 class UnifiedQueryResponse(BaseModel):
@@ -171,6 +172,15 @@ class ConversationType(str, Enum):
     DATA = "data"
 
 
+class AttachmentInfo(BaseModel):
+    """Attachment info in messages."""
+
+    id: str
+    filename: str
+    content_type: str
+    file_size: int
+
+
 class ConversationMessageResponse(BaseModel):
     """Response model for a conversation message."""
 
@@ -180,6 +190,7 @@ class ConversationMessageResponse(BaseModel):
     content: str
     metadata: dict[str, Any] | None = None
     created_at: str
+    attachments: list[AttachmentInfo] = Field(default_factory=list)
 
 
 class ConversationResponse(BaseModel):
@@ -224,6 +235,7 @@ class CreateMessageRequest(BaseModel):
     role: MessageRole
     content: str
     metadata: dict[str, Any] | None = None
+    attachment_ids: list[str] = Field(default_factory=list)
 
 
 class UpdateMessageRequest(BaseModel):

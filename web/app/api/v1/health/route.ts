@@ -9,7 +9,7 @@ async function handler(
 ) {
     const { searchParams } = new URL(request.url);
     const queryString = searchParams.toString();
-    const url = `${API_URL}/api/v1/tasks${queryString ? `?${queryString}` : ""}`;
+    const url = `${API_URL}/api/v1/health${queryString ? `?${queryString}` : ""}`;
 
     // Forward headers
     const headers = new Headers();
