@@ -1,0 +1,191 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Warm Stone Light - Soft cream/stone palette */
+    --background: 40 20% 97%;
+    --foreground: 30 10% 15%;
+    --card: 40 25% 99%;
+    --card-foreground: 30 10% 15%;
+    --popover: 40 25% 99%;
+    --popover-foreground: 30 10% 15%;
+    --primary: 30 10% 18%;
+    --primary-foreground: 40 20% 97%;
+    --secondary: 35 15% 93%;
+    --secondary-foreground: 30 10% 20%;
+    --muted: 35 12% 91%;
+    --muted-foreground: 30 8% 45%;
+    --accent: 35 15% 90%;
+    --accent-foreground: 30 10% 18%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 35 12% 88%;
+    --input: 35 12% 88%;
+    --ring: 30 10% 25%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Refined Ink Dark - Deep blue-gray with warmth */
+    --background: 220 15% 13%;
+    --foreground: 40 15% 92%;
+    --card: 220 14% 16%;
+    --card-foreground: 40 15% 92%;
+    --popover: 220 14% 16%;
+    --popover-foreground: 40 15% 92%;
+    --primary: 40 15% 92%;
+    --primary-foreground: 220 15% 13%;
+    --secondary: 220 12% 22%;
+    --secondary-foreground: 40 12% 88%;
+    --muted: 220 10% 20%;
+    --muted-foreground: 220 8% 58%;
+    --accent: 220 12% 24%;
+    --accent-foreground: 40 15% 92%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 10% 25%;
+    --input: 220 10% 25%;
+    --ring: 40 15% 85%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-feature-settings: "ss01", "ss02", "cv01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 1.6;
+  }
+}
+
+/* Refined scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
+
+/* Selection */
+::selection {
+  background: hsl(var(--primary) / 0.15);
+  color: hsl(var(--foreground));
+}
+
+/* Focus states */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Simple color transitions only */
+* {
+  transition-property: background-color, border-color, color, opacity;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Code styling */
+code, pre {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+pre {
+  @apply bg-secondary rounded-lg p-4 overflow-x-auto text-sm;
+}
+
+code:not(pre code) {
+  @apply bg-secondary px-1.5 py-0.5 rounded text-sm font-medium;
+}
+
+/* Prose styling */
+.prose {
+  @apply text-foreground leading-relaxed;
+}
+
+.prose p {
+  @apply mb-3 last:mb-0;
+}
+
+.prose ul, .prose ol {
+  @apply pl-5 mb-3 space-y-1;
+}
+
+.prose li {
+  @apply leading-relaxed;
+}
+
+.prose a {
+  @apply text-foreground underline underline-offset-2 hover:text-muted-foreground;
+}
+
+.prose h1, .prose h2, .prose h3 {
+  @apply font-semibold text-foreground mb-2 mt-4 first:mt-0;
+}
+
+.prose blockquote {
+  @apply border-l-2 border-border pl-4 italic text-muted-foreground;
+}
+
+/* Animation utilities - simple fades only */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out forwards;
+}
+
+/* Touch targets */
+button, a {
+  min-height: 32px;
+}
+
+/* Border utilities */
+.border-subtle {
+  border-color: hsl(var(--border) / 0.5);
+}
+
+.border-muted {
+  border-color: hsl(var(--border) / 0.3);
+}

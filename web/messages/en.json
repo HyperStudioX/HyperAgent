@@ -1,0 +1,104 @@
+{
+  "metadata": {
+    "title": "HyperAgent",
+    "description": "AI Agent Platform for Chat and Deep Research"
+  },
+  "sidebar": {
+    "create": "Create",
+    "recentTasks": "Recent Tasks",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode",
+    "noConversations": "No conversations yet",
+    "startChatOrResearch": "Start a chat or research task",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "thisWeek": "This Week",
+    "earlier": "Earlier",
+    "justNow": "Just now",
+    "minutesAgo": "{minutes}m ago",
+    "hoursAgo": "{hours}h ago",
+    "daysAgo": "{days}d ago",
+    "research": "Research",
+    "chat": "Chat"
+  },
+  "home": {
+    "welcomeTitle": "What can I help you with?",
+    "welcomeSubtitle": "Ask anything or select a research mode for in-depth analysis",
+    "inputPlaceholder": "Ask anything...",
+    "researchPlaceholder": "Research: {scenario}...",
+    "deepResearch": "Deep Research"
+  },
+  "research": {
+    "academic": {
+      "name": "Academic Research",
+      "description": "Literature review, citations, scholarly sources"
+    },
+    "market": {
+      "name": "Market Analysis",
+      "description": "Industry trends, competitor analysis, market data"
+    },
+    "technical": {
+      "name": "Technical Investigation",
+      "description": "Code analysis, API docs, technical deep-dives"
+    },
+    "news": {
+      "name": "News & Current Events",
+      "description": "Latest news, trend analysis, timeline tracking"
+    }
+  },
+  "task": {
+    "taskNotFound": "Task Not Found",
+    "taskNotFoundMessage": "Task not found. Please start a new research from the home page.",
+    "goHome": "Go Home",
+    "researching": "Researching...",
+    "researchComplete": "Research complete",
+    "researchFailed": "Research failed",
+    "newSearch": "New search",
+    "retry": "Retry",
+    "generatingReport": "Generating report...",
+    "startingResearch": "Starting research...",
+    "progress": "Progress",
+    "sources": "Sources",
+    "steps": {
+      "search": {
+        "running": "Searching for sources...",
+        "completed": "Search complete",
+        "pending": "Search sources",
+        "failed": "Search failed"
+      },
+      "analyze": {
+        "running": "Analyzing sources...",
+        "completed": "Analysis complete",
+        "pending": "Analyze sources",
+        "failed": "Analysis failed"
+      },
+      "synthesize": {
+        "running": "Synthesizing findings...",
+        "completed": "Synthesis complete",
+        "pending": "Synthesize findings",
+        "failed": "Synthesis failed"
+      },
+      "write": {
+        "running": "Writing report...",
+        "completed": "Report complete",
+        "pending": "Write report",
+        "failed": "Report failed"
+      }
+    }
+  },
+  "chat": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "regenerate": "Regenerate",
+    "connectionError": "Unable to connect to the server. Please check if the backend is running.",
+    "pressEnterToSend": "Press Enter to send, Shift+Enter for new line",
+    "typeMessage": "Type a message..."
+  },
+  "conversation": {
+    "newChat": "New Chat",
+    "newResearch": "New Research"
+  },
+  "common": {
+    "error": "Error"
+  }
+}

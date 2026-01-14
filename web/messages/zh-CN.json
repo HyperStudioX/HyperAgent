@@ -1,0 +1,104 @@
+{
+  "metadata": {
+    "title": "HyperAgent",
+    "description": "AI智能助手平台 - 聊天与深度研究"
+  },
+  "sidebar": {
+    "create": "新建",
+    "recentTasks": "最近任务",
+    "lightMode": "浅色模式",
+    "darkMode": "深色模式",
+    "noConversations": "暂无对话",
+    "startChatOrResearch": "开始聊天或研究任务",
+    "today": "今天",
+    "yesterday": "昨天",
+    "thisWeek": "本周",
+    "earlier": "更早",
+    "justNow": "刚刚",
+    "minutesAgo": "{minutes}分钟前",
+    "hoursAgo": "{hours}小时前",
+    "daysAgo": "{days}天前",
+    "research": "研究",
+    "chat": "聊天"
+  },
+  "home": {
+    "welcomeTitle": "有什么我可以帮助您的？",
+    "welcomeSubtitle": "随时提问或选择研究模式进行深度分析",
+    "inputPlaceholder": "随便问...",
+    "researchPlaceholder": "研究：{scenario}...",
+    "deepResearch": "深度研究"
+  },
+  "research": {
+    "academic": {
+      "name": "学术研究",
+      "description": "文献综述、引用查找、学术资源"
+    },
+    "market": {
+      "name": "市场分析",
+      "description": "行业趋势、竞争分析、市场数据"
+    },
+    "technical": {
+      "name": "技术调研",
+      "description": "代码分析、API文档、技术深度探索"
+    },
+    "news": {
+      "name": "新闻资讯",
+      "description": "最新新闻、趋势分析、时间线追踪"
+    }
+  },
+  "task": {
+    "taskNotFound": "任务未找到",
+    "taskNotFoundMessage": "任务未找到。请从首页开始新的研究。",
+    "goHome": "返回首页",
+    "researching": "研究中...",
+    "researchComplete": "研究完成",
+    "researchFailed": "研究失败",
+    "newSearch": "新搜索",
+    "retry": "重试",
+    "generatingReport": "正在生成报告...",
+    "startingResearch": "开始研究...",
+    "progress": "进度",
+    "sources": "来源",
+    "steps": {
+      "search": {
+        "running": "正在搜索资料...",
+        "completed": "搜索完成",
+        "pending": "搜索资料",
+        "failed": "搜索失败"
+      },
+      "analyze": {
+        "running": "正在分析资料...",
+        "completed": "分析完成",
+        "pending": "分析资料",
+        "failed": "分析失败"
+      },
+      "synthesize": {
+        "running": "正在综合整理...",
+        "completed": "综合完成",
+        "pending": "综合整理",
+        "failed": "综合失败"
+      },
+      "write": {
+        "running": "正在撰写报告...",
+        "completed": "报告完成",
+        "pending": "撰写报告",
+        "failed": "报告失败"
+      }
+    }
+  },
+  "chat": {
+    "copy": "复制",
+    "copied": "已复制",
+    "regenerate": "重新生成",
+    "connectionError": "无法连接到服务器。请检查后端是否正在运行。",
+    "pressEnterToSend": "按Enter发送，Shift+Enter换行",
+    "typeMessage": "输入消息..."
+  },
+  "conversation": {
+    "newChat": "新对话",
+    "newResearch": "新研究"
+  },
+  "common": {
+    "error": "错误"
+  }
+}
