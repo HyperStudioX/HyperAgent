@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
-import { Sun, Moon, Globe, Monitor } from "lucide-react";
+import { Sun, Moon, Globe, Monitor, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PreferencesPanelProps {
@@ -38,7 +38,6 @@ export function PreferencesPanel({
 
   const handleThemeChange = (newTheme: "light" | "dark" | "auto") => {
     onThemeChange(newTheme);
-    setIsOpen(false);
   };
 
   const currentLocale = LOCALES.find((l) => l.code === locale) || LOCALES[0];
@@ -66,20 +65,19 @@ export function PreferencesPanel({
         className={cn(
           "w-full h-9 px-3 rounded-lg",
           "flex items-center justify-between",
-          "text-xs font-medium tracking-wide",
+          "text-sm",
           "text-muted-foreground hover:text-foreground",
-          "border border-border hover:border-foreground/20",
-          "transition-colors",
-          isOpen && "text-foreground border-foreground/20"
+          "hover:bg-secondary/50",
+          "transition-colors"
         )}
       >
-        <div className="flex items-center gap-1.5">
-          {mounted && <ThemeIcon className="w-3.5 h-3.5" />}
-          <span>{currentLocale.shortLabel}</span>
+        <div className="flex items-center gap-2">
+          {mounted && <ThemeIcon className="w-4 h-4" />}
+          <span>{t("preferences")}</span>
         </div>
-        <div className={cn(
-          "w-1 h-1 rounded-full bg-current transition-transform",
-          isOpen && "rotate-180"
+        <ChevronUp className={cn(
+          "w-4 h-4 transition-transform",
+          isOpen ? "rotate-0" : "rotate-180"
         )} />
       </button>
 
@@ -87,80 +85,60 @@ export function PreferencesPanel({
       {isOpen && (
         <div
           className={cn(
-            "absolute bottom-full left-0 right-0 mb-1.5 z-50",
-            "bg-card border border-border rounded-lg",
-            "shadow-lg",
+            "absolute bottom-full left-0 right-0 mb-1 z-50",
+            "bg-card border border-border rounded-xl",
             "overflow-hidden"
           )}
         >
           {/* Theme */}
-          <div className="border-b border-border">
-            <div className="px-3 py-1.5">
-              <div className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest">
+          <div className="p-2 border-b border-border">
+            <div className="px-2 py-1">
+              <span className="text-xs font-medium text-muted-foreground">
                 {t("theme")}
-              </div>
+              </span>
             </div>
-            <div className="grid grid-cols-3 gap-0.5 p-1">
-              <button
-                onClick={() => handleThemeChange("auto")}
-                className={cn(
-                  "h-8 rounded flex items-center justify-center gap-1.5",
-                  "text-xs font-medium transition-colors",
-                  mounted && theme === "auto"
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                )}
-              >
-                <Monitor className="w-3.5 h-3.5" />
-                <span>{t("auto")}</span>
-              </button>
-              <button
-                onClick={() => handleThemeChange("light")}
-                className={cn(
-                  "h-8 rounded flex items-center justify-center gap-1.5",
-                  "text-xs font-medium transition-colors",
-                  mounted && theme === "light"
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                )}
-              >
-                <Sun className="w-3.5 h-3.5" />
-                <span>{t("light")}</span>
-              </button>
-              <button
-                onClick={() => handleThemeChange("dark")}
-                className={cn(
-                  "h-8 rounded flex items-center justify-center gap-1.5",
-                  "text-xs font-medium transition-colors",
-                  mounted && theme === "dark"
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                )}
-              >
-                <Moon className="w-3.5 h-3.5" />
-                <span>{t("dark")}</span>
-              </button>
+            <div className="flex gap-1">
+              {[
+                { value: "auto", icon: Monitor, label: t("auto") },
+                { value: "light", icon: Sun, label: t("light") },
+                { value: "dark", icon: Moon, label: t("dark") },
+              ].map(({ value, icon: Icon, label }) => (
+                <button
+                  key={value}
+                  onClick={() => handleThemeChange(value as "light" | "dark" | "auto")}
+                  className={cn(
+                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-colors",
+                    mounted && theme === value
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                  )}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{label}</span>
+                </button>
+              ))}
             </div>
           </div>
 
           {/* Language */}
-          <div>
-            <div className="px-3 py-1.5">
-              <div className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest">
+          <div className="p-2">
+            <div className="px-2 py-1">
+              <span className="text-xs font-medium text-muted-foreground">
                 {t("language")}
-              </div>
+              </span>
             </div>
-            <div className="grid grid-cols-2 gap-0.5 p-1">
+            <div className="flex gap-1">
               {LOCALES.map((loc) => (
                 <button
                   key={loc.code}
                   onClick={() => handleLocaleChange(loc.code)}
                   className={cn(
-                    "h-8 rounded flex items-center justify-center gap-1.5",
+                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
                     "text-xs font-medium transition-colors",
                     currentLocale.code === loc.code
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                   )}
                 >
                   <Globe className="w-3.5 h-3.5" />

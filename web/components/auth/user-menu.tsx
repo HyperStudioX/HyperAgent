@@ -1,18 +1,20 @@
 "use client";
 
 import Image from "next/image";
+import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function UserMenu() {
   const { user, isAuthenticated, isLoading, login, logout } = useAuth();
+  const t = useTranslations("sidebar");
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-3 px-1 py-1">
+      <div className="flex items-center gap-3 px-3 py-2">
         <div className="w-8 h-8 rounded-full bg-secondary animate-pulse" />
-        <div className="flex-1 h-4 w-24 bg-secondary animate-pulse rounded" />
+        <div className="flex-1 h-4 bg-secondary animate-pulse rounded" />
       </div>
     );
   }
@@ -24,17 +26,17 @@ export function UserMenu() {
         className={cn(
           "w-full flex items-center justify-center gap-2 h-9 px-4",
           "text-sm font-medium rounded-lg",
-          "bg-foreground text-background",
-          "hover:bg-foreground/90 transition-colors"
+          "bg-primary text-primary-foreground",
+          "hover:bg-primary/90 transition-colors"
         )}
       >
-        Sign In
+        {t("signIn")}
       </button>
     );
   }
 
   return (
-    <div className="group flex items-center gap-3 px-1 py-1 rounded-lg hover:bg-secondary/50 transition-colors">
+    <div className="group flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-secondary/50 transition-colors">
       {/* Avatar */}
       {user?.image ? (
         <Image
@@ -60,11 +62,11 @@ export function UserMenu() {
       <button
         onClick={logout}
         className={cn(
-          "p-1.5 rounded-md opacity-0 group-hover:opacity-100",
+          "p-1.5 rounded-lg opacity-0 group-hover:opacity-100",
           "text-muted-foreground hover:text-destructive",
-          "hover:bg-destructive/10 transition-all"
+          "hover:bg-destructive/10 transition-colors"
         )}
-        title="Sign out"
+        title={t("signOut")}
       >
         <LogOut className="w-4 h-4" />
       </button>

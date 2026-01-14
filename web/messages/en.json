@@ -13,6 +13,9 @@
     "light": "Light",
     "dark": "Dark",
     "language": "Language",
+    "preferences": "Preferences",
+    "signIn": "Sign In",
+    "signOut": "Sign Out",
     "noConversations": "No conversations yet",
     "startChatOrResearch": "Start a chat or research task",
     "today": "Today",
@@ -23,17 +26,49 @@
     "minutesAgo": "{minutes}m ago",
     "hoursAgo": "{hours}h ago",
     "daysAgo": "{days}d ago",
+    "all": "All",
+    "task": "Task",
     "research": "Research",
     "chat": "Chat",
+    "code": "Code",
+    "writing": "Writing",
+    "data": "Data",
+    "noResults": "No items found",
     "chatDescription": "Quick questions & conversations",
     "researchDescription": "In-depth analysis & reports"
   },
   "home": {
     "welcomeTitle": "What can I help you with?",
-    "welcomeSubtitle": "Ask anything or select a research mode for in-depth analysis",
+    "welcomeSubtitle": "Ask anything or select a specialized mode for your task",
     "inputPlaceholder": "Ask anything...",
     "researchPlaceholder": "Research: {scenario}...",
+    "codePlaceholder": "Describe what code you need...",
+    "writingPlaceholder": "What would you like me to write?",
+    "dataPlaceholder": "Describe the data analysis you need...",
+    "selectMode": "Select Mode",
     "deepResearch": "Deep Research"
+  },
+  "agents": {
+    "chat": {
+      "name": "Chat",
+      "description": "Quick questions & conversations"
+    },
+    "research": {
+      "name": "Deep Research",
+      "description": "In-depth analysis & comprehensive reports"
+    },
+    "code": {
+      "name": "Code Assistant",
+      "description": "Write, explain & execute code"
+    },
+    "writing": {
+      "name": "Writing",
+      "description": "Articles, docs & long-form content"
+    },
+    "data": {
+      "name": "Data Analysis",
+      "description": "Analyze data & generate insights"
+    }
   },
   "research": {
     "academic": {
@@ -98,8 +133,9 @@
     "copied": "Copied",
     "regenerate": "Regenerate",
     "connectionError": "Unable to connect to the server. Please check if the backend is running.",
-    "pressEnterToSend": "Press Enter to send, Shift+Enter for new line",
-    "typeMessage": "Type a message..."
+    "pressEnterToSend": "Press ⌘/Ctrl+Enter to send",
+    "typeMessage": "Type a message...",
+    "send": "Send"
   },
   "conversation": {
     "newChat": "New Chat",

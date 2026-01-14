@@ -66,7 +66,6 @@ async def init_db(create_tables: bool = False) -> None:
     if create_tables:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("database_tables_created", tables=list(Base.metadata.tables.keys()))
     else:
         # Just verify connection works
         async with engine.connect() as conn:

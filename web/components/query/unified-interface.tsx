@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useTranslations } from "next-intl";
 import {
   Send,
@@ -11,44 +12,70 @@ import {
   TrendingUp,
   Code2,
   Newspaper,
-  ChevronDown,
-  MessageCircle,
+  PenTool,
+  BarChart3,
+  Search,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import type { ResearchScenario } from "@/lib/types";
+import type { AgentType, ResearchScenario } from "@/lib/types";
 
-const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
-  academic: <GraduationCap className="w-4 h-4" />,
-  market: <TrendingUp className="w-4 h-4" />,
-  technical: <Code2 className="w-4 h-4" />,
-  news: <Newspaper className="w-4 h-4" />,
+// Larger icons for better visual presence
+const AGENT_ICONS: Record<AgentType, React.ReactNode> = {
+  chat: <Search className="w-5 h-5" />,
+  research: <Search className="w-5 h-5" />,
+  code: <Code2 className="w-5 h-5" />,
+  writing: <PenTool className="w-5 h-5" />,
+  data: <BarChart3 className="w-5 h-5" />,
 };
 
+const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
+  academic: <GraduationCap className="w-5 h-5" />,
+  market: <TrendingUp className="w-5 h-5" />,
+  technical: <Code2 className="w-5 h-5" />,
+  news: <Newspaper className="w-5 h-5" />,
+};
+
+const AGENT_KEYS: AgentType[] = ["research", "code", "writing", "data"];
 const SCENARIO_KEYS: ResearchScenario[] = ["academic", "market", "technical", "news"];
 
 export function UnifiedInterface() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { status } = useSession();
   const t = useTranslations("home");
+  const tAgents = useTranslations("agents");
   const tResearch = useTranslations("research");
   const tChat = useTranslations("chat");
   const [input, setInput] = useState("");
+  const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<ResearchScenario | null>(null);
-  const [showScenarios, setShowScenarios] = useState(false);
+  const [showResearchSubmenu, setShowResearchSubmenu] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const researchRef = useRef<HTMLDivElement>(null);
+
+  // Close research submenu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (researchRef.current && !researchRef.current.contains(event.target as Node)) {
+        setShowResearchSubmenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Check for scenario from URL query parameter (from sidebar menu)
   useEffect(() => {
     const scenarioParam = searchParams.get("scenario");
     if (scenarioParam && SCENARIO_KEYS.includes(scenarioParam as ResearchScenario)) {
+      setSelectedAgent("research");
       setSelectedScenario(scenarioParam as ResearchScenario);
-      // Clean up the URL
       router.replace("/", { scroll: false });
-      // Focus the input
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [searchParams, router]);
@@ -63,10 +90,31 @@ export function UnifiedInterface() {
     removeMessage,
     createConversation,
     getActiveConversation,
+    loadConversation,
   } = useChatStore();
 
   const activeConversation = hasHydrated ? getActiveConversation() : undefined;
   const messages = activeConversation?.messages || [];
+
+  // Load conversation messages when switching conversations
+  useEffect(() => {
+    // Don't load if session is still loading
+    if (status === "loading") {
+      return;
+    }
+
+    if (activeConversationId && hasHydrated) {
+      const conversation = getActiveConversation();
+      // Only load if messages haven't been loaded yet
+      if (conversation && conversation.messages.length === 0) {
+        // Only load from API if authenticated and not a local conversation
+        const isLocal = activeConversationId.startsWith("local-");
+        if (isLocal || status === "authenticated") {
+          loadConversation(activeConversationId).catch(console.error);
+        }
+      }
+    }
+  }, [activeConversationId, hasHydrated, getActiveConversation, loadConversation, status]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -76,7 +124,6 @@ export function UnifiedInterface() {
     scrollToBottom();
   }, [messages, streamingContent]);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -90,8 +137,10 @@ export function UnifiedInterface() {
     const userMessage = input.trim();
     setInput("");
 
-    if (selectedScenario) {
+    if (selectedAgent === "research" && selectedScenario) {
       handleResearch(userMessage);
+    } else if (selectedAgent && selectedAgent !== "chat") {
+      await handleAgentTask(userMessage, selectedAgent);
     } else {
       await handleChat(userMessage);
     }
@@ -102,15 +151,11 @@ export function UnifiedInterface() {
 
     let conversationId = activeConversationId;
     if (!conversationId || activeConversation?.type !== "chat") {
-      conversationId = createConversation("chat");
+      conversationId = await createConversation("chat");
     }
 
-    // Only add user message if not regenerating
     if (!skipUserMessage) {
-      addMessage(conversationId, {
-        role: "user",
-        content: userMessage,
-      });
+      await addMessage(conversationId, { role: "user", content: userMessage });
     }
 
     setLoading(true);
@@ -145,7 +190,6 @@ export function UnifiedInterface() {
           if (line.startsWith("data: ")) {
             const jsonStr = line.slice(6).trim();
             if (jsonStr === "[DONE]") continue;
-
             try {
               const event = JSON.parse(jsonStr);
               if (event.type === "token" && event.data) {
@@ -163,17 +207,94 @@ export function UnifiedInterface() {
       }
 
       if (fullContent) {
-        addMessage(conversationId, {
-          role: "assistant",
-          content: fullContent,
-        });
+        await addMessage(conversationId, { role: "assistant", content: fullContent });
       }
     } catch (error) {
       console.error("Chat error:", error);
-      addMessage(conversationId, {
-        role: "assistant",
-        content: tChat("connectionError"),
+      await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
+    } finally {
+      setStreamingContent("");
+      setLoading(false);
+      setStreaming(false);
+    }
+  };
+
+  const handleAgentTask = async (userMessage: string, agentType: AgentType) => {
+    setStreamingContent("");
+
+    // Determine the conversation type based on agent
+    const conversationType = agentType === "research" ? "research" : agentType;
+
+    // Always create a new conversation if:
+    // 1. No active conversation exists
+    // 2. Active conversation type doesn't match the selected agent type
+    let conversationId = activeConversationId;
+    const needsNewConversation = !conversationId ||
+      !activeConversation ||
+      activeConversation.type !== conversationType;
+
+    if (needsNewConversation) {
+      console.log(`[UnifiedInterface] Creating new ${conversationType} conversation`);
+      conversationId = await createConversation(conversationType);
+    } else {
+      console.log(`[UnifiedInterface] Reusing existing ${conversationType} conversation`);
+    }
+
+    await addMessage(conversationId, { role: "user", content: userMessage });
+    setLoading(true);
+    setStreaming(true);
+
+    let fullContent = "";
+
+    try {
+      const response = await fetch("/api/v1/query/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMessage, mode: agentType }),
       });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === "[DONE]") continue;
+            try {
+              const event = JSON.parse(jsonStr);
+              if (event.type === "token" && event.data) {
+                fullContent += event.data;
+                setStreamingContent(fullContent);
+              } else if (event.type === "error") {
+                fullContent = `Error: ${event.data}`;
+                setStreamingContent(fullContent);
+              }
+            } catch (e) {
+              console.error("Parse error:", e);
+            }
+          }
+        }
+      }
+
+      if (fullContent) {
+        await addMessage(conversationId, { role: "assistant", content: fullContent });
+      }
+    } catch (error) {
+      console.error("Agent task error:", error);
+      await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
     } finally {
       setStreamingContent("");
       setLoading(false);
@@ -183,30 +304,17 @@ export function UnifiedInterface() {
 
   const handleResearch = (query: string) => {
     if (!selectedScenario) return;
-
-    // Generate a unique task ID
     const taskId = crypto.randomUUID();
-
-    // Store task info in localStorage for the task page to pick up
-    const taskInfo = {
-      query,
-      scenario: selectedScenario,
-      depth: "standard",
-    };
+    const taskInfo = { query, scenario: selectedScenario, depth: "standard" };
     localStorage.setItem(`task-${taskId}`, JSON.stringify(taskInfo));
-
-    // Navigate to the task progress page
     router.push(`/task/${taskId}`);
   };
 
   const handleRegenerate = async (messageId: string) => {
     if (!activeConversationId || isLoading) return;
-
-    // Find the message index
     const messageIndex = messages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
 
-    // Find the preceding user message
     let userMessage = "";
     for (let i = messageIndex - 1; i >= 0; i--) {
       if (messages[i].role === "user") {
@@ -214,29 +322,63 @@ export function UnifiedInterface() {
         break;
       }
     }
-
     if (!userMessage) return;
 
-    // Remove the assistant message
     removeMessage(activeConversationId, messageId);
-
-    // Regenerate the response (skip adding user message since it already exists)
     await handleChat(userMessage, true);
+  };
+
+  const handleAgentSelect = (agent: AgentType) => {
+    if (agent === "research") {
+      // Toggle research submenu
+      setShowResearchSubmenu(!showResearchSubmenu);
+      return;
+    }
+    // For non-research agents, select directly
+    if (selectedAgent === agent) {
+      // Clicking same agent deselects it
+      setSelectedAgent(null);
+      setSelectedScenario(null);
+    } else {
+      setSelectedAgent(agent);
+      setSelectedScenario(null);
+    }
+    setShowResearchSubmenu(false);
+    inputRef.current?.focus();
+  };
+
+  const handleScenarioSelect = (scenario: ResearchScenario) => {
+    if (selectedAgent === "research" && selectedScenario === scenario) {
+      // Clicking same scenario deselects it
+      setSelectedAgent(null);
+      setSelectedScenario(null);
+    } else {
+      setSelectedAgent("research");
+      setSelectedScenario(scenario);
+    }
+    setShowResearchSubmenu(false);
+    inputRef.current?.focus();
   };
 
   const isProcessing = isLoading;
   const hasMessages = messages.length > 0 || streamingContent;
 
-  // Get scenario name for placeholder
-  const getScenarioName = (scenario: ResearchScenario) => tResearch(`${scenario}.name`);
+  const getPlaceholder = () => {
+    if (selectedAgent === "research" && selectedScenario) {
+      return t("researchPlaceholder", { scenario: tResearch(`${selectedScenario}.name`) });
+    }
+    if (selectedAgent === "code") return t("codePlaceholder");
+    if (selectedAgent === "writing") return t("writingPlaceholder");
+    if (selectedAgent === "data") return t("dataPlaceholder");
+    return t("inputPlaceholder");
+  };
 
-  // Unified input view
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Messages area (for chat mode) */}
+      {/* Messages area */}
       {hasMessages && (
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-4 md:px-6 py-4 md:py-6">
+          <div className="max-w-4xl mx-auto px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-1">
               {messages.map((message, index) => (
                 <div
@@ -247,9 +389,7 @@ export function UnifiedInterface() {
                   <MessageBubble
                     message={message}
                     onRegenerate={
-                      message.role === "assistant"
-                        ? () => handleRegenerate(message.id)
-                        : undefined
+                      message.role === "assistant" ? () => handleRegenerate(message.id) : undefined
                     }
                   />
                 </div>
@@ -263,6 +403,7 @@ export function UnifiedInterface() {
                       content: streamingContent,
                       createdAt: new Date(),
                     }}
+                    isStreaming={true}
                   />
                 </div>
               )}
@@ -272,161 +413,200 @@ export function UnifiedInterface() {
         </div>
       )}
 
-      {/* Empty state / Input area */}
-      <div className={cn(
-        "flex flex-col",
-        hasMessages
-          ? "border-t border-border bg-background"
-          : "flex-1 items-center justify-center"
-      )}>
-        <div className={cn(
-          "w-full",
-          hasMessages ? "max-w-2xl mx-auto px-4 md:px-6 py-3 md:py-4" : "max-w-xl px-4 md:px-6"
-        )}>
-          {/* Welcome message (only when no messages) */}
+      {/* Input area */}
+      <div
+        className={cn(
+          "flex flex-col",
+          hasMessages ? "border-t border-border bg-background" : "flex-1 items-center justify-center"
+        )}
+      >
+        <div
+          className={cn(
+            "w-full",
+            hasMessages ? "max-w-4xl mx-auto px-4 md:px-6 py-4 md:py-6" : "max-w-3xl px-6 md:px-8"
+          )}
+        >
+          {/* Welcome section - bigger and more impactful */}
           {!hasMessages && (
-            <div className="text-center mb-8 animate-fade-in">
-              <div className="mx-auto mb-6">
-                <Image
-                  src="/images/logo-light.svg"
-                  alt="HyperAgent"
-                  width={48}
-                  height={48}
-                  className="dark:hidden mx-auto rounded-xl"
-                />
-                <Image
-                  src="/images/logo-dark.svg"
-                  alt="HyperAgent"
-                  width={48}
-                  height={48}
-                  className="hidden dark:block mx-auto rounded-xl"
-                />
+            <div className="text-center mb-12">
+              {/* Logo + Product name */}
+              <div
+                className="flex items-center justify-center gap-3 mb-8 animate-slide-up"
+                style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
+              >
+                <div className="w-11 h-11 rounded-xl bg-foreground flex items-center justify-center text-background">
+                  <Image
+                    src="/images/logo.svg"
+                    alt="HyperAgent"
+                    width={26}
+                    height={26}
+                    priority
+                    className="invert dark:invert-0"
+                  />
+                </div>
+                <h1 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight">
+                  HyperAgent
+                </h1>
               </div>
-              <h1 className="text-2xl font-semibold text-foreground mb-2">
-                {t("welcomeTitle")}
-              </h1>
-              <p className="text-muted-foreground leading-relaxed">
+
+              {/* Subtitle - larger and more prominent */}
+              <p
+                className="text-muted-foreground text-lg md:text-xl leading-relaxed max-w-lg mx-auto animate-fade-in"
+                style={{ animationDelay: '0.2s', animationFillMode: 'backwards' }}
+              >
                 {t("welcomeSubtitle")}
               </p>
             </div>
           )}
 
-          {/* Input */}
-          <div className="relative">
-            <div className="relative flex items-end bg-card rounded-2xl border border-border focus-within:border-foreground/20 transition-colors shadow-sm">
+          {/* Input - large and prominent */}
+          <div
+            className={cn(
+              "relative",
+              !hasMessages && "animate-fade-in"
+            )}
+            style={!hasMessages ? { animationDelay: '0.3s', animationFillMode: 'backwards' } : undefined}
+          >
+            <div className={cn(
+              "relative flex flex-col bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors",
+              !hasMessages && "shadow-sm"
+            )}>
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={selectedScenario
-                  ? t("researchPlaceholder", { scenario: getScenarioName(selectedScenario) })
-                  : t("inputPlaceholder")
-                }
-                className="flex-1 min-h-[60px] md:min-h-[80px] max-h-[150px] md:max-h-[200px] px-4 md:px-5 py-3 md:py-4 bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
-                rows={3}
+                placeholder={getPlaceholder()}
+                className={cn(
+                  "flex-1 w-full bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed",
+                  hasMessages
+                    ? "min-h-[64px] max-h-[160px] px-4 py-3 text-base"
+                    : "min-h-[100px] md:min-h-[110px] max-h-[200px] px-5 py-4 text-base"
+                )}
+                rows={hasMessages ? 2 : 3}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     handleSubmit();
                   }
                 }}
               />
-              <div className="p-3">
+              {/* Bottom bar with hint and send button */}
+              <div className="flex items-center justify-between px-4 md:px-6 py-3 border-t border-border/50">
+                <p className="text-xs text-muted-foreground">
+                  {tChat("pressEnterToSend")}
+                </p>
                 <button
                   onClick={handleSubmit}
                   disabled={!input.trim() || isProcessing}
                   className={cn(
-                    "p-2.5 rounded-xl transition-all",
+                    "px-4 py-2 rounded-lg transition-colors min-h-[44px] flex items-center justify-center gap-2 font-medium text-sm",
                     input.trim() && !isProcessing
-                      ? "bg-foreground text-background hover:opacity-90"
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : "bg-secondary text-muted-foreground"
                   )}
                 >
                   {isProcessing ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Send className="w-5 h-5" />
+                    <>
+                      <span>{tChat("send")}</span>
+                      <Send className="w-4 h-4" />
+                    </>
                   )}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Deep Research selector */}
-          <div className="mt-3">
-            <button
-              onClick={() => setShowScenarios(!showScenarios)}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-all",
-                selectedScenario
-                  ? "bg-accent-vibrant text-accent-vibrant-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              )}
+          {/* Agent selection - compact pills with selection indicator (only on home view) */}
+          {!hasMessages && (
+            <div
+              className="mt-6 animate-fade-in"
+              style={{ animationDelay: '0.4s', animationFillMode: 'backwards' }}
             >
-              {selectedScenario ? (
-                <>
-                  {SCENARIO_ICONS[selectedScenario]}
-                  <span>{getScenarioName(selectedScenario)}</span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedScenario(null);
-                      setShowScenarios(false);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.stopPropagation();
-                        setSelectedScenario(null);
-                        setShowScenarios(false);
-                      }
-                    }}
-                    className="ml-1 hover:opacity-70 cursor-pointer"
-                  >
-                    ×
-                  </span>
-                </>
-              ) : (
-                <>
-                  <MessageCircle className="w-4 h-4" />
-                  <span>{t("deepResearch")}</span>
-                  <ChevronDown className={cn(
-                    "w-3 h-3 transition-transform",
-                    showScenarios && "rotate-180"
-                  )} />
-                </>
-              )}
-            </button>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                {AGENT_KEYS.map((agent) => {
+                  const isSelected = selectedAgent === agent || (agent === "research" && selectedScenario);
+                  return (
+                    <div key={agent} className="relative" ref={agent === "research" ? researchRef : undefined}>
+                      <button
+                        onClick={() => handleAgentSelect(agent)}
+                        onMouseEnter={() => agent === "research" && setShowResearchSubmenu(true)}
+                        className={cn(
+                          "relative flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
+                          "text-sm font-medium",
+                          isSelected
+                            ? "bg-secondary text-foreground ring-1 ring-foreground/50"
+                            : "bg-card text-muted-foreground border border-border hover:bg-secondary/50 hover:text-foreground"
+                        )}
+                      >
+                        {/* Selection checkmark */}
+                        {isSelected && (
+                          <span className="flex items-center justify-center w-4 h-4 rounded-full bg-foreground text-background">
+                            <Check className="w-3 h-3" strokeWidth={3} />
+                          </span>
+                        )}
+                        {!isSelected && (
+                          <span className="text-muted-foreground">
+                            {AGENT_ICONS[agent]}
+                          </span>
+                        )}
+                        <span>{tAgents(`${agent}.name`)}</span>
+                        {agent === "research" && selectedScenario && (
+                          <span className="text-xs text-muted-foreground">
+                            · {tResearch(`${selectedScenario}.name`)}
+                          </span>
+                        )}
+                      </button>
 
-            {/* Scenario options */}
-            {showScenarios && !selectedScenario && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                {SCENARIO_KEYS.map((scenario, index) => (
-                  <button
-                    key={scenario}
-                    onClick={() => {
-                      setSelectedScenario(scenario);
-                      setShowScenarios(false);
-                      inputRef.current?.focus();
-                    }}
-                    className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-border bg-card text-left text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors animate-scale-in"
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  >
-                    {SCENARIO_ICONS[scenario]}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">
-                        {tResearch(`${scenario}.name`)}
-                      </div>
-                      <div className="text-xs opacity-60 truncate">
-                        {tResearch(`${scenario}.description`)}
-                      </div>
+                      {/* Research scenarios submenu */}
+                      {agent === "research" && showResearchSubmenu && (
+                        <div
+                          className="absolute left-0 top-full mt-2 z-50 animate-fade-in"
+                          onMouseLeave={() => setShowResearchSubmenu(false)}
+                        >
+                          <div className="bg-card border border-border rounded-xl overflow-hidden min-w-[220px]">
+                            {SCENARIO_KEYS.map((scenario) => (
+                              <button
+                                key={scenario}
+                                onClick={() => handleScenarioSelect(scenario)}
+                                className={cn(
+                                  "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                                  "hover:bg-secondary/50",
+                                  selectedScenario === scenario && "bg-secondary"
+                                )}
+                              >
+                                {selectedScenario === scenario ? (
+                                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background">
+                                    <Check className="w-3 h-3" strokeWidth={3} />
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">
+                                    {SCENARIO_ICONS[scenario]}
+                                  </span>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className={cn(
+                                    "text-sm font-medium",
+                                    selectedScenario === scenario ? "text-foreground" : "text-foreground"
+                                  )}>
+                                    {tResearch(`${scenario}.name`)}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {tResearch(`${scenario}.description`)}
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

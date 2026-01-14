@@ -4,7 +4,7 @@ import uuid
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -17,6 +17,20 @@ from app.db.models import User
 
 logger = get_logger(__name__)
 security = HTTPBearer(auto_error=False)
+
+# NextAuth session cookie names
+NEXTAUTH_COOKIE_NAME = "next-auth.session-token"
+NEXTAUTH_SECURE_COOKIE_NAME = "__Secure-next-auth.session-token"
+
+
+def get_token_from_cookie(request: Request) -> Optional[str]:
+    """Extract NextAuth session token from cookies."""
+    # Try secure cookie first (production with HTTPS)
+    token = request.cookies.get(NEXTAUTH_SECURE_COOKIE_NAME)
+    if token:
+        return token
+    # Fall back to non-secure cookie (development)
+    return request.cookies.get(NEXTAUTH_COOKIE_NAME)
 
 
 class TokenPayload(BaseModel):
@@ -94,10 +108,16 @@ async def get_or_create_user(db: AsyncSession, token_payload: TokenPayload) -> U
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> CurrentUser:
-    """Dependency to get current authenticated user."""
+    """Dependency to get current authenticated user.
+
+    Accepts JWT token from:
+    1. Authorization header (Bearer token)
+    2. NextAuth session cookie (fallback for browser requests)
+    """
     if not settings.auth_enabled:
         # Return a dummy user when auth is disabled (for development)
         return CurrentUser(
@@ -108,14 +128,22 @@ async def get_current_user(
             google_id="dev-google-id",
         )
 
-    if not credentials:
+    # Try to get token from Authorization header first
+    token: Optional[str] = None
+    if credentials:
+        token = credentials.credentials
+    else:
+        # Fall back to cookie-based authentication
+        token = get_token_from_cookie(request)
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token_payload = decode_jwt(credentials.credentials)
+    token_payload = decode_jwt(token)
     user = await get_or_create_user(db, token_payload)
 
     return CurrentUser(
@@ -128,14 +156,22 @@ async def get_current_user(
 
 
 async def get_optional_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[CurrentUser]:
     """Dependency to optionally get current user (no error if not authenticated)."""
-    if not credentials:
+    # Check if there's any token available
+    token: Optional[str] = None
+    if credentials:
+        token = credentials.credentials
+    else:
+        token = get_token_from_cookie(request)
+
+    if not token:
         return None
 
     try:
-        return await get_current_user(credentials, db)
+        return await get_current_user(request, credentials, db)
     except HTTPException:
         return None

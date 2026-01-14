@@ -20,6 +20,9 @@ class LLMProvider(str, Enum):
 class QueryMode(str, Enum):
     CHAT = "chat"
     RESEARCH = "research"
+    CODE = "code"
+    WRITING = "writing"
+    DATA = "data"
 
 
 class ResearchScenario(str, Enum):
@@ -158,3 +161,73 @@ class UnifiedQueryResponse(BaseModel):
     content: str | None = None
     model: str
     provider: LLMProvider
+
+
+# Conversation Schemas
+class ConversationType(str, Enum):
+    CHAT = "chat"
+    RESEARCH = "research"
+    CODE = "code"
+    WRITING = "writing"
+    DATA = "data"
+
+
+class ConversationMessageResponse(BaseModel):
+    """Response model for a conversation message."""
+
+    id: str
+    conversation_id: str
+    role: MessageRole
+    content: str
+    metadata: dict[str, Any] | None = None
+    created_at: str
+
+
+class ConversationResponse(BaseModel):
+    """Response model for a conversation."""
+
+    id: str
+    title: str
+    type: ConversationType
+    user_id: str
+    created_at: str
+    updated_at: str
+    messages: list[ConversationMessageResponse] = Field(default_factory=list)
+
+
+class ConversationListResponse(BaseModel):
+    """Response model for conversation list (without messages)."""
+
+    id: str
+    title: str
+    type: ConversationType
+    user_id: str
+    created_at: str
+    updated_at: str
+
+
+class CreateConversationRequest(BaseModel):
+    """Request to create a new conversation."""
+
+    title: str
+    type: ConversationType = ConversationType.CHAT
+
+
+class UpdateConversationRequest(BaseModel):
+    """Request to update a conversation."""
+
+    title: str | None = None
+
+
+class CreateMessageRequest(BaseModel):
+    """Request to add a message to a conversation."""
+
+    role: MessageRole
+    content: str
+    metadata: dict[str, Any] | None = None
+
+
+class UpdateMessageRequest(BaseModel):
+    """Request to update a message."""
+
+    content: str

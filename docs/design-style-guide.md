@@ -1,12 +1,13 @@
 # Frontend Style Guide
 
-A clean, minimal, and modern design system using pure neutral grays with semantic color tokens.
+A clean, minimal, and modern design system using warm stone (light) and refined ink (dark) themes with semantic color tokens.
 
 ## Design Philosophy
 
 - **Clean & Minimal** - No unnecessary shadows, borders only where needed
-- **Pure Neutrals** - Black, white, and gray palette (no warm tones)
+- **Warm Neutrals** - Warm stone light theme, refined ink dark theme
 - **Semantic Tokens** - Use CSS variables for consistency across themes
+- **Flat Design** - No gradients, simple solid colors
 - **Subtle Interactions** - Simple background color changes, no translate/scale effects
 - **Generous Whitespace** - Let content breathe
 - **Reduced Motion** - Simple fade/opacity transitions only
@@ -17,17 +18,17 @@ A clean, minimal, and modern design system using pure neutral grays with semanti
 
 | Token | Light Mode | Dark Mode | Usage |
 |-------|------------|-----------|-------|
-| `bg-background` | White | #0a0a0a | Page backgrounds |
-| `bg-card` | White | #1a1a1a | Cards, elevated surfaces |
-| `bg-secondary` | #f5f5f5 | #262626 | Sidebars, subtle backgrounds |
-| `bg-muted` | #f5f5f5 | #262626 | Disabled states, read items |
-| `text-foreground` | #171717 | #fafafa | Primary text |
-| `text-muted-foreground` | #737373 | #a3a3a3 | Secondary text |
-| `border-border` | #e5e5e5 | #2d2d2d | Standard borders |
+| `bg-background` | Warm cream | Deep blue-gray | Page backgrounds |
+| `bg-card` | Off-white | Dark blue-gray | Cards, elevated surfaces |
+| `bg-secondary` | Light stone | Muted ink | Sidebars, subtle backgrounds |
+| `bg-muted` | Light stone | Muted ink | Disabled states, read items |
+| `text-foreground` | Near black | Off-white | Primary text |
+| `text-muted-foreground` | Warm gray | Cool gray | Secondary text |
+| `border-border` | Light border | Dark border | Standard borders |
 | `border-subtle` | 50% opacity | 50% opacity | Card borders, containers |
 | `border-muted` | 30% opacity | 30% opacity | Dividers, separators |
-| `bg-primary` | #171717 | #fafafa | Primary buttons, accents |
-| `text-primary-foreground` | White | #171717 | Text on primary |
+| `bg-primary` | Near black | Off-white | Primary buttons, accents |
+| `text-primary-foreground` | White | Near black | Text on primary |
 | `bg-destructive` | Red | Red | Error states, delete buttons |
 | `text-destructive` | Red | Red | Error text, warning icons |
 
@@ -72,6 +73,8 @@ Uses native system fonts for optimal performance and a native feel on each platf
 | `text-lg` | 18px | Card titles, subsections |
 | `text-xl` | 20px | Section headers |
 | `text-2xl` | 24px | Page titles |
+| `text-3xl` | 30px | Hero titles |
+| `text-4xl` | 36px | Large hero titles |
 
 **Note:** Minimum font size is 12px (`text-xs`) for WCAG accessibility.
 
@@ -86,81 +89,156 @@ Uses native system fonts for optimal performance and a native feel on each platf
 
 ## Color Palette
 
-### CSS Variables (Light Mode)
+### CSS Variables (Light Mode - Warm Stone)
 
 ```css
---background: 0 0% 100%;      /* Pure white */
---foreground: 0 0% 9%;        /* Near black #171717 */
---primary: 0 0% 9%;           /* Same as foreground */
---primary-foreground: 0 0% 100%;
---secondary: 0 0% 96%;        /* Light gray #f5f5f5 */
---muted: 0 0% 96%;
---muted-foreground: 0 0% 45%;
---border: 0 0% 90%;           /* #e5e5e5 */
---card: 0 0% 100%;
+--background: 40 25% 96%;      /* Warm cream */
+--foreground: 30 10% 15%;      /* Near black */
+--primary: 30 15% 15%;         /* Dark warm */
+--primary-foreground: 40 20% 97%;
+--secondary: 35 15% 93%;       /* Light stone */
+--muted: 35 12% 91%;
+--muted-foreground: 30 8% 45%;
+--border: 35 12% 88%;
+--card: 40 25% 99%;
 ```
 
-### CSS Variables (Dark Mode)
+### CSS Variables (Dark Mode - Refined Ink)
 
 ```css
---background: 0 0% 4%;        /* Deep black #0a0a0a */
---foreground: 0 0% 98%;       /* Off-white #fafafa */
---primary: 0 0% 98%;
---primary-foreground: 0 0% 9%;
---secondary: 0 0% 15%;        /* #262626 */
---muted: 0 0% 15%;
---muted-foreground: 0 0% 64%;
---border: 0 0% 18%;           /* #2d2d2d */
---card: 0 0% 7%;              /* #1a1a1a */
+--background: 220 18% 12%;     /* Deep blue-gray */
+--foreground: 40 15% 92%;      /* Off-white */
+--primary: 40 15% 92%;
+--primary-foreground: 220 15% 13%;
+--secondary: 220 12% 22%;      /* Muted ink */
+--muted: 220 10% 20%;
+--muted-foreground: 220 8% 58%;
+--border: 220 10% 25%;
+--card: 220 14% 16%;
 ```
 
-### Gray Palette
+## Logo
 
-| Shade | Hex | Usage |
-|-------|-----|-------|
-| gray-50 | #fafafa | Lightest backgrounds |
-| gray-100 | #f5f5f5 | Secondary backgrounds |
-| gray-200 | #e5e5e5 | Borders |
-| gray-400 | #a3a3a3 | Muted text (dark mode) |
-| gray-500 | #737373 | Muted text (light mode) |
-| gray-600 | #525252 | Body text |
-| gray-900 | #171717 | Headings, primary text |
-| gray-950 | #0a0a0a | Dark mode backgrounds |
+### Theme-Adaptive Logo
+
+Use a single SVG logo with `currentColor` that adapts to themes:
+
+```tsx
+// Logo in inverted container (recommended)
+<div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+  <Image
+    src="/images/logo.svg"
+    alt="Logo"
+    width={20}
+    height={20}
+    className="invert dark:invert-0"
+  />
+</div>
+
+// Larger variant for welcome screens
+<div className="w-11 h-11 rounded-xl bg-foreground flex items-center justify-center">
+  <Image
+    src="/images/logo.svg"
+    alt="Logo"
+    width={26}
+    height={26}
+    className="invert dark:invert-0"
+  />
+</div>
+```
 
 ## Buttons
 
-### Primary Button
+### Primary Button (Flat)
 
 ```tsx
 className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
 ```
 
+**Full example:**
+```tsx
+<button className="w-full flex items-center justify-center gap-2 h-10 px-4 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+  <Plus className="w-4 h-4" />
+  <span>Create</span>
+</button>
+```
+
 ### Secondary Button
 
 ```tsx
-className="bg-secondary text-foreground hover:bg-secondary transition-colors"
+className="bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
 ```
 
 ### Outline Button
 
 ```tsx
-className="border border-subtle bg-card text-foreground hover:bg-secondary/50 transition-colors"
+className="border border-border bg-card text-foreground hover:bg-secondary/50 transition-colors"
 ```
 
 ### Ghost Button
 
 ```tsx
-className="hover:bg-secondary hover:text-foreground transition-colors"
+className="text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
 ```
 
 ### Destructive Button
 
 ```tsx
-// Solid
 className="bg-destructive text-white hover:bg-destructive/90 transition-colors"
+```
 
-// Icon
-className="p-2 text-destructive hover:text-destructive/80 hover:bg-destructive/10 rounded-lg transition-colors"
+**Avoid:** Gradients, shadows, scale effects, rotate animations on buttons.
+
+## Selection States
+
+### Pill/Chip Selection
+
+```tsx
+// Unselected
+className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-card text-muted-foreground border border-border hover:bg-secondary/50 hover:text-foreground transition-colors"
+
+// Selected (with ring and checkmark)
+className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground ring-1 ring-foreground/50"
+```
+
+### Selection with Checkmark Indicator
+
+```tsx
+{isSelected ? (
+  <span className="flex items-center justify-center w-4 h-4 rounded-full bg-foreground text-background">
+    <Check className="w-3 h-3" strokeWidth={3} />
+  </span>
+) : (
+  <span className="text-muted-foreground">
+    <Icon className="w-5 h-5" />
+  </span>
+)}
+```
+
+## Input Areas
+
+### Standard Input
+
+```tsx
+className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30 transition-colors"
+```
+
+### Large Textarea (Welcome Screen)
+
+```tsx
+<div className="relative flex flex-col bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors">
+  <textarea
+    className="flex-1 w-full min-h-[100px] max-h-[200px] px-5 py-4 bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
+    rows={3}
+  />
+  {/* Bottom bar */}
+  <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
+    <p className="text-xs text-muted-foreground">Keyboard hint</p>
+    <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground">
+      Send
+    </button>
+  </div>
+</div>
 ```
 
 ## Cards & Containers
@@ -169,20 +247,20 @@ className="p-2 text-destructive hover:text-destructive/80 hover:bg-destructive/1
 
 ```tsx
 // Standard card
-className="rounded-xl bg-card border border-subtle"
+className="rounded-xl bg-card border border-border"
 
 // Interactive card
-className="bg-card rounded-xl p-6 border border-subtle transition-colors hover:bg-secondary/50"
+className="bg-card rounded-xl p-6 border border-border transition-colors hover:bg-secondary/50"
 
 // Container with dividers
-className="divide-y divide-muted"
+className="divide-y divide-border"
 ```
 
 **Avoid:** Shadow effects on cards, translate/scale hover transforms.
 
 ## Shadows
 
-Simplified to 4 essential variants:
+Use sparingly - prefer borders for structure:
 
 | Class | Usage |
 |-------|-------|
@@ -191,8 +269,6 @@ Simplified to 4 essential variants:
 | `shadow-md` | Dropdowns, floating elements |
 | `shadow-lg` | Modals, important overlays |
 
-**Note:** Prefer borderless/border designs over shadows for cards.
-
 ## Border Radius
 
 | Class | Size | Usage |
@@ -200,7 +276,7 @@ Simplified to 4 essential variants:
 | `rounded-md` | 6px | Badges, tags, small pills |
 | `rounded-lg` | 8px | Buttons, inputs, icon containers |
 | `rounded-xl` | 12px | Cards, containers, modals |
-| `rounded-full` | 9999px | Avatars, status dots, pills |
+| `rounded-full` | 9999px | Avatars, status dots, circular pills |
 
 ## Icons
 
@@ -209,7 +285,7 @@ Use `lucide-react` for all icons:
 | Size | Class | Usage |
 |------|-------|-------|
 | Small | `w-4 h-4` | Default, most buttons |
-| Medium | `w-5 h-5` | Section headers, nav items |
+| Medium | `w-5 h-5` | Section headers, nav items, feature pills |
 | Large | `w-6 h-6` | Feature cards, empty states |
 
 ### Icon Container
@@ -220,9 +296,9 @@ Use `lucide-react` for all icons:
   <Icon className="w-5 h-5 text-muted-foreground" />
 </div>
 
-// Primary
-<div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-  <Icon className="w-5 h-5 text-primary" />
+// Inverted (for logos)
+<div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+  <Icon className="w-4 h-4 text-background" />
 </div>
 ```
 
@@ -232,19 +308,13 @@ Use `lucide-react` for all icons:
 
 ```tsx
 // Active
-className="bg-card text-foreground font-medium shadow-sm"
+className="bg-secondary text-foreground font-medium"
 
 // Inactive
-className="text-muted-foreground hover:bg-card hover:text-foreground transition-colors"
+className="text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
 ```
 
 ## Badges
-
-### Content Type Badge (on images)
-
-```tsx
-className="px-2.5 py-1 rounded-md text-xs font-medium bg-black/60 text-white backdrop-blur-sm"
-```
 
 ### Feature Tag
 
@@ -252,11 +322,10 @@ className="px-2.5 py-1 rounded-md text-xs font-medium bg-black/60 text-white bac
 className="px-2.5 py-1 text-xs bg-secondary text-muted-foreground rounded-md"
 ```
 
-## Form Inputs
+### Status Badge
 
 ```tsx
-className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground
-  focus:outline-none focus:ring-2 focus:ring-ring transition-colors"
+className="px-2 py-0.5 text-xs font-medium rounded-full bg-secondary text-muted-foreground"
 ```
 
 ## Modals & Dialogs
@@ -273,6 +342,20 @@ className="fixed inset-0 z-50 bg-black/40"
 className="w-full max-w-md bg-card rounded-xl border border-border"
 ```
 
+## Dropdown Menus
+
+```tsx
+<div className="bg-card border border-border rounded-xl overflow-hidden min-w-[220px]">
+  <button className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-secondary/50">
+    <Icon className="w-5 h-5 text-muted-foreground" />
+    <div className="flex-1">
+      <div className="text-sm font-medium">Title</div>
+      <div className="text-xs text-muted-foreground">Description</div>
+    </div>
+  </button>
+</div>
+```
+
 ## Error States
 
 ```tsx
@@ -287,11 +370,9 @@ Standard transition for all interactive elements:
 
 ```tsx
 className="transition-colors"
-// or for multiple properties:
-className="transition-all duration-200"
 ```
 
-**Avoid:** `hover:-translate-y`, `hover:scale-*`, complex animations.
+**Avoid:** `hover:-translate-y`, `hover:scale-*`, `transition-all`, complex animations.
 
 ## Touch Targets
 
@@ -301,46 +382,30 @@ Minimum 44px for mobile accessibility:
 className="min-h-[44px] min-w-[44px]"
 ```
 
-## Quick Reference Patterns
+## Animations
 
-### Card with Hover
-
-```tsx
-<div className="bg-card rounded-xl p-6 border border-subtle transition-colors hover:bg-secondary/50">
-  {/* content */}
-</div>
-```
-
-### Primary Button
+Use simple, subtle animations with staggered delays:
 
 ```tsx
-<button className="px-5 py-2 bg-primary text-primary-foreground font-medium rounded-lg
-  transition-colors hover:bg-primary/90">
-  Action
-</button>
+// Fade in
+className="animate-fade-in"
+style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
+
+// Slide up
+className="animate-slide-up"
+style={{ animationDelay: '0.2s', animationFillMode: 'backwards' }}
 ```
 
-### Error Alert
-
-```tsx
-<div className="p-4 bg-destructive/10 border border-destructive/30 rounded-xl">
-  <p className="text-sm text-destructive">{error}</p>
-</div>
-```
-
-### Avatar Fallback
-
-```tsx
-<div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
-  <span className="text-sm font-medium text-muted-foreground">{initials}</span>
-</div>
-```
+**Stagger pattern:** 0.1s, 0.2s, 0.3s, 0.4s for sequential elements.
 
 ## Key Principles
 
-1. **No scale/translate on hover** - Use background color changes instead
-2. **Minimal shadows** - Borders provide structure, shadows are optional
-3. **Semantic colors only** - Never hardcode hex/rgb values in components
-4. **Consistent spacing** - Use Tailwind's spacing scale (p-4, p-6, gap-3, etc.)
-5. **Accessible** - 44px touch targets, 12px minimum font size
-6. **Simple transitions** - `transition-colors` for most interactions
+1. **Flat design** - No gradients, use solid colors
+2. **No scale/translate on hover** - Use background color changes instead
+3. **Minimal shadows** - Borders provide structure, shadows are optional
+4. **Semantic colors only** - Never hardcode hex/rgb values in components
+5. **Consistent spacing** - Use Tailwind's spacing scale (p-4, p-6, gap-3, etc.)
+6. **Accessible** - 44px touch targets, 12px minimum font size
+7. **Simple transitions** - `transition-colors` for most interactions
+8. **Ring for selection** - Use `ring-1 ring-foreground/50` for selected states
+9. **Checkmark indicators** - Show selection with circular checkmark badges

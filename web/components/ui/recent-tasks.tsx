@@ -1,22 +1,23 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import {
   MessageCircle,
   Search,
   Trash2,
-  Sparkles,
   Loader2,
   CheckCircle2,
   AlertCircle,
-  GraduationCap,
-  TrendingUp,
   Code2,
-  Newspaper,
+  PenTool,
+  BarChart3,
+  ListFilter,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Conversation, ResearchScenario } from "@/lib/types";
+import type { Conversation, ConversationType } from "@/lib/types";
 import type { ResearchTask } from "@/lib/stores/task-store";
 
 // Unified item type
@@ -24,11 +25,25 @@ export type RecentItem =
   | { type: "conversation"; data: Conversation }
   | { type: "task"; data: ResearchTask };
 
-const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
-  academic: <GraduationCap className="w-2.5 h-2.5" />,
-  market: <TrendingUp className="w-2.5 h-2.5" />,
-  technical: <Code2 className="w-2.5 h-2.5" />,
-  news: <Newspaper className="w-2.5 h-2.5" />,
+// Filter types
+type FilterType = "all" | ConversationType | "task";
+
+const CONVERSATION_TYPE_ICONS: Record<ConversationType, React.ReactNode> = {
+  chat: <MessageCircle className="w-4 h-4" />,
+  research: <Search className="w-4 h-4" />,
+  code: <Code2 className="w-4 h-4" />,
+  writing: <PenTool className="w-4 h-4" />,
+  data: <BarChart3 className="w-4 h-4" />,
+};
+
+const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
+  all: <ListFilter className="w-3.5 h-3.5" />,
+  chat: <MessageCircle className="w-3.5 h-3.5" />,
+  research: <Search className="w-3.5 h-3.5" />,
+  code: <Code2 className="w-3.5 h-3.5" />,
+  writing: <PenTool className="w-3.5 h-3.5" />,
+  data: <BarChart3 className="w-3.5 h-3.5" />,
+  task: <Search className="w-3.5 h-3.5" />,
 };
 
 // Group items by time period
@@ -81,6 +96,7 @@ export function RecentTasks({
   className,
 }: RecentTasksProps) {
   const t = useTranslations("sidebar");
+  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
 
   // Combine and sort items
   const allItems = useMemo(() => {
@@ -99,25 +115,36 @@ export function RecentTasks({
     );
   }, [conversations, tasks]);
 
+  // Filter items based on active filter
+  const filteredItems = useMemo(() => {
+    if (activeFilter === "all") return allItems;
+    if (activeFilter === "task") {
+      return allItems.filter((item) => item.type === "task");
+    }
+    // Filter by conversation type
+    return allItems.filter(
+      (item) =>
+        item.type === "conversation" && item.data.type === activeFilter
+    );
+  }, [allItems, activeFilter]);
+
   const groupedItems = useMemo(
-    () => groupByTimePeriod(allItems),
-    [allItems]
+    () => groupByTimePeriod(filteredItems),
+    [filteredItems]
   );
 
-  // Format relative time
-  const formatRelativeTime = (date: Date): string => {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return t("justNow");
-    if (diffMins < 60) return t("minutesAgo", { minutes: diffMins });
-    if (diffHours < 24) return t("hoursAgo", { hours: diffHours });
-    if (diffDays < 7) return t("daysAgo", { days: diffDays });
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
+  // Get available filters based on existing items
+  const availableFilters = useMemo(() => {
+    const filters = new Set<FilterType>(["all"]);
+    allItems.forEach((item) => {
+      if (item.type === "task") {
+        filters.add("task");
+      } else {
+        filters.add(item.data.type);
+      }
+    });
+    return Array.from(filters);
+  }, [allItems]);
 
   const periodLabels: Record<string, string> = {
     today: t("today"),
@@ -126,25 +153,98 @@ export function RecentTasks({
     earlier: t("earlier"),
   };
 
+  const filterLabels: Record<FilterType, string> = {
+    all: t("all") || "All",
+    chat: t("chat"),
+    research: t("research"),
+    code: t("code"),
+    writing: t("writing"),
+    data: t("data"),
+    task: t("task") || "Task",
+  };
+
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  // Close filter menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setIsFilterOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   return (
     <div className={cn("flex flex-col", className)}>
-      {/* Header */}
-      <div className="px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-3.5 h-3.5 text-muted-foreground/60" />
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+      {/* Header with Filter Dropdown */}
+      {allItems.length > 0 && (
+        <div className="px-3 py-2 flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground">
             {t("recentTasks")}
           </span>
+
+          {/* Filter Dropdown */}
+          {availableFilters.length > 1 && (
+            <div ref={filterRef} className="relative">
+              <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors",
+                  isFilterOpen || activeFilter !== "all"
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                )}
+              >
+                {FILTER_ICONS[activeFilter]}
+                <span>{filterLabels[activeFilter]}</span>
+                <ChevronDown className={cn(
+                  "w-3 h-3 transition-transform",
+                  isFilterOpen && "rotate-180"
+                )} />
+              </button>
+
+              {/* Dropdown Menu */}
+              {isFilterOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-card border border-border rounded-lg overflow-hidden">
+                  {availableFilters.map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => {
+                        setActiveFilter(filter);
+                        setIsFilterOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors text-left",
+                        activeFilter === filter
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      )}
+                    >
+                      {FILTER_ICONS[filter]}
+                      <span className="flex-1">{filterLabels[filter]}</span>
+                      {activeFilter === filter && (
+                        <Check className="w-3 h-3" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-          {allItems.length}
-        </span>
-      </div>
+      )}
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-2 md:px-3 pb-3">
+      <div className="flex-1 overflow-y-auto px-3 pb-3">
         {allItems.length === 0 ? (
           <EmptyState />
+        ) : filteredItems.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">{t("noResults") || "No items found"}</p>
+          </div>
         ) : (
           <div className="space-y-4">
             {Object.entries(groupedItems).map(
@@ -158,7 +258,6 @@ export function RecentTasks({
                     activeTaskId={activeTaskId}
                     onSelect={onSelect}
                     onDelete={onDelete}
-                    formatRelativeTime={formatRelativeTime}
                   />
                 )
             )}
@@ -174,8 +273,8 @@ function EmptyState() {
   const t = useTranslations("sidebar");
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4">
-      <div className="w-12 h-12 rounded-2xl bg-secondary/50 flex items-center justify-center mb-4">
-        <MessageCircle className="w-5 h-5 text-muted-foreground/60" />
+      <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-3">
+        <MessageCircle className="w-5 h-5 text-muted-foreground" />
       </div>
       <p className="text-sm text-muted-foreground text-center mb-1">
         {t("noConversations")}
@@ -195,7 +294,6 @@ interface TimeGroupProps {
   activeTaskId: string | null;
   onSelect: (item: RecentItem) => void;
   onDelete: (item: RecentItem) => void;
-  formatRelativeTime: (date: Date) => string;
 }
 
 function TimeGroup({
@@ -205,40 +303,31 @@ function TimeGroup({
   activeTaskId,
   onSelect,
   onDelete,
-  formatRelativeTime,
 }: TimeGroupProps) {
   return (
-    <div className="relative">
+    <div>
       {/* Time label */}
-      <div className="sticky top-0 z-10 py-1.5 bg-card/95 backdrop-blur-sm">
-        <span className="text-[11px] font-medium text-muted-foreground/70 tracking-wide">
+      <div className="px-2 py-1.5">
+        <span className="text-xs font-medium text-muted-foreground">
           {label}
         </span>
       </div>
 
-      {/* Timeline */}
-      <div className="relative ml-2">
-        {/* Vertical line */}
-        <div className="absolute left-[5px] top-2 bottom-2 w-px bg-border" />
-
-        {/* Items */}
-        <div className="space-y-0.5">
-          {items.map((item, index) => (
-            <RecentItemRow
-              key={item.data.id}
-              item={item}
-              isActive={
-                item.type === "conversation"
-                  ? item.data.id === activeConversationId
-                  : item.data.id === activeTaskId
-              }
-              isLast={index === items.length - 1}
-              onClick={() => onSelect(item)}
-              onDelete={() => onDelete(item)}
-              formatRelativeTime={formatRelativeTime}
-            />
-          ))}
-        </div>
+      {/* Items */}
+      <div className="space-y-0.5">
+        {items.map((item) => (
+          <RecentItemRow
+            key={item.data.id}
+            item={item}
+            isActive={
+              item.type === "conversation"
+                ? item.data.id === activeConversationId
+                : item.data.id === activeTaskId
+            }
+            onClick={() => onSelect(item)}
+            onDelete={() => onDelete(item)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -248,111 +337,83 @@ function TimeGroup({
 interface RecentItemRowProps {
   item: RecentItem;
   isActive: boolean;
-  isLast: boolean;
   onClick: () => void;
   onDelete: () => void;
-  formatRelativeTime: (date: Date) => string;
 }
 
 function RecentItemRow({
   item,
   isActive,
-  isLast,
   onClick,
   onDelete,
-  formatRelativeTime,
 }: RecentItemRowProps) {
-  const t = useTranslations("sidebar");
   const isTask = item.type === "task";
-  const isResearch =
-    isTask || (item.type === "conversation" && item.data.type === "research");
+  const conversationType = item.type === "conversation" ? item.data.type : null;
   const title = isTask ? item.data.query : item.data.title;
   const taskStatus = isTask ? item.data.status : null;
+
+  // Get type icon (always show type, not status)
+  const typeIcon = isTask
+    ? <Search className="w-4 h-4" />
+    : CONVERSATION_TYPE_ICONS[conversationType || "chat"];
+
+  // Get status indicator for tasks
+  const getStatusIndicator = () => {
+    if (!isTask) return null;
+    if (taskStatus === "running") {
+      return <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />;
+    }
+    if (taskStatus === "completed") {
+      return <CheckCircle2 className="w-3 h-3 text-green-500" />;
+    }
+    if (taskStatus === "failed") {
+      return <AlertCircle className="w-3 h-3 text-destructive" />;
+    }
+    return null;
+  };
 
   return (
     <div
       className={cn(
-        "group relative flex items-start gap-3 pl-1 pr-2 py-2 rounded-lg cursor-pointer transition-all duration-150",
-        isActive ? "bg-secondary" : "hover:bg-secondary/50"
+        "group relative flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer transition-colors",
+        isActive
+          ? "bg-secondary text-foreground"
+          : "hover:bg-secondary/50"
       )}
       onClick={onClick}
     >
-      {/* Timeline dot - encodes status in color/animation */}
-      <div className="relative z-10 mt-1.5">
-        <div
-          className={cn(
-            "w-2.5 h-2.5 rounded-full border-2 transition-all",
-            // Active item
-            isActive && "border-foreground bg-foreground shadow-md",
-            // Running task - pulsing animation
-            !isActive && taskStatus === "running" && "border-blue-500 bg-blue-500/40 animate-pulse",
-            // Completed
-            !isActive && taskStatus === "completed" && "border-green-500/70 bg-green-500/20",
-            // Failed
-            !isActive && taskStatus === "failed" && "border-red-500/70 bg-red-500/20",
-            // Research (no specific status)
-            !isActive && !taskStatus && isResearch && "border-blue-500/60 bg-blue-500/20 group-hover:border-blue-500",
-            // Chat (default)
-            !isActive && !taskStatus && !isResearch && "border-muted-foreground/40 bg-muted-foreground/10 group-hover:border-muted-foreground/60"
-          )}
-        />
+      {/* Type Icon Container */}
+      <div className={cn(
+        "flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-colors",
+        isActive ? "bg-foreground/10" : "bg-secondary group-hover:bg-secondary"
+      )}>
+        <span className={cn(
+          "transition-colors",
+          isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
+        )}>
+          {typeIcon}
+        </span>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 min-w-0 pt-0.5">
-        <div className="flex items-center gap-2 mb-0.5">
-          {/* Type indicator */}
-          <div
-            className={cn(
-              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider",
-              isTask
-                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                : isResearch
-                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                  : "bg-muted-foreground/10 text-muted-foreground"
-            )}
-          >
-            {isTask ? (
-              <>
-                {SCENARIO_ICONS[(item.data as ResearchTask).scenario]}
-                <span>{t("research")}</span>
-              </>
-            ) : isResearch ? (
-              <>
-                <Search className="w-2.5 h-2.5" />
-                <span>{t("research")}</span>
-              </>
-            ) : (
-              <>
-                <MessageCircle className="w-2.5 h-2.5" />
-                <span>{t("chat")}</span>
-              </>
-            )}
-          </div>
+      {/* Title */}
+      <span
+        className={cn(
+          "flex-1 text-sm truncate",
+          isActive ? "text-foreground font-medium" : "text-foreground/80 group-hover:text-foreground"
+        )}
+      >
+        {title.slice(0, 40) + (title.length > 40 ? "..." : "")}
+      </span>
 
-          {/* Timestamp */}
-          <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-            {formatRelativeTime(new Date(item.data.updatedAt))}
-          </span>
-        </div>
-
-        {/* Title */}
-        <p
-          className={cn(
-            "text-sm leading-snug truncate transition-colors",
-            isActive ? "text-foreground font-medium" : "text-foreground/80"
-          )}
-        >
-          {title.slice(0, 50) + (title.length > 50 ? "..." : "")}
-        </p>
-      </div>
+      {/* Status indicator for tasks */}
+      {getStatusIndicator()}
 
       {/* Delete button */}
       <button
         className={cn(
-          "absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-all",
+          "flex-shrink-0 p-1 rounded transition-colors",
           "opacity-0 group-hover:opacity-100",
-          "hover:bg-destructive/10 hover:text-destructive"
+          "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
         )}
         onClick={(e) => {
           e.stopPropagation();

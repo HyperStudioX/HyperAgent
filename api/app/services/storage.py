@@ -1,9 +1,9 @@
 """Storage service for research task persistence."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,7 +23,7 @@ class StorageService:
         query: str,
         depth: str,
         scenario: str,
-        user_id: str | None = None,
+        user_id: str,
     ) -> ResearchTask:
         """Create a new research task.
 
@@ -33,7 +33,7 @@ class StorageService:
             query: Research query
             depth: Research depth level
             scenario: Research scenario type
-            user_id: Optional user identifier
+            user_id: User identifier (required)
 
         Returns:
             Created ResearchTask instance
@@ -223,6 +223,78 @@ class StorageService:
         if task:
             return task.to_dict()
         return None
+
+    async def update_task_worker_info(
+        self,
+        db: AsyncSession,
+        task_id: str,
+        worker_job_id: str,
+        worker_name: str | None = None,
+    ) -> None:
+        """Update task with worker tracking information.
+
+        Args:
+            db: Database session
+            task_id: Task identifier
+            worker_job_id: ARQ job ID
+            worker_name: Name of the worker processing the task
+        """
+        await db.execute(
+            update(ResearchTask)
+            .where(ResearchTask.id == task_id)
+            .values(
+                worker_job_id=worker_job_id,
+                worker_name=worker_name,
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.flush()
+        logger.info(
+            "task_worker_info_updated",
+            task_id=task_id,
+            worker_job_id=worker_job_id,
+        )
+
+    async def update_task_progress(
+        self,
+        db: AsyncSession,
+        task_id: str,
+        progress: int,
+    ) -> None:
+        """Update task progress percentage.
+
+        Args:
+            db: Database session
+            task_id: Task identifier
+            progress: Progress percentage (0-100)
+        """
+        await db.execute(
+            update(ResearchTask)
+            .where(ResearchTask.id == task_id)
+            .values(progress=progress)
+        )
+        await db.flush()
+
+    async def increment_task_retry(
+        self,
+        db: AsyncSession,
+        task_id: str,
+    ) -> int:
+        """Increment task retry count and return new value.
+
+        Args:
+            db: Database session
+            task_id: Task identifier
+
+        Returns:
+            New retry count
+        """
+        task = await self.get_task(db, task_id)
+        if task:
+            task.retry_count += 1
+            await db.flush()
+            return task.retry_count
+        return 0
 
 
 # Global instance

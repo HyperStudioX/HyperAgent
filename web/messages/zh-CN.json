@@ -13,6 +13,9 @@
     "light": "浅色",
     "dark": "深色",
     "language": "语言",
+    "preferences": "偏好设置",
+    "signIn": "登录",
+    "signOut": "退出",
     "noConversations": "暂无对话",
     "startChatOrResearch": "开始聊天或研究任务",
     "today": "今天",
@@ -23,17 +26,49 @@
     "minutesAgo": "{minutes}分钟前",
     "hoursAgo": "{hours}小时前",
     "daysAgo": "{days}天前",
+    "all": "全部",
+    "task": "任务",
     "research": "研究",
     "chat": "对话",
+    "code": "代码",
+    "writing": "写作",
+    "data": "数据",
+    "noResults": "没有找到项目",
     "chatDescription": "快速提问与对话",
     "researchDescription": "深度分析与报告"
   },
   "home": {
     "welcomeTitle": "有什么我可以帮助您的？",
-    "welcomeSubtitle": "随时提问或选择研究模式进行深度分析",
+    "welcomeSubtitle": "随时提问或选择专业模式完成任务",
     "inputPlaceholder": "随便问...",
     "researchPlaceholder": "研究：{scenario}...",
+    "codePlaceholder": "描述您需要的代码...",
+    "writingPlaceholder": "您想让我写什么？",
+    "dataPlaceholder": "描述您需要的数据分析...",
+    "selectMode": "选择模式",
     "deepResearch": "深度研究"
+  },
+  "agents": {
+    "chat": {
+      "name": "对话",
+      "description": "快速提问与对话"
+    },
+    "research": {
+      "name": "深度研究",
+      "description": "深度分析与综合报告"
+    },
+    "code": {
+      "name": "代码助手",
+      "description": "编写、解释和执行代码"
+    },
+    "writing": {
+      "name": "写作",
+      "description": "文章、文档和长篇内容"
+    },
+    "data": {
+      "name": "数据分析",
+      "description": "分析数据并生成洞察"
+    }
   },
   "research": {
     "academic": {
@@ -98,8 +133,9 @@
     "copied": "已复制",
     "regenerate": "重新生成",
     "connectionError": "无法连接到服务器。请检查后端是否正在运行。",
-    "pressEnterToSend": "按Enter发送，Shift+Enter换行",
-    "typeMessage": "输入消息..."
+    "pressEnterToSend": "按 ⌘/Ctrl+Enter 发送",
+    "typeMessage": "输入消息...",
+    "send": "发送"
   },
   "conversation": {
     "newChat": "新对话",

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
@@ -21,11 +22,14 @@ interface SidebarProps {
 
 export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const {
     conversations,
     activeConversationId,
     hasHydrated: chatHydrated,
     setActiveConversation,
+    loadConversations,
+    deleteConversation,
   } = useChatStore();
   const {
     tasks,
@@ -33,11 +37,59 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
     hasHydrated: taskHydrated,
     setActiveTask,
     deleteTask,
+    loadTasks,
   } = useTaskStore();
-  const { deleteConversation } = useChatStore();
 
   const hasHydrated = chatHydrated && taskHydrated;
   const { theme, setTheme, mounted } = useTheme();
+
+  // Track if we've attempted to load conversations to prevent duplicate calls
+  const loadAttempted = useRef(false);
+
+  // Load conversations and tasks on mount (only load conversations if authenticated)
+  useEffect(() => {
+    // Wait for session to finish loading before making any decisions
+    if (status === "loading") {
+      return;
+    }
+
+    // If we've already attempted to load, don't try again
+    if (loadAttempted.current) {
+      return;
+    }
+
+    // If chat store is already hydrated, don't do anything
+    if (chatHydrated) {
+      return;
+    }
+
+    // Mark that we've attempted to load
+    loadAttempted.current = true;
+
+    // Only load from API if authenticated, otherwise just set hydrated
+    if (status === "authenticated") {
+      console.log("[Sidebar] Loading conversations from database");
+      loadConversations();
+    } else {
+      console.log("[Sidebar] Not authenticated, using local mode");
+      useChatStore.setState({ hasHydrated: true });
+    }
+  }, [status, chatHydrated, loadConversations]);
+
+  // Load tasks (from API if authenticated, otherwise rely on localStorage)
+  useEffect(() => {
+    if (status === "loading" || taskHydrated) {
+      return;
+    }
+
+    if (status === "authenticated") {
+      console.log("[Sidebar] Loading tasks from database");
+      loadTasks();
+    } else {
+      console.log("[Sidebar] Not authenticated, using local tasks only");
+      useTaskStore.setState({ hasHydrated: true });
+    }
+  }, [status, taskHydrated, loadTasks]);
 
   // Close sidebar on mobile when clicking outside
   useEffect(() => {
@@ -69,11 +121,15 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
     }
   };
 
-  const handleItemDelete = (item: RecentItem) => {
-    if (item.type === "conversation") {
-      deleteConversation(item.data.id);
-    } else {
-      deleteTask(item.data.id);
+  const handleItemDelete = async (item: RecentItem) => {
+    try {
+      if (item.type === "conversation") {
+        await deleteConversation(item.data.id);
+      } else {
+        await deleteTask(item.data.id);
+      }
+    } catch (error) {
+      console.error("Failed to delete item:", error);
     }
   };
 
@@ -82,7 +138,7 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
       {/* Mobile backdrop */}
       {isOpen && onClose && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden transition-opacity"
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
           onClick={onClose}
         />
       )}
@@ -90,86 +146,78 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "h-full flex flex-col bg-card border-border",
+          "h-full flex flex-col bg-secondary/30 border-border",
           // Desktop: fixed width sidebar
-          "md:w-80 md:border-r md:relative",
+          "md:w-72 md:border-r md:relative",
           // Mobile: full-screen overlay
-          "fixed inset-y-0 left-0 z-50 w-[85vw] max-w-sm border-r",
-          "transition-transform duration-300 ease-out",
+          "fixed inset-y-0 left-0 z-50 w-[280px] border-r",
+          "transition-transform duration-200",
           "md:translate-x-0", // Always visible on desktop
           isOpen ? "translate-x-0" : "-translate-x-full", // Slide in/out on mobile
           className
         )}
       >
-      {/* Logo */}
-      <div className="h-14 px-4 flex items-center justify-between border-b border-border">
-        <div className="flex items-center gap-2">
-          <Image
-            src="/images/logo-dark.svg"
-            alt="HyperAgent"
-            width={28}
-            height={28}
-            className="dark:hidden rounded-lg"
-          />
-          <Image
-            src="/images/logo-light.svg"
-            alt="HyperAgent"
-            width={28}
-            height={28}
-            className="hidden dark:block rounded-lg"
-          />
-          <span className="font-semibold text-foreground tracking-tight">HyperAgent</span>
+        {/* Header */}
+        <div className="h-14 px-4 flex items-center justify-between border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+              <Image
+                src="/images/logo.svg"
+                alt="HyperAgent"
+                width={18}
+                height={18}
+                className="invert dark:invert-0"
+              />
+            </div>
+            <span className="font-semibold text-foreground tracking-tight">HyperAgent</span>
+          </div>
+
+          {/* Mobile close button */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="md:hidden p-2 -mr-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+              aria-label="Close sidebar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
-        {/* Mobile close button */}
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="md:hidden p-2 -mr-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
-            aria-label="Close sidebar"
-          >
-            <X className="w-5 h-5" />
-          </button>
+        {/* Create Button */}
+        <div className="px-3 py-3">
+          <CreateMenu
+            onCreate={() => {
+              setActiveConversation(null);
+              setActiveTask(null);
+              router.push("/");
+            }}
+          />
+        </div>
+
+        {/* Recent Items */}
+        {hasHydrated && (
+          <RecentTasks
+            conversations={conversations}
+            tasks={tasks}
+            activeConversationId={activeConversationId}
+            activeTaskId={activeTaskId}
+            onSelect={handleItemSelect}
+            onDelete={handleItemDelete}
+            className="flex-1 min-h-0"
+          />
         )}
-      </div>
 
-      {/* Create Menu */}
-      <div className="p-3">
-        <CreateMenu
-          onCreate={() => {
-            setActiveConversation(null);
-            setActiveTask(null);
-            router.push("/");
-          }}
-        />
-      </div>
-
-      {/* Recent Tasks */}
-      {hasHydrated && (
-        <RecentTasks
-          conversations={conversations}
-          tasks={tasks}
-          activeConversationId={activeConversationId}
-          activeTaskId={activeTaskId}
-          onSelect={handleItemSelect}
-          onDelete={handleItemDelete}
-          className="flex-1 min-h-0"
-        />
-      )}
-
-      {/* Footer with Preferences and User Menu */}
-      <div className="p-3 border-t border-border space-y-3">
-        {/* Preferences Panel */}
-        <PreferencesPanel
-          theme={theme}
-          mounted={mounted}
-          onThemeChange={setTheme}
-        />
-
-        {/* User Section */}
-        <UserMenu />
-      </div>
-    </aside>
+        {/* Footer */}
+        <div className="px-3 py-3 border-t border-border space-y-2">
+          <PreferencesPanel
+            theme={theme}
+            mounted={mounted}
+            onThemeChange={setTheme}
+          />
+          <UserMenu />
+        </div>
+      </aside>
     </>
   );
 }

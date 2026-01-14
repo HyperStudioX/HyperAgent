@@ -29,6 +29,14 @@ const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
   news: <Newspaper className="w-4 h-4" />,
 };
 
+// Define all research steps upfront
+const INITIAL_STEPS: ResearchStep[] = [
+  { id: "1", type: "search", description: "Searching", status: "pending" },
+  { id: "2", type: "analyze", description: "Analyzing", status: "pending" },
+  { id: "3", type: "synthesize", description: "Synthesizing", status: "pending" },
+  { id: "4", type: "write", description: "Writing", status: "pending" },
+];
+
 interface TaskInfo {
   query: string;
   scenario: ResearchScenario;
@@ -116,14 +124,15 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
   // Memoize startResearch to avoid recreation
   const startResearch = useCallback(async (info: TaskInfo) => {
     setIsResearching(true);
-    setSteps([]);
+    // Initialize all steps as pending
+    setSteps([...INITIAL_STEPS]);
     setSources([]);
     setResearchResult("");
     setError(null);
 
     updateTaskStatus(taskId, "running");
 
-    let currentSteps: ResearchStep[] = [];
+    let currentSteps: ResearchStep[] = [...INITIAL_STEPS];
     let currentSources: Source[] = [];
 
     try {
@@ -165,19 +174,10 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
 
               if (event.type === "step") {
                 const stepData = event.data;
-                const existingIdx = currentSteps.findIndex((s) => s.type === stepData.type);
-                if (existingIdx >= 0) {
-                  currentSteps = currentSteps.map((s) =>
-                    s.type === stepData.type ? { ...s, status: stepData.status } : s
-                  );
-                } else {
-                  currentSteps = [...currentSteps, {
-                    id: stepData.id,
-                    type: stepData.type,
-                    description: stepData.description,
-                    status: stepData.status,
-                  }];
-                }
+                // Update the status of the matching step type
+                currentSteps = currentSteps.map((s) =>
+                  s.type === stepData.type ? { ...s, status: stepData.status } : s
+                );
                 setSteps([...currentSteps]);
                 updateTaskSteps(taskId, currentSteps);
               } else if (event.type === "source") {
@@ -413,12 +413,6 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                   </span>
                 </div>
               ))}
-              {steps.length === 0 && isResearching && (
-                <div className="flex items-center gap-3">
-                  <Loader2 className="w-5 h-5 text-foreground animate-spin" />
-                  <span className="text-sm text-muted-foreground">{t("startingResearch")}</span>
-                </div>
-              )}
             </div>
 
             {/* Sources */}

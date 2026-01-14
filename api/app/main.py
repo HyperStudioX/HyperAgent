@@ -9,7 +9,7 @@ from app.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.base import close_db, init_db
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.routers import health, query
+from app.routers import conversations, health, query, tasks
 
 # Initialize logging first
 setup_logging(
@@ -37,10 +37,26 @@ async def lifespan(app: FastAPI):
         if settings.environment == "production":
             raise
 
+    # Initialize task queue connection
+    from app.services.task_queue import task_queue
+
+    try:
+        await task_queue.get_pool()
+        logger.info("task_queue_ready")
+    except Exception as e:
+        logger.error("task_queue_init_failed", error=str(e))
+        # Continue without queue in development
+
     yield
 
     # Shutdown
     logger.info("application_shutting_down")
+
+    # Close task queue
+    try:
+        await task_queue.close()
+    except Exception as e:
+        logger.error("task_queue_close_failed", error=str(e))
 
     # Close database connections
     try:
@@ -85,3 +101,5 @@ app.add_middleware(
 # Routers
 app.include_router(health.router, prefix=settings.api_prefix, tags=["health"])
 app.include_router(query.router, prefix=settings.api_prefix, tags=["query"])
+app.include_router(tasks.router, prefix=settings.api_prefix, tags=["tasks"])
+app.include_router(conversations.router, prefix=settings.api_prefix, tags=["conversations"])

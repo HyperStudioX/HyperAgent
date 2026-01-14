@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -14,9 +15,10 @@ import type { Message } from "@/lib/types";
 interface MessageBubbleProps {
   message: Message;
   onRegenerate?: () => void;
+  isStreaming?: boolean;
 }
 
-export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
+export function MessageBubble({ message, onRegenerate, isStreaming = false }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
   const t = useTranslations("chat");
@@ -78,6 +80,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
             )}
           >
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 p: ({ children }) => (
                   <p className="mb-4 last:mb-0 text-base leading-relaxed text-foreground/90">
@@ -165,57 +168,81 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                   <strong className="font-semibold">{children}</strong>
                 ),
                 em: ({ children }) => <em className="italic">{children}</em>,
+                table: ({ children }) => (
+                  <div className="my-4 overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full text-sm">{children}</table>
+                  </div>
+                ),
+                thead: ({ children }) => (
+                  <thead className="bg-secondary/50">{children}</thead>
+                ),
+                tbody: ({ children }) => <tbody>{children}</tbody>,
+                tr: ({ children }) => (
+                  <tr className="border-b border-border last:border-b-0">{children}</tr>
+                ),
+                th: ({ children }) => (
+                  <th className="px-4 py-2.5 text-left font-semibold text-foreground border-r border-border last:border-r-0">
+                    {children}
+                  </th>
+                ),
+                td: ({ children }) => (
+                  <td className="px-4 py-2.5 text-foreground/90 border-r border-border last:border-r-0">
+                    {children}
+                  </td>
+                ),
               }}
             >
               {message.content}
             </ReactMarkdown>
           </div>
 
-          {/* Action buttons for assistant message */}
-          <div className="mt-3 flex items-center gap-1">
-            <button
-              onClick={handleCopyMessage}
-              className={cn(
-                "flex items-center gap-1.5",
-                "px-2.5 py-1.5",
-                "text-xs font-medium",
-                "rounded-lg",
-                "transition-all duration-200",
-                copied
-                  ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
-              )}
-            >
-              {copied ? (
-                <>
-                  <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  <span>{t("copied")}</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>{t("copy")}</span>
-                </>
-              )}
-            </button>
-
-            {onRegenerate && (
+          {/* Action buttons for assistant message - only show when not streaming */}
+          {!isStreaming && (
+            <div className="mt-3 flex items-center gap-1">
               <button
-                onClick={onRegenerate}
+                onClick={handleCopyMessage}
                 className={cn(
                   "flex items-center gap-1.5",
                   "px-2.5 py-1.5",
                   "text-xs font-medium",
                   "rounded-lg",
                   "transition-all duration-200",
-                  "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+                  copied
+                    ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
                 )}
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>{t("regenerate")}</span>
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
+                    <span>{t("copied")}</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{t("copy")}</span>
+                  </>
+                )}
               </button>
-            )}
-          </div>
+
+              {onRegenerate && (
+                <button
+                  onClick={onRegenerate}
+                  className={cn(
+                    "flex items-center gap-1.5",
+                    "px-2.5 py-1.5",
+                    "text-xs font-medium",
+                    "rounded-lg",
+                    "transition-all duration-200",
+                    "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+                  )}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{t("regenerate")}</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

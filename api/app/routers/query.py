@@ -24,7 +24,7 @@ from app.models.schemas import (
 )
 from app.services.llm import llm_service
 from app.services.storage import storage_service
-from app.agents.research_agent import research_agent
+from app.agents import agent_supervisor
 
 logger = get_logger(__name__)
 
@@ -117,7 +117,7 @@ async def stream_query(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Stream response for both chat and research modes."""
+    """Stream response for chat, research, and other agent modes."""
     if request.mode == QueryMode.CHAT:
         # Stream chat response
         async def chat_generator() -> AsyncGenerator[str, None]:
@@ -139,6 +139,37 @@ async def stream_query(
 
         return StreamingResponse(
             chat_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+    elif request.mode in (QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA):
+        # Stream agent response for code, writing, or data modes
+        async def agent_generator() -> AsyncGenerator[str, None]:
+            try:
+                async for event in agent_supervisor.run(
+                    query=request.message,
+                    mode=request.mode.value,
+                ):
+                    if event["type"] == "token":
+                        data = json.dumps({"type": "token", "data": event["content"]})
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "complete":
+                        yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
+                    elif event["type"] == "error":
+                        yield f"data: {json.dumps({'type': 'error', 'data': event.get('error', 'Unknown error')})}\n\n"
+                    # Skip other event types for these modes
+
+                yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
+            except Exception as e:
+                logger.error("agent_stream_error", mode=request.mode.value, error=str(e))
+                yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+
+        return StreamingResponse(
+            agent_generator(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -186,8 +217,9 @@ async def stream_query(
             }
 
             try:
-                async for event in research_agent.run(
+                async for event in agent_supervisor.run(
                     query=request.message,
+                    mode="research",
                     depth=request.depth,
                     scenario=request.scenario,
                 ):
