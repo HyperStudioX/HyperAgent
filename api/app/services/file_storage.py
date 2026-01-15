@@ -1,5 +1,6 @@
 """File storage service supporting both R2 (production) and local filesystem (development)."""
 
+import hashlib
 import os
 import shutil
 import uuid
@@ -106,6 +107,19 @@ class FileStorageService:
 
         return True, None
 
+    def _calculate_file_hash(self, file_data: BinaryIO) -> str:
+        """Calculate SHA256 hash of file content."""
+        sha256_hash = hashlib.sha256()
+
+        # Read file in chunks to handle large files efficiently
+        file_data.seek(0)
+        for byte_block in iter(lambda: file_data.read(4096), b""):
+            sha256_hash.update(byte_block)
+
+        # Reset file pointer
+        file_data.seek(0)
+        return sha256_hash.hexdigest()
+
     async def upload_file(
         self,
         file_data: BinaryIO,
@@ -115,19 +129,29 @@ class FileStorageService:
     ) -> dict:
         """Upload a file to storage (R2 or local filesystem).
 
+        Files are stored using content-based hashing for deduplication and security.
+        Storage structure: {user_id}/{file_hash}{extension}
+
         Returns:
-            Dict with storage_key and metadata
+            Dict with storage_key, file_hash, and metadata
         """
+        # Calculate content hash
+        file_hash = self._calculate_file_hash(file_data)
+
+        # Extract file extension
         file_id = str(uuid.uuid4())
-        storage_key = f"{user_id}/{file_id}/{original_filename}"
+        ext = Path(original_filename).suffix.lower()
+
+        # Storage key: user_id/file_hash.ext (content-addressable)
+        storage_key = f"{user_id}/{file_hash}{ext}"
 
         if self.backend == "local":
-            return await self._upload_local(file_data, storage_key, user_id, original_filename)
+            return await self._upload_local(file_data, storage_key, file_id, file_hash, user_id, original_filename)
         else:
-            return await self._upload_r2(file_data, storage_key, content_type, user_id, original_filename)
+            return await self._upload_r2(file_data, storage_key, content_type, file_id, file_hash, user_id, original_filename)
 
     async def _upload_local(
-        self, file_data: BinaryIO, storage_key: str, user_id: str, original_filename: str
+        self, file_data: BinaryIO, storage_key: str, file_id: str, file_hash: str, user_id: str, original_filename: str
     ) -> dict:
         """Upload file to local filesystem."""
         try:
@@ -135,20 +159,32 @@ class FileStorageService:
             file_path = Path(settings.local_storage_path) / storage_key
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write file
-            with open(file_path, "wb") as f:
-                shutil.copyfileobj(file_data, f)
+            # Check if file already exists (deduplication)
+            if file_path.exists():
+                logger.info(
+                    "file_already_exists",
+                    storage_key=storage_key,
+                    file_hash=file_hash,
+                    user_id=user_id,
+                    filename=original_filename,
+                )
+            else:
+                # Write file
+                with open(file_path, "wb") as f:
+                    shutil.copyfileobj(file_data, f)
 
-            logger.info(
-                "file_uploaded_local",
-                storage_key=storage_key,
-                user_id=user_id,
-                filename=original_filename,
-            )
+                logger.info(
+                    "file_uploaded_local",
+                    storage_key=storage_key,
+                    file_hash=file_hash,
+                    user_id=user_id,
+                    filename=original_filename,
+                )
 
             return {
-                "file_id": storage_key.split("/")[1],
+                "file_id": file_id,
                 "storage_key": storage_key,
+                "file_hash": file_hash,
                 "bucket": "local",
             }
 
@@ -157,35 +193,56 @@ class FileStorageService:
             raise
 
     async def _upload_r2(
-        self, file_data: BinaryIO, storage_key: str, content_type: str, user_id: str, original_filename: str
+        self, file_data: BinaryIO, storage_key: str, content_type: str, file_id: str, file_hash: str, user_id: str, original_filename: str
     ) -> dict:
         """Upload file to R2 storage."""
         try:
             from botocore.exceptions import ClientError
 
-            self.client.upload_fileobj(
-                file_data,
-                settings.r2_bucket_name,
-                storage_key,
-                ExtraArgs={
-                    "ContentType": content_type,
-                    "Metadata": {
-                        "user_id": user_id,
-                        "original_filename": original_filename,
-                    },
-                },
-            )
+            # Check if file already exists (deduplication)
+            try:
+                self.client.head_object(
+                    Bucket=settings.r2_bucket_name,
+                    Key=storage_key,
+                )
+                logger.info(
+                    "file_already_exists_r2",
+                    storage_key=storage_key,
+                    file_hash=file_hash,
+                    user_id=user_id,
+                    filename=original_filename,
+                )
+            except ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    # File doesn't exist, upload it
+                    self.client.upload_fileobj(
+                        file_data,
+                        settings.r2_bucket_name,
+                        storage_key,
+                        ExtraArgs={
+                            "ContentType": content_type,
+                            "Metadata": {
+                                "user_id": user_id,
+                                "original_filename": original_filename,
+                                "file_hash": file_hash,
+                            },
+                        },
+                    )
 
-            logger.info(
-                "file_uploaded_r2",
-                storage_key=storage_key,
-                user_id=user_id,
-                filename=original_filename,
-            )
+                    logger.info(
+                        "file_uploaded_r2",
+                        storage_key=storage_key,
+                        file_hash=file_hash,
+                        user_id=user_id,
+                        filename=original_filename,
+                    )
+                else:
+                    raise
 
             return {
-                "file_id": storage_key.split("/")[1],
+                "file_id": file_id,
                 "storage_key": storage_key,
+                "file_hash": file_hash,
                 "bucket": settings.r2_bucket_name,
             }
 

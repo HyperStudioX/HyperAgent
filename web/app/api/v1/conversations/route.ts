@@ -40,10 +40,9 @@ async function handler(
         };
 
         if (hasBody) {
-            // Use arrayBuffer or blob for body forwarding
-            fetchOptions.body = await request.arrayBuffer();
-            // @ts-ignore
-            fetchOptions.duplex = 'half';
+            // Clone the request body to avoid detached ArrayBuffer issues
+            const bodyText = await request.text();
+            fetchOptions.body = bodyText;
         }
 
         const response = await fetch(url, fetchOptions);

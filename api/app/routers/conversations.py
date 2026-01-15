@@ -146,9 +146,20 @@ async def update_conversation(
             conversation.title = request.title
 
         await db.commit()
-        await db.refresh(conversation, ["messages"])
 
-        return ConversationResponse(**conversation.to_dict(include_messages=True))
+        # Re-query to get updated conversation with messages
+        result = await db.execute(
+            select(Conversation)
+            .options(
+                selectinload(Conversation.messages).selectinload(
+                    ConversationMessage.attachments
+                ).selectinload(MessageAttachment.file)
+            )
+            .where(Conversation.id == conversation_id)
+        )
+        updated_conversation = result.scalar_one()
+
+        return ConversationResponse(**updated_conversation.to_dict(include_messages=True))
     except HTTPException:
         raise
     except Exception as e:

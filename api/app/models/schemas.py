@@ -177,8 +177,10 @@ class AttachmentInfo(BaseModel):
 
     id: str
     filename: str
-    content_type: str
-    file_size: int
+    contentType: str  # camelCase to match frontend
+    fileSize: int  # camelCase to match frontend
+    previewUrl: str | None = None  # camelCase to match frontend
+    status: str = "uploaded"
 
 
 class ConversationMessageResponse(BaseModel):

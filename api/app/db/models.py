@@ -86,6 +86,17 @@ class ResearchTask(Base):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
+        from sqlalchemy import inspect
+
+        # Check if relationships are loaded
+        steps_list = []
+        if inspect(self).attrs.steps.loaded_value:
+            steps_list = [step.to_dict() for step in self.steps]
+
+        sources_list = []
+        if inspect(self).attrs.sources.loaded_value:
+            sources_list = [source.to_dict() for source in self.sources]
+
         return {
             "id": self.id,
             "query": self.query,
@@ -100,8 +111,8 @@ class ResearchTask(Base):
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "progress": self.progress,
             "worker_job_id": self.worker_job_id,
-            "steps": [step.to_dict() for step in self.steps],
-            "sources": [source.to_dict() for source in self.sources],
+            "steps": steps_list,
+            "sources": sources_list,
         }
 
 
@@ -241,6 +252,8 @@ class Conversation(Base):
 
     def to_dict(self, include_messages: bool = True) -> dict:
         """Convert to dictionary for API responses."""
+        from sqlalchemy import inspect
+
         result = {
             "id": self.id,
             "title": self.title,
@@ -250,7 +263,11 @@ class Conversation(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
         if include_messages:
-            result["messages"] = [msg.to_dict() for msg in self.messages]
+            # Check if messages relationship is loaded
+            if inspect(self).attrs.messages.loaded_value:
+                result["messages"] = [msg.to_dict() for msg in self.messages]
+            else:
+                result["messages"] = []
         return result
 
 
@@ -278,6 +295,26 @@ class ConversationMessage(Base):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
+        from sqlalchemy import inspect
+
+        # Check if attachments relationship is loaded
+        attachments_list = []
+        if inspect(self).attrs.attachments.loaded_value:
+            for att in self.attachments:
+                # Check if file relationship is loaded on each attachment
+                if inspect(att).attrs.file.loaded_value:
+                    # Generate preview URL for the file
+                    preview_url = f"/api/v1/files/download/{att.file.storage_key}"
+
+                    attachments_list.append({
+                        "id": att.file.id,
+                        "filename": att.file.original_filename,
+                        "contentType": att.file.content_type,  # camelCase for frontend
+                        "fileSize": att.file.file_size,  # camelCase for frontend
+                        "previewUrl": preview_url,  # Preview URL for images
+                        "status": "uploaded",  # Status for frontend FileAttachment interface
+                    })
+
         return {
             "id": self.id,
             "conversation_id": self.conversation_id,
@@ -285,15 +322,7 @@ class ConversationMessage(Base):
             "content": self.content,
             "metadata": self.message_metadata,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "attachments": [
-                {
-                    "id": att.file.id,
-                    "filename": att.file.original_filename,
-                    "content_type": att.file.content_type,
-                    "file_size": att.file.file_size,
-                }
-                for att in self.attachments
-            ] if self.attachments else [],
+            "attachments": attachments_list,
         }
 
 
@@ -308,10 +337,10 @@ class File(Base):
     )
 
     # File metadata
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     file_size: Mapped[int] = mapped_column(nullable=False)
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # SHA256 hash for deduplication
 
     # Storage info
     storage_key: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)

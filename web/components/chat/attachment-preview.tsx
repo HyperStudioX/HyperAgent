@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import Image from "next/image";
 import {
   X,
   FileText,
@@ -80,17 +79,16 @@ export function AttachmentPreview({
               "flex items-center gap-2",
               "px-3 py-2 rounded-lg",
               "bg-secondary/50 border border-border",
-              hasError && "border-red-500/50 bg-red-500/5"
+              hasError && "border-destructive/50 bg-destructive/5"
             )}
           >
             {/* File icon or image preview */}
             {isImage && attachment.previewUrl ? (
               <div className="w-8 h-8 relative rounded overflow-hidden">
-                <Image
+                <img
                   src={attachment.previewUrl}
                   alt={attachment.filename}
-                  fill
-                  className="object-cover"
+                  className="w-full h-full object-cover"
                 />
               </div>
             ) : (
@@ -121,7 +119,7 @@ export function AttachmentPreview({
 
             {/* Error message */}
             {hasError && attachment.error && (
-              <span className="text-xs text-red-500">{attachment.error}</span>
+              <span className="text-xs text-destructive">{attachment.error}</span>
             )}
 
             {/* Remove button */}

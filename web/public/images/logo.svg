@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" width="128" height="128">
-  <rect x="24" y="24" width="32" height="32" rx="6" stroke="currentColor" stroke-width="5" fill="none"/>
-  <rect x="72" y="24" width="32" height="32" rx="6" stroke="currentColor" stroke-width="5" fill="none"/>
-  <rect x="24" y="72" width="32" height="32" rx="6" stroke="currentColor" stroke-width="5" fill="none"/>
-  <circle cx="88" cy="88" r="16" stroke="currentColor" stroke-width="5" fill="none"/>
+  <!-- Refined grid pattern with lighter stroke weight and sharper corners -->
+  <rect x="26" y="26" width="30" height="30" rx="5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="72" y="26" width="30" height="30" rx="5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="26" y="72" width="30" height="30" rx="5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="87" cy="87" r="15" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/>
 </svg>

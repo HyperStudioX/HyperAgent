@@ -364,7 +364,7 @@ function RecentItemRow({
       return <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />;
     }
     if (taskStatus === "completed") {
-      return <CheckCircle2 className="w-3 h-3 text-green-500" />;
+      return <CheckCircle2 className="w-3 h-3 text-foreground" />;
     }
     if (taskStatus === "failed") {
       return <AlertCircle className="w-3 h-3 text-destructive" />;

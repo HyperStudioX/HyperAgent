@@ -14,13 +14,12 @@ import { RecentTasks, type RecentItem } from "@/components/ui/recent-tasks";
 import { CreateMenu } from "@/components/ui/create-menu";
 import { MenuToggle } from "@/components/ui/menu-toggle";
 
-interface SidebarProps {
-    className?: string;
-    isOpen?: boolean;
-    onClose?: () => void;
+interface MobileSidebarProps {
+    isOpen: boolean;
+    onClose: () => void;
 }
 
-export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
+export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
     const router = useRouter();
     const { data: session, status } = useSession();
     const {
@@ -72,10 +71,10 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
 
         // Only load from API if authenticated, otherwise just set hydrated
         if (status === "authenticated") {
-            console.log("[Sidebar] Loading conversations from database");
+            console.log("[MobileSidebar] Loading conversations from database");
             loadConversations();
         } else {
-            console.log("[Sidebar] Not authenticated, using local mode");
+            console.log("[MobileSidebar] Not authenticated, using local mode");
             useChatStore.setState({ hasHydrated: true });
         }
     }, [status, chatHydrated, loadConversations]);
@@ -87,15 +86,15 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
         }
 
         if (status === "authenticated") {
-            console.log("[Sidebar] Loading tasks from database");
+            console.log("[MobileSidebar] Loading tasks from database");
             loadTasks();
         } else {
-            console.log("[Sidebar] Not authenticated, using local tasks only");
+            console.log("[MobileSidebar] Not authenticated, using local tasks only");
             useTaskStore.setState({ hasHydrated: true });
         }
     }, [status, taskHydrated, loadTasks]);
 
-    // Close sidebar on mobile when clicking outside
+    // Close sidebar on escape key
     useEffect(() => {
         if (!isOpen) return;
 
@@ -111,17 +110,14 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
 
     // Lock body scroll when sidebar is open on mobile
     useEffect(() => {
-        if (!isOpen || !onClose) return;
+        if (!isOpen) return;
 
-        // Prevent body scroll on mobile
-        if (window.innerWidth < 768) {
-            const originalOverflow = document.body.style.overflow;
-            document.body.style.overflow = 'hidden';
-            return () => {
-                document.body.style.overflow = originalOverflow;
-            };
-        }
-    }, [isOpen, onClose]);
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = originalOverflow;
+        };
+    }, [isOpen]);
 
     // Touch gesture handlers
     const handleTouchStart = (e: React.TouchEvent) => {
@@ -158,9 +154,7 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
             router.push(`/task/${item.data.id}`);
         }
         // Close mobile sidebar after selection
-        if (onClose && window.innerWidth < 768) {
-            onClose();
-        }
+        onClose();
     };
 
     const handleItemDelete = async (item: RecentItem) => {
@@ -188,7 +182,7 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
     return (
         <>
             {/* Mobile backdrop */}
-            {isOpen && onClose && (
+            {isOpen && (
                 <div
                     className={cn(
                         "fixed inset-0 bg-black/40 z-40 md:hidden",
@@ -208,27 +202,17 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 className={cn(
+                    "md:hidden",
                     "h-full flex flex-col border-border",
-                    // Solid background for mobile, semi-transparent for desktop
-                    "bg-background md:bg-secondary/30",
-                    // Desktop: fixed width sidebar
-                    "md:w-72 md:border-r md:relative",
-                    // Mobile: full-screen overlay
+                    "bg-background",
                     "fixed inset-y-0 left-0 z-50 w-[280px] border-r",
-                    // Safe area support
                     "pt-safe pb-safe",
-                    // Performance & Accessibility
                     "will-change-transform",
                     "motion-reduce:transition-none",
-                    // Shadow for depth
                     "shadow-[4px_0_24px_-8px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_24px_-8px_rgba(0,0,0,0.3)]",
-                    // Conditional transition - disable when actively swiping
                     touchOffset === 0 && "transition-transform duration-200",
-                    "md:translate-x-0", // Always visible on desktop
-                    isOpen ? "translate-x-0" : "-translate-x-full", // Slide in/out on mobile
-                    // Pointer events - disable when closed on mobile only
-                    !isOpen && "max-md:pointer-events-none",
-                    className
+                    isOpen ? "translate-x-0" : "-translate-x-full",
+                    !isOpen && "pointer-events-none"
                 )}
                 style={{
                     transform: isOpen && touchOffset < 0
@@ -245,8 +229,8 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
                             <Image
                                 src="/images/logo.svg"
                                 alt="HyperAgent"
-                                width={20}
-                                height={20}
+                                width={18}
+                                height={18}
                                 className="invert dark:invert-0"
                             />
                         </div>
@@ -254,15 +238,11 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
                     </div>
 
                     {/* Mobile close button */}
-                    {onClose && (
-                        <div className="md:hidden">
-                            <MenuToggle
-                                isOpen={true}
-                                onClick={onClose}
-                                className="p-2 -mr-2"
-                            />
-                        </div>
-                    )}
+                    <MenuToggle
+                        isOpen={true}
+                        onClick={onClose}
+                        className="p-2 -mr-2"
+                    />
                 </div>
 
                 {/* Create Button */}
@@ -272,6 +252,7 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
                             setActiveConversation(null);
                             setActiveTask(null);
                             router.push("/");
+                            onClose();
                         }}
                     />
                 </div>

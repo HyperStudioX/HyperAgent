@@ -13,13 +13,16 @@ import {
     ExternalLink,
     CheckCircle2,
     Circle,
+    Check,
+    Copy,
+    Share2,
     ArrowLeft,
     AlertCircle,
-    X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ResearchResultView } from "@/components/query/research-result-view";
+import { ResearchResultView } from "@/components/query/research-report-view";
 import { useTaskStore } from "@/lib/stores/task-store";
+import { MenuToggle } from "@/components/ui/menu-toggle";
 import type { ResearchStep, Source, ResearchScenario } from "@/lib/types";
 
 const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
@@ -76,21 +79,81 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
     // Start expanded when running, will collapse when report is ready
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [hasAutoCollapsed, setHasAutoCollapsed] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    const handleCopyReport = async () => {
+        if (!researchResult || !taskInfo) return;
+        const resultString = typeof researchResult === "string"
+            ? researchResult
+            : Array.isArray(researchResult)
+                ? (researchResult as any[]).map((item: any) => typeof item === "string" ? item : String(item)).join("")
+                : String(researchResult);
+
+        const textToCopy = `# ${taskInfo.query}\n\n${resultString}`;
+        await navigator.clipboard.writeText(textToCopy);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     // Load task from store or API
     useEffect(() => {
-        console.log(`[TaskProgress] Fetching task ${taskId} from API...`);
         const fetchTask = async () => {
+            // 1. Check localStorage for NEW task first (just submitted from Home)
+            const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
+            if (storedTaskInfo) {
+                console.log(`[TaskProgress] New task detected in local storage for ${taskId}`);
+                try {
+                    const info = JSON.parse(storedTaskInfo) as TaskInfo;
+                    setTaskInfo(info);
+                    // Don't remove from localStorage yet, startResearch will handle final cleanup
+                    // Note: startResearch is triggered by the taskInfo being set
+
+                    // Also initialize in task store if hydrated
+                    if (hasHydrated) {
+                        createTask(taskId, info.query, info.scenario, info.depth);
+                        setActiveTask(taskId);
+                    }
+                    return; // Successfully initialized new task, skip API fetch
+                } catch (e) {
+                    console.error("[TaskProgress] Failed to parse stored task info:", e);
+                    localStorage.removeItem(`task-${taskId}`);
+                }
+            }
+
+            // 2. Fallback to Task Store if hydrated
+            if (hasHydrated) {
+                const existingTask = tasks.find((t) => t.id === taskId);
+                if (existingTask) {
+                    console.log(`[TaskProgress] Loading existing task ${taskId} from store`);
+                    setTaskInfo({
+                        query: existingTask.query,
+                        scenario: existingTask.scenario,
+                        depth: existingTask.depth,
+                    });
+                    setSteps(existingTask.steps);
+                    setSources(existingTask.sources);
+                    setResearchResult(existingTask.result);
+                    setError(existingTask.error || null);
+                    setIsExistingTask(true);
+                    setActiveTask(taskId);
+
+                    if (existingTask.status !== "running" && existingTask.status !== "pending") {
+                        setHasStarted(true);
+                        setIsResearching(false);
+                    }
+                    return;
+                }
+            }
+
+            // 3. Otherwise fetch from API (existing task from history)
+            console.log(`[TaskProgress] Fetching task ${taskId} from API...`);
             try {
-                // Always try to fetch fresh data from the API first
                 // Use /result endpoint to get full task data including report, steps, and sources
                 const response = await fetch(`/api/v1/tasks/${taskId}/result`);
-                console.log(`[TaskProgress] API response status: ${response.status} for task ${taskId}`);
                 if (response.ok) {
                     const data = await response.json();
-                    console.log(`[TaskProgress] Task data received:`, data);
+                    console.log(`[TaskProgress] Task data received from API:`, data);
 
-                    // Update store with fresh data
                     setTaskInfo({
                         query: data.query,
                         scenario: data.scenario,
@@ -105,11 +168,11 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                             description: s.description,
                             status: s.status,
                         }));
-                        // Deduplicate steps by type, keeping the latest one (last in array)
-                        const uniqueSteps = mappedSteps.reduce((acc: typeof mappedSteps, step: typeof mappedSteps[0]) => {
-                            const existingIndex = acc.findIndex((s: typeof step) => s.type === step.type);
+                        // Deduplicate steps
+                        const uniqueSteps = mappedSteps.reduce((acc: any[], step: any) => {
+                            const existingIndex = acc.findIndex((s: any) => s.type === step.type);
                             if (existingIndex >= 0) {
-                                acc[existingIndex] = step; // Replace with latest
+                                acc[existingIndex] = step;
                             } else {
                                 acc.push(step);
                             }
@@ -126,15 +189,8 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                             url: s.url,
                             snippet: s.snippet,
                         }));
-                        // Deduplicate sources by URL
-                        const uniqueSources = mappedSources.reduce((acc: typeof mappedSources, source: typeof mappedSources[0]) => {
-                            if (!acc.some((s: typeof source) => s.url === source.url)) {
-                                acc.push(source);
-                            }
-                            return acc;
-                        }, []);
-                        setSources(uniqueSources);
-                        updateTaskSources(taskId, uniqueSources);
+                        setSources(mappedSources);
+                        updateTaskSources(taskId, mappedSources);
                     }
 
                     if (data.report) {
@@ -146,71 +202,25 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                     setIsExistingTask(true);
                     setActiveTask(taskId);
 
-                    // If task is still active, we need to handle it accordingly
-                    // (But usually the backend list only shows completed or failed tasks if we aren't streaming)
-                    if (data.status === "completed") {
+                    if (data.status === "completed" || data.status === "failed") {
                         setHasStarted(true);
                         setIsResearching(false);
-                    } else if (data.status === "failed") {
-                        setHasStarted(true);
-                        setIsResearching(false);
-                    } else {
-                        // For pending/running/queued
-                        setHasStarted(false);
                     }
                     return;
+                } else if (response.status === 404) {
+                    setError(t("taskNotFoundMessage"));
                 } else {
-                    console.warn(`[TaskProgress] API returned non-OK status ${response.status} for task ${taskId}`);
-                    const errorText = await response.text().catch(() => "Unknown error");
-                    console.warn(`[TaskProgress] Error response:`, errorText);
+                    console.warn(`[TaskProgress] API returned status ${response.status}`);
+                    setError("Failed to load task details");
                 }
             } catch (err) {
                 console.error("[TaskProgress] API fetch failed:", err);
-            }
-
-            // Fallback to local store if API fails (only if store is hydrated)
-            if (hasHydrated) {
-                const existingTask = tasks.find((t) => t.id === taskId);
-
-                if (existingTask) {
-                    setTaskInfo({
-                        query: existingTask.query,
-                        scenario: existingTask.scenario,
-                        depth: existingTask.depth,
-                    });
-                    setSteps(existingTask.steps);
-                    setSources(existingTask.sources);
-                    setResearchResult(existingTask.result);
-                    setError(existingTask.error || null);
-                    setIsExistingTask(true);
-                    setActiveTask(taskId);
-
-                    if (existingTask.status === "running" || existingTask.status === "pending") {
-                        setHasStarted(false);
-                    } else {
-                        setHasStarted(true);
-                        setIsResearching(false);
-                    }
-                    return;
-                }
-            }
-
-            // Check localStorage for new task
-            const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
-            if (storedTaskInfo) {
-                const info = JSON.parse(storedTaskInfo) as TaskInfo;
-                setTaskInfo(info);
-                localStorage.removeItem(`task-${taskId}`);
-                createTask(taskId, info.query, info.scenario, info.depth);
-                setActiveTask(taskId);
-            } else {
-                setError(t("taskNotFoundMessage"));
+                setError("Connection error while loading task");
             }
         };
 
         fetchTask();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [taskId]); // Only depend on taskId - API call should happen immediately on mount/taskId change
+    }, [taskId, hasHydrated, createTask, setActiveTask, updateTaskSteps, updateTaskSources, updateTaskResult, t]);
 
     // Memoize startResearch to avoid recreation
     const startResearch = useCallback(async (info: TaskInfo) => {
@@ -418,13 +428,36 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                                 </p>
                             </div>
                         </div>
-                        {/* Mobile toggle for progress panel */}
-                        <button
-                            onClick={() => setProgressPanelOpen(!progressPanelOpen)}
-                            className="md:hidden px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 rounded-lg transition-colors self-start"
-                        >
-                            {t("progress")} ({steps.length})
-                        </button>
+
+                        <div className="flex items-center gap-2">
+                            {/* Action Buttons */}
+                            {!isResearching && researchResult && (
+                                <div className="hidden md:flex items-center gap-2 mr-2 animate-in fade-in duration-300">
+                                    <button
+                                        onClick={handleCopyReport}
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors text-sm font-medium"
+                                    >
+                                        {copied ? (
+                                            <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                                        ) : (
+                                            <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                        <span>{copied ? "Copied" : "Copy"}</span>
+                                    </button>
+                                    <button className="p-2 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
+                                        <Share2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Mobile toggle for progress panel */}
+                            <button
+                                onClick={() => setProgressPanelOpen(!progressPanelOpen)}
+                                className="md:hidden px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 rounded-lg transition-colors"
+                            >
+                                {t("progress")} ({steps.length})
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -468,7 +501,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
             {/* Mobile backdrop */}
             {progressPanelOpen && (
                 <div
-                    className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden transition-opacity"
+                    className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden transition-opacity"
                     onClick={() => setProgressPanelOpen(false)}
                 />
             )}
@@ -476,7 +509,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
             {/* Progress sidebar */}
             <div
                 className={cn(
-                    "flex flex-col bg-card border-l border-border bg-zinc-50 dark:bg-zinc-900/50",
+                    "flex flex-col bg-card border-l border-border",
                     // Desktop: sidebar
                     "md:relative transition-all duration-300 ease-in-out",
                     isSidebarCollapsed ? "md:w-[60px]" : "md:w-80",
@@ -500,25 +533,21 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                     )}
 
                     {/* Desktop toggle button */}
-                    <button
-                        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                        className="hidden md:flex p-1.5 hover:bg-secondary/80 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-                        title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                    >
-                        {isSidebarCollapsed ? (
-                            <ArrowLeft className="w-4 h-4 rotate-180" />
-                        ) : (
-                            <ArrowLeft className="w-4 h-4" />
-                        )}
-                    </button>
+                    <div className="hidden md:block">
+                        <MenuToggle
+                            isOpen={!isSidebarCollapsed}
+                            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                        />
+                    </div>
 
                     {/* Mobile close button */}
-                    <button
-                        onClick={() => setProgressPanelOpen(false)}
-                        className="md:hidden p-1.5 -mr-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
+                    <div className="md:hidden">
+                        <MenuToggle
+                            isOpen={true}
+                            onClick={() => setProgressPanelOpen(false)}
+                            className="p-2 -mr-2"
+                        />
+                    </div>
                 </div>
 
                 {!isSidebarCollapsed && (
@@ -530,7 +559,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                                     <div key={step.id} className="flex items-center gap-3">
                                         <div className="relative">
                                             {step.status === "completed" ? (
-                                                <CheckCircle2 className="w-5 h-5 text-green-500 animate-bounce-in" />
+                                                <CheckCircle2 className="w-5 h-5 text-foreground animate-bounce-in" />
                                             ) : step.status === "running" ? (
                                                 <Loader2 className="w-5 h-5 text-foreground animate-spin" />
                                             ) : step.status === "failed" ? (

@@ -514,7 +514,7 @@ export function UnifiedInterface() {
                 className="flex items-center justify-center gap-3 mb-8 animate-slide-up"
                 style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
               >
-                <div className="w-11 h-11 rounded-xl bg-foreground flex items-center justify-center text-background">
+                <div className="w-11 h-11 rounded-xl bg-foreground flex items-center justify-center">
                   <Image
                     src="/images/logo.svg"
                     alt="HyperAgent"

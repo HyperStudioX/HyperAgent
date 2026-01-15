@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Copy, Check, BookOpen, FileText, Sparkles, Share2, List, ChevronRight } from "lucide-react";
+import { Copy, Check, BookOpen, FileText, List, ChevronRight } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,6 @@ interface TocItem {
 }
 
 export function ResearchResultView({ content, isStreaming = false, title = "Analysis Report" }: ResearchResultViewProps) {
-    const [copied, setCopied] = useState(false);
     const [toc, setToc] = useState<TocItem[]>([]);
     const [isTocCollapsed, setIsTocCollapsed] = useState(false);
 
@@ -36,13 +35,6 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
         });
         setToc(tocItems);
     }, [content]);
-
-    const handleCopyReport = async () => {
-        const textToCopy = `# ${title}\n\n${content}`;
-        await navigator.clipboard.writeText(textToCopy);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
 
     return (
         <div className="flex flex-col lg:flex-row gap-8 relative w-full px-4 md:px-0">
@@ -96,38 +88,6 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
                 <div className="animate-fade-in">
                     {/* Main Container */}
                     <div className="bg-card border border-border rounded-xl overflow-hidden">
-                        {/* Header Section */}
-                        <div className="bg-secondary/30 border-b border-border px-6 py-8 md:px-10">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                                <div className="space-y-2">
-                                    <div className="flex items-center gap-2 text-muted-foreground font-medium text-xs uppercase tracking-widest">
-                                        <Sparkles className="w-4 h-4" />
-                                        <span>Research Intelligence</span>
-                                    </div>
-                                    <h1 className="text-2xl md:text-3xl font-bold text-foreground capitalize">
-                                        {title}
-                                    </h1>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={handleCopyReport}
-                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium"
-                                    >
-                                        {copied ? (
-                                            <Check className="w-4 h-4" strokeWidth={3} />
-                                        ) : (
-                                            <Copy className="w-4 h-4" />
-                                        )}
-                                        <span>{copied ? "Copied" : "Copy"}</span>
-                                    </button>
-                                    <button className="p-2 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
-                                        <Share2 className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
                         {/* Content Body */}
                         <div className="px-6 py-10 md:px-10 md:py-12">
                             <div className="prose prose-sm md:prose-base max-w-none text-foreground font-sans">
@@ -302,19 +262,19 @@ function CodeBlock({ language, children }: CodeBlockProps) {
     };
 
     return (
-        <div className="my-8 rounded-xl overflow-hidden border border-border bg-black">
-            <div className="flex items-center justify-between bg-zinc-900 px-5 py-3 border-b border-white/5">
+        <div className="my-8 rounded-xl overflow-hidden border border-border bg-muted">
+            <div className="flex items-center justify-between bg-secondary px-5 py-3 border-b border-border">
                 <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
                         {language || "code"}
                     </span>
                 </div>
                 <button
                     onClick={handleCopy}
-                    className="flex items-center gap-2 px-3 py-1 text-xs text-zinc-400 hover:text-white transition-colors"
+                    className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                     {copied ? (
-                        <Check className="w-3.5 h-3.5 text-green-500" />
+                        <Check className="w-3.5 h-3.5 text-foreground" />
                     ) : (
                         <Copy className="w-3.5 h-3.5" />
                     )}

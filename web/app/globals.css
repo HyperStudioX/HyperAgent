@@ -14,16 +14,16 @@
     --primary: 30 15% 15%;
     --primary-foreground: 40 20% 97%;
     --secondary: 35 15% 93%;
-    --secondary-foreground: 30 10% 20%;
+    --secondary-foreground: 30 10% 15%;
     --muted: 35 12% 91%;
     --muted-foreground: 30 8% 45%;
     --accent: 35 15% 90%;
-    --accent-foreground: 30 10% 18%;
+    --accent-foreground: 30 12% 30%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --border: 35 12% 88%;
     --input: 35 12% 88%;
-    --ring: 30 10% 25%;
+    --ring: 30 10% 35%;
     --radius: 0.5rem;
 
     /* Vibrant accent for CTAs and highlights */
@@ -229,6 +229,25 @@ code:not(pre code) {
 /* Touch targets */
 button, a {
   min-height: 32px;
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top), 0px);
+  }
+
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+
+  .pl-safe {
+    padding-left: max(env(safe-area-inset-left), 0px);
+  }
+
+  .pr-safe {
+    padding-right: max(env(safe-area-inset-right), 0px);
+  }
 }
 
 /* Border utilities */
