@@ -172,6 +172,43 @@ class LLMService:
             if chunk.content:
                 yield extract_text_from_content(chunk.content)
 
+    async def generate_title(
+        self,
+        message: str,
+        provider: LLMProvider = LLMProvider.ANTHROPIC,
+        model: str | None = None,
+    ) -> str:
+        """Generate a concise title for a conversation based on the user's message.
+        
+        Args:
+            message: The user's input message
+            provider: LLM provider to use
+            model: Optional model override
+            
+        Returns:
+            A concise title (max 5-6 words)
+        """
+        llm = self.get_llm(provider, model)
+        
+        prompt = (
+            "Generate a very concise, meaningful title for an AI conversation "
+            "that starts with the following user message. "
+            "Respond ONLY with the title text (no quotes, no period, max 6 words):\n\n"
+            f"'{message}'"
+        )
+        
+        messages = [HumanMessage(content=prompt)]
+        response = await llm.ainvoke(messages)
+        title = extract_text_from_content(response.content).strip()
+        
+        # Clean up the title
+        if title.startswith('"') and title.endswith('"'):
+            title = title[1:-1]
+        elif title.startswith("'") and title.endswith("'"):
+            title = title[1:-1]
+            
+        return title
+
 
 # Global instance
 llm_service = LLMService()

@@ -173,6 +173,71 @@ async def update_conversation(
         raise HTTPException(status_code=500, detail="Failed to update conversation")
 
 
+@router.post("/{conversation_id}/generate-title", response_model=ConversationResponse)
+async def generate_conversation_title(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Generate a meaningful title for the conversation using LLM."""
+    try:
+        # Get the conversation and its first user message
+        result = await db.execute(
+            select(Conversation)
+            .options(selectinload(Conversation.messages))
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == current_user.id,
+            )
+        )
+        conversation = result.scalar_one_or_none()
+
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Find the first user message
+        first_user_message = next(
+            (m for m in conversation.messages if m.role == "user"), None
+        )
+
+        if not first_user_message:
+            return ConversationResponse(**conversation.to_dict(include_messages=True))
+
+        # Generate title using LLM
+        from app.services.llm import llm_service
+
+        new_title = await llm_service.generate_title(first_user_message.content)
+
+        if new_title:
+            conversation.title = new_title
+            await db.commit()
+
+        # Re-query to get updated conversation with messages and attachments
+        result = await db.execute(
+            select(Conversation)
+            .options(
+                selectinload(Conversation.messages).selectinload(
+                    ConversationMessage.attachments
+                ).selectinload(MessageAttachment.file)
+            )
+            .where(Conversation.id == conversation_id)
+        )
+        updated_conversation = result.scalar_one()
+
+        return ConversationResponse(**updated_conversation.to_dict(include_messages=True))
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            "generate_conversation_title_error",
+            error=str(e),
+            conversation_id=conversation_id,
+            user_id=current_user.id,
+        )
+        raise HTTPException(status_code=500, detail="Failed to generate title")
+
+
 @router.delete("/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,

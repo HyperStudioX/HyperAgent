@@ -45,6 +45,11 @@ def get_default_model(provider: LLMProvider) -> str:
 
 CHAT_SYSTEM_PROMPT = """You are HyperAgent, a helpful AI assistant. You are designed to help users with various tasks including coding, research, analysis, and general questions.
 
+You have access to a web search tool that you can use to find current information when needed. Use it when:
+- The user asks about recent events or news
+- You need to verify facts or find up-to-date information
+- The question requires knowledge beyond your training data
+
 Be concise, accurate, and helpful. When providing code, use proper formatting with markdown code blocks and specify the language.
 
 If you're unsure about something, say so rather than making things up."""
@@ -90,42 +95,64 @@ async def query(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Unified entry point for chat and research modes."""
-    if request.mode == QueryMode.CHAT:
-        # Handle chat mode
-        try:
-            # Get file context if attachments provided
-            file_context = await get_file_context(
-                db,
-                request.attachment_ids,
-                current_user.id,
-            )
+    try:
+        # Get file context if attachments provided
+        file_context = await get_file_context(
+            db,
+            request.attachment_ids,
+            current_user.id,
+        )
 
-            # Enhance system prompt with file context
-            system_prompt = CHAT_SYSTEM_PROMPT
-            if file_context:
-                system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
+        # Enhance system prompt with file context
+        system_prompt = CHAT_SYSTEM_PROMPT
+        if file_context:
+            system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
 
-            response = await llm_service.chat(
-                message=request.message,
-                history=request.history,
+        if request.mode == QueryMode.CHAT:
+            # Use agent supervisor even for chat to enable tools
+            result = await agent_supervisor.invoke(
+                query=request.message,
+                mode=QueryMode.CHAT.value,
+                user_id=current_user.id,
+                messages=[m.model_dump() for m in request.history],
+                system_prompt=system_prompt,
                 provider=request.provider,
                 model=request.model,
-                system_prompt=system_prompt,
             )
 
             return UnifiedQueryResponse(
                 id=str(uuid.uuid4()),
                 mode=QueryMode.CHAT,
-                content=response,
+                content=result.get("response", ""),
                 model=request.model or get_default_model(request.provider),
                 provider=request.provider,
             )
-        except ValueError as e:
-            logger.error("chat_error", error=str(e))
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error("chat_error", error=str(e))
-            raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+
+        elif request.mode in (QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA):
+            # Use agent supervisor for specialized modes
+            result = await agent_supervisor.invoke(
+                query=request.message,
+                mode=request.mode.value,
+                user_id=current_user.id,
+                messages=[m.model_dump() for m in request.history],
+                system_prompt=system_prompt,
+                provider=request.provider,
+                model=request.model,
+            )
+
+            return UnifiedQueryResponse(
+                id=str(uuid.uuid4()),
+                mode=request.mode,
+                content=result.get("response", ""),
+                model=request.model or get_default_model(request.provider),
+                provider=request.provider,
+            )
+    except ValueError as e:
+        logger.error("chat_error", error=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("chat_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
     else:
         # Handle research mode
@@ -165,7 +192,7 @@ async def stream_query(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Stream response for chat, research, and other agent modes."""
-    if request.mode == QueryMode.CHAT:
+    if request.mode in (QueryMode.CHAT, QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA):
         # Get file context if attachments provided
         file_context = await get_file_context(
             db,
@@ -178,49 +205,34 @@ async def stream_query(
         if file_context:
             system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
 
-        # Stream chat response
-        async def chat_generator() -> AsyncGenerator[str, None]:
-            try:
-                async for token in llm_service.stream_chat(
-                    message=request.message,
-                    history=request.history,
-                    provider=request.provider,
-                    model=request.model,
-                    system_prompt=system_prompt,
-                ):
-                    data = json.dumps({"type": "token", "data": token})
-                    yield f"data: {data}\n\n"
-
-                yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
-            except Exception as e:
-                logger.error("chat_stream_error", error=str(e))
-                yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
-
-        return StreamingResponse(
-            chat_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-
-    elif request.mode in (QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA):
-        # Stream agent response for code, writing, or data modes
+        # Stream agent response using supervisor
         async def agent_generator() -> AsyncGenerator[str, None]:
             try:
                 async for event in agent_supervisor.run(
                     query=request.message,
                     mode=request.mode.value,
+                    user_id=current_user.id,
+                    messages=[m.model_dump() for m in request.history],
+                    system_prompt=system_prompt,
+                    provider=request.provider,
+                    model=request.model,
+                    attachment_ids=request.attachment_ids,
                 ):
                     if event["type"] == "token":
                         data = json.dumps({"type": "token", "data": event["content"]})
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "step":
+                        # Also stream steps for visibility (optional, frontend needs to handle)
+                        data = json.dumps({"type": "step", "data": event})
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "tool_call":
+                        # Stream tool calls
+                        data = json.dumps({"type": "tool_call", "data": event})
                         yield f"data: {data}\n\n"
                     elif event["type"] == "complete":
                         yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
                     elif event["type"] == "error":
                         yield f"data: {json.dumps({'type': 'error', 'data': event.get('error', 'Unknown error')})}\n\n"
-                    # Skip other event types for these modes
 
                 yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
             except Exception as e:

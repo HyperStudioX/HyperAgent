@@ -12,12 +12,15 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
 import { usePreviewStore } from "@/lib/stores/preview-store";
+import { AgentProgress } from "@/components/chat/agent-progress";
 import type { Message, FileAttachment } from "@/lib/types";
 
 interface MessageBubbleProps {
     message: Message;
     onRegenerate?: () => void;
     isStreaming?: boolean;
+    status?: string | null;
+    agentEvents?: any[]; // For detailed search/thinking stages
 }
 
 function MessageAttachments({
@@ -64,7 +67,7 @@ function MessageAttachments({
     );
 }
 
-export function MessageBubble({ message, onRegenerate, isStreaming = false }: MessageBubbleProps) {
+export function MessageBubble({ message, onRegenerate, isStreaming = false, status, agentEvents }: MessageBubbleProps) {
     const isUser = message.role === "user";
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
@@ -133,6 +136,13 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false }: Me
                         />
                         <span className="text-base font-semibold text-foreground">HyperAgent</span>
                     </div>
+
+                    <AgentProgress
+                        isStreaming={isStreaming}
+                        status={status}
+                        agentEvents={agentEvents}
+                    />
+
                     <div
                         className={cn(
                             "prose prose-neutral dark:prose-invert max-w-none",
