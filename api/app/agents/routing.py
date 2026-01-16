@@ -57,10 +57,16 @@ def parse_router_response(response: str) -> RoutingResult:
     for line in lines:
         line = line.strip()
         if line.upper().startswith("AGENT:"):
-            agent_part = line.split(":", 1)[1].strip().upper()
+            agent_part = line.split(":", 1)[1].strip()
             # Handle both "CHAT" and "AGENT: CHAT | REASON: ..." formats
             if "|" in agent_part:
-                agent_part = agent_part.split("|")[0].strip()
+                parts = [part.strip() for part in agent_part.split("|")]
+                agent_part = parts[0].upper()
+                for part in parts[1:]:
+                    if part.upper().startswith("REASON:"):
+                        reason = part.split(":", 1)[1].strip()
+            else:
+                agent_part = agent_part.upper()
             # Map to AgentType
             agent_map = {
                 "CHAT": AgentType.CHAT,

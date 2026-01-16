@@ -1,6 +1,7 @@
 """Chat subagent for general conversation with tool calling support."""
 
 from typing import Literal
+import uuid
 
 from langchain_core.messages import (
     AIMessage,
@@ -12,26 +13,19 @@ from langchain_core.messages import (
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
+from app.agents.prompts import CHAT_SYSTEM_PROMPT
 from app.agents.state import ChatState
 from app.agents.tools import web_search
+from app.agents.tools.search_gate import should_enable_web_search
 from app.core.logging import get_logger
-from app.services.llm import llm_service
+from app.models.schemas import LLMProvider
+from app.services.llm import extract_text_from_content, llm_service
 
 logger = get_logger(__name__)
 
 # Available tools for the chat agent
 CHAT_TOOLS = [web_search]
-
-CHAT_SYSTEM_PROMPT = """You are HyperAgent, a helpful AI assistant. You are designed to help users with various tasks including answering questions, having conversations, and providing helpful information.
-
-You have access to a web search tool that you can use to find current information when needed. Use it when:
-- The user asks about recent events or news
-- You need to verify facts or find up-to-date information
-- The question requires knowledge beyond your training data
-
-Be concise, accurate, and helpful. When providing code, use proper formatting with markdown code blocks and specify the language.
-
-If you're unsure about something, say so rather than making things up."""
+MAX_TOOL_ITERATIONS = 5
 
 
 async def agent_node(state: ChatState) -> dict:
@@ -43,9 +37,9 @@ async def agent_node(state: ChatState) -> dict:
     Returns:
         Dict with updated messages and events
     """
-    query = state.get("query", "")
-    system_prompt = state.get("system_prompt", CHAT_SYSTEM_PROMPT)
-    lc_messages = state.get("lc_messages", [])
+    query = state.get("query") or ""
+    system_prompt = state.get("system_prompt") or CHAT_SYSTEM_PROMPT
+    lc_messages = state.get("lc_messages") or []
 
     logger.info("chat_agent_processing", query=query[:50])
 
@@ -55,8 +49,8 @@ async def agent_node(state: ChatState) -> dict:
     if not lc_messages:
         events.append(
             {
-                "type": "step",
-                "step_type": "chat",
+                "type": "stage",
+                "name": "chat",
                 "description": "Processing query...",
                 "status": "running",
             }
@@ -75,35 +69,122 @@ async def agent_node(state: ChatState) -> dict:
         # Add current query
         lc_messages.append(HumanMessage(content=query))
 
-    # Get LLM with tools bound
-    llm = llm_service.get_llm()
-    llm_with_tools = llm.bind_tools(CHAT_TOOLS)
+    history = state.get("messages", [])
+    enable_tools = should_enable_web_search(query, history)
+    if state.get("tool_iterations", 0) > 0:
+        enable_tools = True
+
+    # Get LLM (optionally with tools bound)
+    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    model = state.get("model")
+    llm = llm_service.get_llm(provider=provider, model=model)
+    llm_with_tools = llm.bind_tools(CHAT_TOOLS) if enable_tools else llm
 
     try:
-        # Invoke the model (streaming handled at supervisor level)
-        response = await llm_with_tools.ainvoke(lc_messages)
+        # Use astream to enable streaming (supervisor will capture on_chat_model_stream events)
+        # We need to accumulate chunks to build the complete response for tool call detection
+        response_chunks = []
+        async for chunk in llm_with_tools.astream(lc_messages):
+            response_chunks.append(chunk)
+        
+        # Build complete response from chunks
+        # The last chunk typically contains tool_calls if any
+        if response_chunks:
+            # Start with the last chunk (usually has tool_calls)
+            response = response_chunks[-1]
+            
+            # Accumulate all content
+            full_content = ""
+            all_tool_calls = []
+            for chunk in response_chunks:
+                if hasattr(chunk, "content") and chunk.content:
+                    full_content += extract_text_from_content(chunk.content)
+                if hasattr(chunk, "tool_calls") and chunk.tool_calls:
+                    all_tool_calls.extend(chunk.tool_calls)
+
+            # Ensure tool calls have ids for ToolNode/ToolMessage compatibility
+            normalized_tool_calls = []
+            for tool_call in all_tool_calls:
+                tool_name = tool_call.get("name") or tool_call.get("tool") or ""
+                if not tool_name:
+                    continue
+                tool_args = tool_call.get("args") or {}
+                if tool_name == "web_search" and not tool_args.get("query"):
+                    if query:
+                        tool_args = {**tool_args, "query": query}
+                    else:
+                        continue
+                tool_call_id = tool_call.get("id") or tool_call.get("tool_call_id")
+                if not tool_call_id:
+                    tool_call_id = str(uuid.uuid4())
+                normalized_tool_calls.append(
+                    {
+                        **tool_call,
+                        "id": tool_call_id,
+                        "name": tool_name,
+                        "args": tool_args,
+                    }
+                )
+            
+            tool_iterations = state.get("tool_iterations", 0)
+            use_fallback_response = False
+            if normalized_tool_calls and tool_iterations >= MAX_TOOL_ITERATIONS:
+                events.append(
+                    {
+                        "type": "stage",
+                        "name": "tool",
+                        "description": "Tool limit reached; finishing without more tool calls.",
+                        "status": "completed",
+                    }
+                )
+                response = AIMessage(
+                    content="I couldn't complete the request after multiple tool attempts. "
+                    "Please rephrase or provide more specific details."
+                )
+                normalized_tool_calls = []
+                use_fallback_response = True
+
+            # Update response with accumulated content
+            if isinstance(response, AIMessage):
+                if not use_fallback_response:
+                    response.content = full_content
+                response.tool_calls = normalized_tool_calls or []
+            else:
+                # Create new AIMessage if needed
+                response = AIMessage(
+                    content=full_content,
+                    tool_calls=normalized_tool_calls if normalized_tool_calls else None,
+                )
+        else:
+            # Fallback if no chunks
+            response = await llm_with_tools.ainvoke(lc_messages)
+        
         lc_messages.append(response)
 
         # Check if there are tool calls
         if response.tool_calls:
+            tool_iterations = state.get("tool_iterations", 0) + 1
             for tool_call in response.tool_calls:
+                tool_name = tool_call.get("name") or ""
+                if not tool_name:
+                    continue
                 events.append(
                     {
                         "type": "tool_call",
-                        "tool": tool_call["name"],
-                        "args": tool_call["args"],
+                        "tool": tool_name,
+                        "args": tool_call.get("args") or {},
                     }
                 )
             logger.info(
                 "chat_tool_calls",
-                tools=[tc["name"] for tc in response.tool_calls],
+                tools=[tc.get("name") for tc in response.tool_calls if tc.get("name")],
             )
         else:
             # No tool calls - we have the final response
             events.append(
                 {
-                    "type": "step",
-                    "step_type": "chat",
+                    "type": "stage",
+                    "name": "chat",
                     "description": "Response generated",
                     "status": "completed",
                 }
@@ -112,14 +193,15 @@ async def agent_node(state: ChatState) -> dict:
         return {
             "lc_messages": lc_messages,
             "events": events,
+            "tool_iterations": tool_iterations if response.tool_calls else state.get("tool_iterations", 0),
         }
 
     except Exception as e:
         logger.error("chat_agent_failed", error=str(e))
         events.append(
             {
-                "type": "step",
-                "step_type": "chat",
+                "type": "stage",
+                "name": "chat",
                 "description": f"Error: {str(e)}",
                 "status": "completed",
             }
@@ -146,8 +228,8 @@ async def tool_node(state: ChatState) -> dict:
 
     events = [
         {
-            "type": "step",
-            "step_type": "tool",
+            "type": "stage",
+            "name": "tool",
             "description": "Executing search...",
             "status": "running",
         }
@@ -156,7 +238,11 @@ async def tool_node(state: ChatState) -> dict:
     # Get the last AI message with tool calls
     last_message = lc_messages[-1] if lc_messages else None
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return {"lc_messages": lc_messages, "events": events}
+        return {
+            "lc_messages": lc_messages,
+            "events": events,
+            "tool_iterations": state.get("tool_iterations", 0),
+        }
 
     # Execute each tool call
     tool_executor = ToolNode(CHAT_TOOLS)
@@ -177,8 +263,8 @@ async def tool_node(state: ChatState) -> dict:
 
     events.append(
         {
-            "type": "step",
-            "step_type": "tool",
+            "type": "stage",
+            "name": "tool",
             "description": "Search completed",
             "status": "completed",
         }
@@ -189,6 +275,7 @@ async def tool_node(state: ChatState) -> dict:
     return {
         "lc_messages": lc_messages,
         "events": events,
+        "tool_iterations": state.get("tool_iterations", 0),
     }
 
 
@@ -203,6 +290,10 @@ def should_continue(state: ChatState) -> Literal["tools", "finalize"]:
     """
     lc_messages = state.get("lc_messages", [])
     if not lc_messages:
+        return "finalize"
+
+    tool_iterations = state.get("tool_iterations", 0)
+    if tool_iterations >= MAX_TOOL_ITERATIONS:
         return "finalize"
 
     last_message = lc_messages[-1]

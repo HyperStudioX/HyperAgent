@@ -63,21 +63,51 @@ async function handler(
             });
         }
 
+        // Get response body text first to check if it's empty
+        const responseText = await response.text();
+        
         // For regular JSON or other responses
         const contentType = response.headers.get("content-type");
         if (contentType?.includes("application/json")) {
-            const data = await response.json();
-            return NextResponse.json(data, { status: response.status, headers: responseHeaders });
+            try {
+                // Handle empty response body
+                if (!responseText || responseText.trim() === "") {
+                    // Return empty array for list endpoints
+                    if (response.status === 200) {
+                        return NextResponse.json([], { 
+                            status: response.status, 
+                            headers: responseHeaders 
+                        });
+                    }
+                    return NextResponse.json({ error: "Empty response" }, { 
+                        status: response.status || 500, 
+                        headers: responseHeaders 
+                    });
+                }
+                const data = JSON.parse(responseText);
+                return NextResponse.json(data, { status: response.status, headers: responseHeaders });
+            } catch (parseError) {
+                console.error(`[API Proxy] JSON parse error for ${url}:`, parseError);
+                return NextResponse.json(
+                    { error: "Invalid JSON response", detail: responseText.substring(0, 200) },
+                    { status: response.status || 500, headers: responseHeaders }
+                );
+            }
         }
 
-        return new Response(response.body, {
+        // For non-JSON responses, return as-is
+        return new Response(responseText || response.body, {
             status: response.status,
             headers: responseHeaders
         });
 
     } catch (error) {
         console.error(`[API Proxy] Error for ${url}:`, error);
-        return NextResponse.json({ error: "Backend error" }, { status: 502 });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return NextResponse.json(
+            { error: "Backend error", detail: errorMessage },
+            { status: 502 }
+        );
     }
 }
 

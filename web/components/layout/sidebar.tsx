@@ -220,8 +220,6 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
                     // Performance & Accessibility
                     "will-change-transform",
                     "motion-reduce:transition-none",
-                    // Shadow for depth
-                    "shadow-[4px_0_24px_-8px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_24px_-8px_rgba(0,0,0,0.3)]",
                     // Conditional transition - disable when actively swiping
                     touchOffset === 0 && "transition-transform duration-200",
                     "md:translate-x-0", // Always visible on desktop
@@ -239,18 +237,27 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
                 aria-label="Main navigation"
             >
                 {/* Header */}
-                <div className="h-14 px-4 flex items-center justify-between border-b border-border">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+                <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
+                    <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 flex items-center justify-center">
                             <Image
-                                src="/images/logo.svg"
+                                src="/images/logo-dark.svg"
                                 alt="HyperAgent"
-                                width={20}
-                                height={20}
-                                className="invert dark:invert-0"
+                                width={28}
+                                height={28}
+                                className="dark:hidden transition-opacity duration-200"
+                                style={{ opacity: 0.92 }}
+                            />
+                            <Image
+                                src="/images/logo-light.svg"
+                                alt="HyperAgent"
+                                width={28}
+                                height={28}
+                                className="hidden dark:block transition-opacity duration-200"
+                                style={{ opacity: 0.95 }}
                             />
                         </div>
-                        <span className="font-semibold text-foreground tracking-tight">HyperAgent</span>
+                        <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                     </div>
 
                     {/* Mobile close button */}

@@ -1,161 +1,322 @@
 {
-  "metadata": {
-    "title": "HyperAgent",
-    "description": "AI Agent Platform for Chat and Deep Research"
-  },
-  "sidebar": {
-    "create": "Create",
-    "recentTasks": "Recent Tasks",
-    "lightMode": "Light mode",
-    "darkMode": "Dark mode",
-    "theme": "Theme",
-    "auto": "Auto",
-    "light": "Light",
-    "dark": "Dark",
-    "language": "Language",
-    "preferences": "Preferences",
-    "signIn": "Sign In",
-    "signOut": "Sign Out",
-    "noConversations": "No conversations yet",
-    "startChatOrResearch": "Start a chat or research task",
-    "today": "Today",
-    "yesterday": "Yesterday",
-    "thisWeek": "This Week",
-    "earlier": "Earlier",
-    "justNow": "Just now",
-    "minutesAgo": "{minutes}m ago",
-    "hoursAgo": "{hours}h ago",
-    "daysAgo": "{days}d ago",
-    "all": "All",
-    "task": "Task",
-    "research": "Research",
-    "chat": "Chat",
-    "code": "Code",
-    "writing": "Writing",
-    "data": "Data",
-    "noResults": "No items found",
-    "chatDescription": "Quick questions & conversations",
-    "researchDescription": "In-depth analysis & reports"
-  },
-  "home": {
-    "welcomeTitle": "What can I help you with?",
-    "welcomeSubtitle": "Ask anything or select a specialized mode for your task",
-    "inputPlaceholder": "Ask anything...",
-    "researchPlaceholder": "Research: {scenario}...",
-    "codePlaceholder": "Describe what code you need...",
-    "writingPlaceholder": "What would you like me to write?",
-    "dataPlaceholder": "Describe the data analysis you need...",
-    "selectMode": "Select Mode",
-    "deepResearch": "Deep Research"
-  },
-  "agents": {
-    "chat": {
-      "name": "Chat",
-      "description": "Quick questions & conversations"
+    "metadata": {
+        "title": "HyperAgent",
+        "description": "AI Agent Platform for Chat and Deep Research"
+    },
+    "sidebar": {
+        "create": "Create",
+        "recentTasks": "Recent Tasks",
+        "lightMode": "Light mode",
+        "darkMode": "Dark mode",
+        "theme": "Theme",
+        "auto": "Auto",
+        "light": "Light",
+        "dark": "Dark",
+        "language": "Language",
+        "preferences": "Preferences",
+        "signIn": "Sign In",
+        "signOut": "Sign Out",
+        "noConversations": "No conversations yet",
+        "startChatOrResearch": "Start a chat or research task",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "thisWeek": "This Week",
+        "earlier": "Earlier",
+        "justNow": "Just now",
+        "minutesAgo": "{minutes}m ago",
+        "hoursAgo": "{hours}h ago",
+        "daysAgo": "{days}d ago",
+        "all": "All",
+        "task": "Task",
+        "research": "Research",
+        "chat": "Chat",
+        "code": "Code",
+        "writing": "Writing",
+        "data": "Data",
+        "noResults": "No items found",
+        "chatDescription": "Quick questions & conversations",
+        "researchDescription": "In-depth analysis & reports"
+    },
+    "home": {
+        "welcomeTitle": "What can I help you with?",
+        "welcomeSubtitle": "Ask anything or select a specialized mode for your task",
+        "inputPlaceholder": "Ask anything...",
+        "researchPlaceholder": "Research: {scenario}...",
+        "codePlaceholder": "Describe what code you need...",
+        "writingPlaceholder": "What would you like me to write?",
+        "dataPlaceholder": "Describe the data analysis you need...",
+        "selectMode": "Select Mode",
+        "deepResearch": "Deep Research"
+    },
+    "agents": {
+        "chat": {
+            "name": "Chat",
+            "description": "Quick questions & conversations"
+        },
+        "research": {
+            "name": "Deep Research",
+            "description": "In-depth analysis & comprehensive reports"
+        },
+        "code": {
+            "name": "Code Assistant",
+            "description": "Write, explain & execute code"
+        },
+        "writing": {
+            "name": "Writing",
+            "description": "Articles, docs & long-form content"
+        },
+        "data": {
+            "name": "Data Analysis",
+            "description": "Analyze data & generate insights"
+        }
     },
     "research": {
-      "name": "Deep Research",
-      "description": "In-depth analysis & comprehensive reports"
+        "academic": {
+            "name": "Academic Research",
+            "description": "Literature review, citations, scholarly sources"
+        },
+        "market": {
+            "name": "Market Analysis",
+            "description": "Industry trends, competitor analysis, market data"
+        },
+        "technical": {
+            "name": "Technical Investigation",
+            "description": "Code analysis, API docs, technical deep-dives"
+        },
+        "news": {
+            "name": "News & Current Events",
+            "description": "Latest news, trend analysis, timeline tracking"
+        },
+        "depth": {
+            "label": "Depth",
+            "fast": {
+                "name": "Fast",
+                "description": "Quick search, concise report"
+            },
+            "deep": {
+                "name": "Deep",
+                "description": "Multiple searches, comprehensive analysis"
+            }
+        }
     },
-    "code": {
-      "name": "Code Assistant",
-      "description": "Write, explain & execute code"
+    "task": {
+        "taskNotFound": "Task Not Found",
+        "taskNotFoundMessage": "Task not found. Please start a new research from the home page.",
+        "goHome": "Go Home",
+        "researching": "Researching...",
+        "researchComplete": "Research complete",
+        "researchFailed": "Research failed",
+        "newSearch": "New search",
+        "retry": "Retry",
+        "generatingReport": "Generating report...",
+        "startingResearch": "Starting research...",
+        "progress": "Progress",
+        "sources": "Sources",
+        "steps": {
+            "thinking": {
+                "running": "Thinking...",
+                "completed": "Thinking complete",
+                "pending": "Thinking",
+                "failed": "Thinking failed"
+            },
+            "search": {
+                "running": "Searching for sources...",
+                "completed": "Search complete",
+                "pending": "Search sources",
+                "failed": "Search failed"
+            },
+            "analyze": {
+                "running": "Analyzing sources...",
+                "completed": "Analysis complete",
+                "pending": "Analyze sources",
+                "failed": "Analysis failed"
+            },
+            "synthesize": {
+                "running": "Synthesizing findings...",
+                "completed": "Synthesis complete",
+                "pending": "Synthesize findings",
+                "failed": "Synthesis failed"
+            },
+            "write": {
+                "running": "Writing report...",
+                "completed": "Report complete",
+                "pending": "Write report",
+                "failed": "Report failed"
+            }
+        }
     },
-    "writing": {
-      "name": "Writing",
-      "description": "Articles, docs & long-form content"
+    "chat": {
+        "copy": "Copy",
+        "copied": "Copied",
+        "regenerate": "Regenerate",
+        "connectionError": "Unable to connect to the server. Please check if the backend is running.",
+        "pressEnterToSend": "Press ⌘/Ctrl+Enter to send",
+        "stop": "Stop generation",
+        "typeMessage": "Type a message...",
+        "send": "Send",
+        "filesAttached": "{count} file(s) attached",
+        "googleDriveSoon": "Selected {count} file(s) from Google Drive. Download functionality coming soon!",
+        "agent": {
+            "searchingQuery": "Searching: {query}",
+            "executing": "Executing {tool}",
+            "result": "Result: {title}",
+            "toolLimitReached": "Tool limit reached; finishing without more tool calls.",
+            "showDetails": "Show details",
+            "hideDetails": "Hide details",
+            "thinking": "Thinking...",
+            "processing": "Processing...",
+            "searching": "Searching...",
+            "analyzing": "Analyzing...",
+            "researching": "Researching...",
+            "inProgress": "In progress",
+            "completed": "Completed",
+            "completedWithErrors": "Completed with errors",
+            "completedStages": "{count, plural, =0 {No steps completed} =1 {1 step completed} other {# steps completed}}",
+            "error": "Error",
+            "errorWithMessage": "{error}",
+            "expandStage": "Click to expand details",
+            "collapseStage": "Click to collapse details",
+            "detailCount": "{count, plural, =1 {1 detail} other {# details}}",
+            "stages": {
+                "thinking": {
+                    "running": "Processing request...",
+                    "completed": "Request processed",
+                    "failed": "Processing failed"
+                },
+                "routing": {
+                    "running": "Routing to agent...",
+                    "completed": "Routed",
+                    "failed": "Routing failed"
+                },
+                "chat": {
+                    "running": "Generating response...",
+                    "completed": "Response generated",
+                    "failed": "Response failed"
+                },
+                "analyze": {
+                    "running": "Analyzing sources...",
+                    "completed": "Analysis complete",
+                    "failed": "Analysis failed"
+                },
+                "search": {
+                    "running": "Searching...",
+                    "completed": "Search complete",
+                    "failed": "Search failed"
+                },
+                "tool": {
+                    "running": "Executing tools...",
+                    "completed": "Tools executed",
+                    "failed": "Tool execution failed"
+                },
+                "write": {
+                    "running": "Writing...",
+                    "completed": "Writing complete",
+                    "failed": "Writing failed"
+                },
+                "synthesize": {
+                    "running": "Synthesizing findings...",
+                    "completed": "Synthesis complete",
+                    "failed": "Synthesis failed"
+                },
+                "research": {
+                    "running": "Researching...",
+                    "completed": "Research complete",
+                    "failed": "Research failed"
+                },
+                "plan": {
+                    "running": "Planning analysis...",
+                    "completed": "Planning complete",
+                    "failed": "Planning failed"
+                },
+                "generate": {
+                    "running": "Generating code...",
+                    "completed": "Code generated",
+                    "failed": "Code generation failed"
+                },
+                "execute": {
+                    "running": "Executing code...",
+                    "completed": "Execution complete",
+                    "failed": "Execution failed"
+                },
+                "summarize": {
+                    "running": "Summarizing results...",
+                    "completed": "Summary complete",
+                    "failed": "Summary failed"
+                },
+                "finalize": {
+                    "running": "Finalizing...",
+                    "completed": "Finalized",
+                    "failed": "Finalization failed"
+                },
+                "outline": {
+                    "running": "Creating outline...",
+                    "completed": "Outline complete",
+                    "failed": "Outline failed"
+                },
+                "data": {
+                    "running": "Analyzing data...",
+                    "completed": "Data analysis complete",
+                    "failed": "Data analysis failed",
+                    "pending": "Analyze data"
+                },
+                "default": {
+                    "running": "Processing...",
+                    "completed": "Complete",
+                    "failed": "Failed",
+                    "pending": "Pending"
+                }
+            }
+        },
+        "attachments": {
+            "title": "Add attachments",
+            "soon": "Soon",
+            "sources": {
+                "local": {
+                    "name": "Upload from device",
+                    "description": "Browse and upload files from your computer"
+                },
+                "googleDrive": {
+                    "name": "Google Drive",
+                    "description": "Import files from your Google Drive"
+                },
+                "oneDrive": {
+                    "name": "OneDrive",
+                    "description": "Import files from Microsoft OneDrive"
+                },
+                "dropbox": {
+                    "name": "Dropbox",
+                    "description": "Import files from Dropbox"
+                }
+            },
+            "validation": {
+                "unsupportedType": "File type \"{type}\" is not supported",
+                "maxSize": "File exceeds maximum size of {size}MB"
+            }
+        }
     },
-    "data": {
-      "name": "Data Analysis",
-      "description": "Analyze data & generate insights"
+    "conversation": {
+        "newChat": "New Chat",
+        "newResearch": "New Research"
+    },
+    "common": {
+        "error": "Error"
+    },
+    "signin": {
+        "continueWithGoogle": "Continue with Google"
+    },
+    "preview": {
+        "minimize": "Minimize",
+        "maximize": "Maximize",
+        "download": "Download",
+        "raw": "Raw",
+        "noPreview": "No Preview Available",
+        "unsupportedType": "We can't preview this file type directly. You can download it to view it locally.",
+        "downloadFile": "Download {filename}",
+        "loading": "Loading...",
+        "loadingContent": "Loading content...",
+        "failedToLoad": "Failed to load file content. Please try downloading the file.",
+        "failedToLoadImage": "Error loading image: {error}",
+        "loadingImage": "Loading image...",
+        "loadingPdf": "Loading PDF..."
     }
-  },
-  "research": {
-    "academic": {
-      "name": "Academic Research",
-      "description": "Literature review, citations, scholarly sources"
-    },
-    "market": {
-      "name": "Market Analysis",
-      "description": "Industry trends, competitor analysis, market data"
-    },
-    "technical": {
-      "name": "Technical Investigation",
-      "description": "Code analysis, API docs, technical deep-dives"
-    },
-    "news": {
-      "name": "News & Current Events",
-      "description": "Latest news, trend analysis, timeline tracking"
-    },
-    "depth": {
-      "label": "Depth",
-      "fast": {
-        "name": "Fast",
-        "description": "Quick search, concise report"
-      },
-      "deep": {
-        "name": "Deep",
-        "description": "Multiple searches, comprehensive analysis"
-      }
-    }
-  },
-  "task": {
-    "taskNotFound": "Task Not Found",
-    "taskNotFoundMessage": "Task not found. Please start a new research from the home page.",
-    "goHome": "Go Home",
-    "researching": "Researching...",
-    "researchComplete": "Research complete",
-    "researchFailed": "Research failed",
-    "newSearch": "New search",
-    "retry": "Retry",
-    "generatingReport": "Generating report...",
-    "startingResearch": "Starting research...",
-    "progress": "Progress",
-    "sources": "Sources",
-    "steps": {
-      "search": {
-        "running": "Searching for sources...",
-        "completed": "Search complete",
-        "pending": "Search sources",
-        "failed": "Search failed"
-      },
-      "analyze": {
-        "running": "Analyzing sources...",
-        "completed": "Analysis complete",
-        "pending": "Analyze sources",
-        "failed": "Analysis failed"
-      },
-      "synthesize": {
-        "running": "Synthesizing findings...",
-        "completed": "Synthesis complete",
-        "pending": "Synthesize findings",
-        "failed": "Synthesis failed"
-      },
-      "write": {
-        "running": "Writing report...",
-        "completed": "Report complete",
-        "pending": "Write report",
-        "failed": "Report failed"
-      }
-    }
-  },
-  "chat": {
-    "copy": "Copy",
-    "copied": "Copied",
-    "regenerate": "Regenerate",
-    "connectionError": "Unable to connect to the server. Please check if the backend is running.",
-    "pressEnterToSend": "Press ⌘/Ctrl+Enter to send",
-    "typeMessage": "Type a message...",
-    "send": "Send"
-  },
-  "conversation": {
-    "newChat": "New Chat",
-    "newResearch": "New Research"
-  },
-  "common": {
-    "error": "Error"
-  },
-  "signin": {
-    "continueWithGoogle": "Continue with Google"
-  }
 }

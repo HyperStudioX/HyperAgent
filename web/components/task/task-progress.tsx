@@ -34,10 +34,11 @@ const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
 
 // Define all research steps upfront
 const INITIAL_STEPS: ResearchStep[] = [
-    { id: "1", type: "search", description: "Searching", status: "pending" },
-    { id: "2", type: "analyze", description: "Analyzing", status: "pending" },
-    { id: "3", type: "synthesize", description: "Synthesizing", status: "pending" },
-    { id: "4", type: "write", description: "Writing", status: "pending" },
+    { id: "1", type: "thinking", description: "Thinking", status: "pending" },
+    { id: "2", type: "search", description: "Searching", status: "pending" },
+    { id: "3", type: "analyze", description: "Analyzing", status: "pending" },
+    { id: "4", type: "synthesize", description: "Synthesizing", status: "pending" },
+    { id: "5", type: "write", description: "Writing", status: "pending" },
 ];
 
 interface TaskInfo {
@@ -273,14 +274,18 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                         try {
                             const event = JSON.parse(jsonStr);
 
-                            if (event.type === "step") {
-                                const stepData = event.data;
-                                // Update the status of the matching step type
-                                currentSteps = currentSteps.map((s) =>
-                                    s.type === stepData.type ? { ...s, status: stepData.status } : s
-                                );
-                                setSteps([...currentSteps]);
-                                updateTaskSteps(taskId, currentSteps);
+                            if (event.type === "stage") {
+                                // Backend sends stage events with "name" field for the step type
+                                const stepName = event.name || event.data?.name;
+                                const stepStatus = event.status || event.data?.status;
+                                if (stepName && stepStatus) {
+                                    // Update the status of the matching step type
+                                    currentSteps = currentSteps.map((s) =>
+                                        s.type === stepName ? { ...s, status: stepStatus } : s
+                                    );
+                                    setSteps([...currentSteps]);
+                                    updateTaskSteps(taskId, currentSteps);
+                                }
                             } else if (event.type === "source") {
                                 const sourceData = event.data;
                                 const newSource = {
@@ -517,8 +522,8 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                     "fixed bottom-0 left-0 right-0 z-50",
                     "md:translate-y-0", // Always visible on desktop
                     "max-h-[70vh] md:max-h-none",
-                    "rounded-t-2xl md:rounded-none",
-                    "shadow-2xl md:shadow-none",
+                    "rounded-t-xl md:rounded-none",
+                    "md:shadow-none",
                     "border-t border-border md:border-t-0",
                     "transition-transform duration-300 ease-out",
                     progressPanelOpen ? "translate-y-0" : "translate-y-full md:translate-y-0"
@@ -575,7 +580,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                                             step.status === "failed" && "text-destructive",
                                             step.status === "pending" && "text-muted-foreground/60"
                                         )}>
-                                            {t(`steps.${step.type}.${step.status}`)}
+                                            {t(`steps.${step.type}.${step.status}`, { defaultValue: step.description })}
                                         </span>
                                     </div>
                                 ))}

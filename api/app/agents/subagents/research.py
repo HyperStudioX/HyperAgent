@@ -11,12 +11,17 @@ from langchain_core.messages import (
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from app.agents.prompts import get_analysis_prompt, get_report_prompt, get_synthesis_prompt
+from app.agents.prompts import (
+    get_analysis_prompt,
+    get_report_prompt,
+    get_search_system_prompt,
+    get_synthesis_prompt,
+)
 from app.agents.scenarios import get_scenario_config
 from app.agents.state import ResearchState
 from app.agents.tools import parse_search_results, web_search
 from app.core.logging import get_logger
-from app.models.schemas import ResearchDepth, ResearchScenario
+from app.models.schemas import LLMProvider, ResearchDepth, ResearchScenario
 from app.services.llm import llm_service
 from app.services.search import SearchResult
 
@@ -43,22 +48,6 @@ DEPTH_CONFIG = {
     },
 }
 
-SEARCH_SYSTEM_PROMPT = """You are a research assistant that gathers information from the web.
-
-Your task is to search for relevant information on the given topic. You have access to a web_search tool.
-
-Guidelines:
-1. Start with a broad search to understand the topic
-2. Follow up with specific searches to fill in gaps
-3. For {scenario} research, focus on: {search_focus}
-4. Search depth: {depth} - adjust your search strategy accordingly
-5. Maximum searches allowed: {max_searches}
-
-When you have gathered enough information to write a comprehensive {report_length} report,
-respond with "SEARCH_COMPLETE" to proceed to analysis.
-
-Do NOT write the report yet - just gather sources."""
-
 
 async def init_config_node(state: ResearchState) -> dict:
     """Initialize research configuration from scenario and depth.
@@ -76,7 +65,7 @@ async def init_config_node(state: ResearchState) -> dict:
     depth_config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG[ResearchDepth.FAST])
 
     # Build search system prompt
-    search_prompt = SEARCH_SYSTEM_PROMPT.format(
+    search_prompt = get_search_system_prompt(
         scenario=config["name"],
         search_focus=", ".join(config.get("search_focus", [])),
         depth=depth.value if isinstance(depth, ResearchDepth) else depth,
@@ -96,10 +85,11 @@ async def init_config_node(state: ResearchState) -> dict:
         "depth_config": depth_config,
         "lc_messages": [
             SystemMessage(content=search_prompt),
-            HumanMessage(content=f"Research topic: {state.get('query', '')}"),
+            HumanMessage(content=f"Research topic: {state.get('query') or ''}"),
         ],
         "sources": [],
         "search_complete": False,
+        "search_count": 0,
         "events": [
             {
                 "type": "config",
@@ -107,8 +97,8 @@ async def init_config_node(state: ResearchState) -> dict:
                 "scenario": scenario.value if isinstance(scenario, ResearchScenario) else scenario,
             },
             {
-                "type": "step",
-                "step_type": "search",
+                "type": "stage",
+                "name": "search",
                 "description": "Searching for sources...",
                 "status": "running",
             },
@@ -127,13 +117,42 @@ async def search_agent_node(state: ResearchState) -> dict:
     """
     lc_messages = state.get("lc_messages", [])
     depth_config = state.get("depth_config", {})
+    search_count = state.get("search_count", 0)
+    max_searches = depth_config.get("max_searches", 5)
 
-    logger.info("search_agent_processing", message_count=len(lc_messages))
+    logger.info(
+        "search_agent_processing",
+        message_count=len(lc_messages),
+        search_count=search_count,
+        max_searches=max_searches,
+    )
+
+    # Enforce iteration limit to prevent infinite loops
+    if search_count >= max_searches:
+        logger.warning(
+            "max_searches_reached",
+            count=search_count,
+            max=max_searches,
+        )
+        return {
+            "lc_messages": lc_messages,
+            "search_complete": True,
+            "events": [
+                {
+                    "type": "stage",
+                    "name": "search",
+                    "description": f"Reached maximum searches ({max_searches}). Proceeding with available sources.",
+                    "status": "completed",
+                }
+            ],
+        }
 
     events = []
 
     # Get LLM with tools bound
-    llm = llm_service.get_llm()
+    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    model = state.get("model")
+    llm = llm_service.get_llm(provider=provider, model=model)
     llm_with_tools = llm.bind_tools(RESEARCH_TOOLS)
 
     try:
@@ -142,16 +161,27 @@ async def search_agent_node(state: ResearchState) -> dict:
 
         # Check if search is complete
         if response.content and "SEARCH_COMPLETE" in response.content:
-            logger.info("search_phase_complete")
+            logger.info("search_phase_complete", search_count=search_count)
             return {
                 "lc_messages": lc_messages,
                 "search_complete": True,
                 "events": events,
             }
 
-        # Log tool calls
+        # Track and log tool calls
         if response.tool_calls:
+            # Increment search count for each tool call
+            search_count += len(response.tool_calls)
             for tool_call in response.tool_calls:
+                # Validate tool name
+                if tool_call["name"] not in [tool.name for tool in RESEARCH_TOOLS]:
+                    logger.warning(
+                        "invalid_tool_call",
+                        tool=tool_call["name"],
+                        allowed=[tool.name for tool in RESEARCH_TOOLS],
+                    )
+                    continue
+
                 events.append(
                     {
                         "type": "tool_call",
@@ -162,25 +192,36 @@ async def search_agent_node(state: ResearchState) -> dict:
             logger.info(
                 "search_tool_calls",
                 tools=[tc["name"] for tc in response.tool_calls],
+                search_count=search_count,
             )
+
+        if not response.tool_calls:
+            logger.info("search_phase_complete_no_tool_calls", search_count=search_count)
+            return {
+                "lc_messages": lc_messages,
+                "search_complete": True,
+                "events": events,
+            }
 
         return {
             "lc_messages": lc_messages,
+            "search_count": search_count,
             "events": events,
         }
 
     except Exception as e:
-        logger.error("search_agent_failed", error=str(e))
-        # On error, mark search complete to proceed
+        logger.error("search_agent_failed", error=str(e), search_count=search_count)
+        # On error, mark search complete to proceed with available sources
         return {
             "lc_messages": lc_messages,
             "search_complete": True,
             "events": [
                 {
-                    "type": "step",
-                    "step_type": "search",
+                    "type": "error",
+                    "name": "search",
                     "description": f"Search error: {str(e)}",
-                    "status": "completed",
+                    "error": str(e),
+                    "status": "failed",
                 }
             ],
         }
@@ -274,8 +315,8 @@ async def collect_sources_node(state: ResearchState) -> dict:
 
     events = [
         {
-            "type": "step",
-            "step_type": "search",
+            "type": "stage",
+            "name": "search",
             "description": f"Found {len(sources)} sources",
             "status": "completed",
         }
@@ -295,21 +336,23 @@ async def analyze_node(state: ResearchState) -> dict:
     Returns:
         Dict with analysis and events
     """
-    query = state.get("query", "")
-    sources = state.get("sources", [])
-    system_prompt = state.get("system_prompt", "")
-    depth_config = state.get("depth_config", {})
+    query = state.get("query") or ""
+    sources = state.get("sources") or []
+    system_prompt = state.get("system_prompt") or ""
+    depth_config = state.get("depth_config") or {}
 
     events = [
         {
-            "type": "step",
-            "step_type": "analyze",
+            "type": "stage",
+            "name": "analyze",
             "description": f"Analyzing sources ({depth_config.get('analysis_detail', 'thorough')})...",
             "status": "running",
         }
     ]
 
-    llm = llm_service.get_llm()
+    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    model = state.get("model")
+    llm = llm_service.get_llm(provider=provider, model=model)
     sources_text = _format_sources(sources)
 
     analysis_prompt = get_analysis_prompt(
@@ -333,8 +376,8 @@ async def analyze_node(state: ResearchState) -> dict:
 
     events.append(
         {
-            "type": "step",
-            "step_type": "analyze",
+            "type": "stage",
+            "name": "analyze",
             "description": "Source analysis complete",
             "status": "completed",
         }
@@ -355,20 +398,22 @@ async def synthesize_node(state: ResearchState) -> dict:
     Returns:
         Dict with synthesis and events
     """
-    query = state.get("query", "")
-    analysis_text = state.get("analysis", "")
-    system_prompt = state.get("system_prompt", "")
+    query = state.get("query") or ""
+    analysis_text = state.get("analysis") or ""
+    system_prompt = state.get("system_prompt") or ""
 
     events = [
         {
-            "type": "step",
-            "step_type": "synthesize",
+            "type": "stage",
+            "name": "synthesize",
             "description": "Synthesizing findings...",
             "status": "running",
         }
     ]
 
-    llm = llm_service.get_llm()
+    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    model = state.get("model")
+    llm = llm_service.get_llm(provider=provider, model=model)
     synthesis_prompt = get_synthesis_prompt(
         query=query,
         analysis_text=analysis_text,
@@ -389,8 +434,8 @@ async def synthesize_node(state: ResearchState) -> dict:
 
     events.append(
         {
-            "type": "step",
-            "step_type": "synthesize",
+            "type": "stage",
+            "name": "synthesize",
             "description": "Synthesis complete",
             "status": "completed",
         }
@@ -411,18 +456,18 @@ async def write_node(state: ResearchState) -> dict:
     Returns:
         Dict with report chunks and events
     """
-    query = state.get("query", "")
-    analysis = state.get("analysis", "")
-    synthesis = state.get("synthesis", "")
-    sources = state.get("sources", [])
-    system_prompt = state.get("system_prompt", "")
-    report_structure = state.get("report_structure", [])
-    depth_config = state.get("depth_config", {})
+    query = state.get("query") or ""
+    analysis = state.get("analysis") or ""
+    synthesis = state.get("synthesis") or ""
+    sources = state.get("sources") or []
+    system_prompt = state.get("system_prompt") or ""
+    report_structure = state.get("report_structure") or []
+    depth_config = state.get("depth_config") or {}
 
     events = [
         {
-            "type": "step",
-            "step_type": "write",
+            "type": "stage",
+            "name": "write",
             "description": "Writing research report...",
             "status": "running",
         }
@@ -440,7 +485,9 @@ async def write_node(state: ResearchState) -> dict:
         report_length=depth_config.get("report_length", "comprehensive"),
     )
 
-    llm = llm_service.get_llm()
+    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    model = state.get("model")
+    llm = llm_service.get_llm(provider=provider, model=model)
     report_chunks = []
 
     try:
@@ -464,8 +511,8 @@ async def write_node(state: ResearchState) -> dict:
 
     events.append(
         {
-            "type": "step",
-            "step_type": "write",
+            "type": "stage",
+            "name": "write",
             "description": "Report complete",
             "status": "completed",
         }

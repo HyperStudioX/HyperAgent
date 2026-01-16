@@ -13,7 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
-from app.db.models import File as FileModel
+from app.db.models import Conversation, ConversationMessage, File as FileModel
 from app.models.schemas import (
     QueryMode,
     UnifiedQueryRequest,
@@ -50,9 +50,65 @@ You have access to a web search tool that you can use to find current informatio
 - You need to verify facts or find up-to-date information
 - The question requires knowledge beyond your training data
 
+When you decide to search, refine the query to improve quality:
+- Include specific entities, versions, dates, and locations
+- Add the most likely authoritative source (e.g. official docs/site:example.com)
+- Use short, focused queries rather than a single broad query
+- Avoid vague terms; include exact product or feature names
+
 Be concise, accurate, and helpful. When providing code, use proper formatting with markdown code blocks and specify the language.
 
 If you're unsure about something, say so rather than making things up."""
+
+MAX_CHAT_HISTORY_MESSAGES = 20
+
+
+async def get_conversation_history(
+    db: AsyncSession,
+    conversation_id: str | None,
+    user_id: str,
+    limit: int = MAX_CHAT_HISTORY_MESSAGES,
+) -> list[dict]:
+    """Fetch recent conversation history for short-term memory."""
+    if not conversation_id:
+        return []
+
+    result = await db.execute(
+        select(Conversation.id).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        return []
+
+    message_result = await db.execute(
+        select(ConversationMessage)
+        .where(ConversationMessage.conversation_id == conversation_id)
+        .order_by(ConversationMessage.created_at.desc())
+        .limit(limit)
+    )
+    messages = list(reversed(message_result.scalars().all()))
+    history = [
+        {
+            "role": message.role,
+            "content": message.content,
+            "metadata": message.message_metadata,
+        }
+        for message in messages
+        if message.role in ("user", "assistant")
+    ]
+    return history
+
+
+def trim_duplicate_user_message(history: list[dict], query: str) -> list[dict]:
+    """Remove duplicate trailing user message when it matches the current query."""
+    if not history:
+        return history
+    last = history[-1]
+    if last.get("role") == "user" and last.get("content", "").strip() == query.strip():
+        return history[:-1]
+    return history
 
 
 async def get_file_context(
@@ -108,13 +164,22 @@ async def query(
         if file_context:
             system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
 
+        history = [m.model_dump() for m in request.history]
+        if not history and request.conversation_id:
+            history = await get_conversation_history(
+                db,
+                request.conversation_id,
+                current_user.id,
+            )
+            history = trim_duplicate_user_message(history, request.message)
+
         if request.mode == QueryMode.CHAT:
             # Use agent supervisor even for chat to enable tools
             result = await agent_supervisor.invoke(
                 query=request.message,
                 mode=QueryMode.CHAT.value,
                 user_id=current_user.id,
-                messages=[m.model_dump() for m in request.history],
+                messages=history,
                 system_prompt=system_prompt,
                 provider=request.provider,
                 model=request.model,
@@ -134,7 +199,7 @@ async def query(
                 query=request.message,
                 mode=request.mode.value,
                 user_id=current_user.id,
-                messages=[m.model_dump() for m in request.history],
+                messages=history,
                 system_prompt=system_prompt,
                 provider=request.provider,
                 model=request.model,
@@ -193,6 +258,15 @@ async def stream_query(
 ):
     """Stream response for chat, research, and other agent modes."""
     if request.mode in (QueryMode.CHAT, QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA):
+        history = [m.model_dump() for m in request.history]
+        if not history and request.conversation_id:
+            history = await get_conversation_history(
+                db,
+                request.conversation_id,
+                current_user.id,
+            )
+            history = trim_duplicate_user_message(history, request.message)
+
         # Get file context if attachments provided
         file_context = await get_file_context(
             db,
@@ -212,7 +286,7 @@ async def stream_query(
                     query=request.message,
                     mode=request.mode.value,
                     user_id=current_user.id,
-                    messages=[m.model_dump() for m in request.history],
+                    messages=history,
                     system_prompt=system_prompt,
                     provider=request.provider,
                     model=request.model,
@@ -221,20 +295,22 @@ async def stream_query(
                     if event["type"] == "token":
                         data = json.dumps({"type": "token", "data": event["content"]})
                         yield f"data: {data}\n\n"
-                    elif event["type"] == "step":
-                        # Also stream steps for visibility (optional, frontend needs to handle)
-                        data = json.dumps({"type": "step", "data": event})
+                    elif event["type"] == "stage":
+                        # Stream stage event directly (already has type field)
+                        data = json.dumps(event)
                         yield f"data: {data}\n\n"
                     elif event["type"] == "tool_call":
                         # Stream tool calls
                         data = json.dumps({"type": "tool_call", "data": event})
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "tool_result":
+                        data = json.dumps({"type": "tool_result", "data": event})
                         yield f"data: {data}\n\n"
                     elif event["type"] == "complete":
                         yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
                     elif event["type"] == "error":
                         yield f"data: {json.dumps({'type': 'error', 'data': event.get('error', 'Unknown error')})}\n\n"
 
-                yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
             except Exception as e:
                 logger.error("agent_stream_error", mode=request.mode.value, error=str(e))
                 yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
@@ -269,7 +345,13 @@ async def stream_query(
         )
         await db.commit()
 
-        logger.info("research_stream_started", task_id=task_id, query=request.message[:50])
+        logger.info(
+            "research_stream_started",
+            task_id=task_id,
+            query=request.message[:50],
+            depth=request.depth.value if request.depth else None,
+            scenario=request.scenario.value if request.scenario else None,
+        )
 
         async def research_generator() -> AsyncGenerator[dict, None]:
             # Track state for database updates
@@ -294,9 +376,9 @@ async def stream_query(
                     depth=request.depth,
                     scenario=request.scenario,
                 ):
-                    if event["type"] == "step":
+                    if event["type"] == "stage":
                         step_id = str(uuid.uuid4())
-                        step_type = event["step_type"]
+                        step_type = event["name"]
 
                         # Track step IDs for updates
                         if event["status"] == "running":
@@ -331,9 +413,13 @@ async def stream_query(
                             description=event["description"],
                             status=ResearchStatus(event["status"]),
                         )
+                        stage_data = step.model_dump()
+                        # Rename 'type' to 'name' to avoid collision with event type
+                        stage_data["name"] = stage_data.pop("type")
+                        stage_data["type"] = "stage"
                         yield {
                             "event": "message",
-                            "data": json.dumps({"type": "step", "data": step.model_dump()}),
+                            "data": json.dumps(stage_data),
                         }
 
                     elif event["type"] == "source":

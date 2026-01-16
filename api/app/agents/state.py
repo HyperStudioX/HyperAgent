@@ -8,7 +8,7 @@ from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from app.models.schemas import ResearchDepth, ResearchScenario
+from app.models.schemas import LLMProvider, ResearchDepth, ResearchScenario
 from app.services.search import SearchResult
 
 
@@ -45,6 +45,9 @@ class SupervisorState(TypedDict, total=False):
     # Metadata
     task_id: str | None
     user_id: str | None
+    attachment_ids: list[str]  # IDs of attached files for tool access
+    provider: LLMProvider
+    model: str | None
 
 
 class ChatState(SupervisorState, total=False):
@@ -53,6 +56,7 @@ class ChatState(SupervisorState, total=False):
     # Chat-specific fields
     system_prompt: str
     lc_messages: list[BaseMessage]  # LangChain messages for tool calling
+    tool_iterations: int  # Count of tool-call loops for this chat request
 
 
 class ResearchState(SupervisorState, total=False):
@@ -68,6 +72,7 @@ class ResearchState(SupervisorState, total=False):
     # Tool calling support
     lc_messages: list[BaseMessage]  # LangChain messages for ReAct loop
     search_complete: bool  # Flag to exit search loop
+    search_count: int  # Track number of search iterations
 
     # Research outputs
     sources: list[SearchResult]

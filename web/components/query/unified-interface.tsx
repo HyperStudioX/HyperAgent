@@ -74,6 +74,8 @@ export function UnifiedInterface() {
     const researchRef = useRef<HTMLDivElement>(null);
     const streamingContentRef = useRef("");
     const updateScheduledRef = useRef(false);
+    const detectedSearchQueriesRef = useRef<Set<string>>(new Set());
+    const searchStageCompletedRef = useRef(false);
 
     // File upload hook
     const {
@@ -91,7 +93,7 @@ export function UnifiedInterface() {
             // TODO: Download Google Drive files and convert to local files
             console.log("Google Drive files selected:", driveFiles);
             // For now, just show a placeholder
-            alert(`Selected ${driveFiles.length} file(s) from Google Drive. Download functionality coming soon!`);
+            alert(tChat("googleDriveSoon", { count: driveFiles.length }));
         },
         multiSelect: true,
     });
@@ -103,16 +105,90 @@ export function UnifiedInterface() {
         }
     };
 
-    // Throttled streaming content update using requestAnimationFrame
+    // Token batching for smoother rendering
+    const tokenBatchRef = useRef<string[]>([]);
+    const batchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const BATCH_INTERVAL_MS = 50; // Batch tokens every 50ms for smooth rendering
+
+    // Throttled streaming content update using requestAnimationFrame with batching
     const updateStreamingContent = useCallback((content: string) => {
         streamingContentRef.current = content;
         if (!updateScheduledRef.current) {
             updateScheduledRef.current = true;
+            // Use requestAnimationFrame for smooth updates
             requestAnimationFrame(() => {
                 setStreamingContent(streamingContentRef.current);
                 updateScheduledRef.current = false;
             });
         }
+    }, []);
+
+    // Batch tokens and flush periodically for smoother rendering
+    const appendTokenBatch = useCallback((token: string) => {
+        tokenBatchRef.current.push(token);
+
+        // If no flush scheduled, schedule one
+        if (!batchTimeoutRef.current) {
+            batchTimeoutRef.current = setTimeout(() => {
+                // Flush all batched tokens at once
+                const batchedContent = tokenBatchRef.current.join("");
+                tokenBatchRef.current = [];
+                batchTimeoutRef.current = null;
+
+                if (batchedContent) {
+                    streamingContentRef.current += batchedContent;
+                    updateStreamingContent(streamingContentRef.current);
+                }
+            }, BATCH_INTERVAL_MS);
+        }
+    }, [updateStreamingContent]);
+
+    // Flush any remaining tokens immediately
+    const flushTokenBatch = useCallback(() => {
+        if (batchTimeoutRef.current) {
+            clearTimeout(batchTimeoutRef.current);
+            batchTimeoutRef.current = null;
+        }
+        if (tokenBatchRef.current.length > 0) {
+            const batchedContent = tokenBatchRef.current.join("");
+            tokenBatchRef.current = [];
+            streamingContentRef.current += batchedContent;
+            updateStreamingContent(streamingContentRef.current);
+        }
+    }, [updateStreamingContent]);
+
+    const stripAssistantSearchTags = useCallback((content: string) => {
+        return content
+            .replace(/<search_quality_score>[\s\S]*?<\/search_quality_score>/gi, "")
+            .replace(/<search_query>[\s\S]*?<\/search_query>/gi, "")
+            .replace(/<search>[\s\S]*?<\/search>/gi, "");
+    }, []);
+
+    const extractSearchQueries = useCallback((content: string) => {
+        const matches = content.matchAll(/<search>([\s\S]*?)<\/search>/gi);
+        const queries: string[] = [];
+        for (const match of matches) {
+            const query = (match[1] || "").trim();
+            if (query) {
+                queries.push(query);
+            }
+        }
+        return queries;
+    }, []);
+
+    const markSearchStageCompleted = useCallback(() => {
+        if (searchStageCompletedRef.current) {
+            return null;
+        }
+        searchStageCompletedRef.current = true;
+        return {
+            type: "stage",
+            data: {
+                name: "tool",
+                description: "Search completed",
+                status: "completed",
+            },
+        };
     }, []);
 
     // Close research submenu when clicking outside
@@ -137,21 +213,23 @@ export function UnifiedInterface() {
         }
     }, [searchParams, router]);
 
-    const {
-        activeConversationId,
-        isLoading,
-        hasHydrated,
-        setLoading,
-        setStreaming,
-        addMessage,
-        removeMessage,
-        createConversation,
-        getActiveConversation,
-        loadConversation,
-    } = useChatStore();
+    const activeConversationId = useChatStore((state) => state.activeConversationId);
+    const isLoading = useChatStore((state) => state.isLoading);
+    const hasHydrated = useChatStore((state) => state.hasHydrated);
+    const setLoading = useChatStore((state) => state.setLoading);
+    const setStreaming = useChatStore((state) => state.setStreaming);
+    const addMessage = useChatStore((state) => state.addMessage);
+    const removeMessage = useChatStore((state) => state.removeMessage);
+    const createConversation = useChatStore((state) => state.createConversation);
+    const getActiveConversation = useChatStore((state) => state.getActiveConversation);
+    const loadConversation = useChatStore((state) => state.loadConversation);
+    const conversations = useChatStore((state) => state.conversations);
 
     const activeConversation = hasHydrated ? getActiveConversation() : undefined;
     const messages = activeConversation?.messages || [];
+
+    // Track which conversations have been loaded to prevent infinite loops when messages.length === 0
+    const loadedConversationsRef = useRef<Set<string>>(new Set());
 
     // Load conversation messages when switching conversations
     useEffect(() => {
@@ -160,21 +238,35 @@ export function UnifiedInterface() {
             return;
         }
 
-        if (activeConversationId && hasHydrated) {
+        if (activeConversationId && hasHydrated && !loadedConversationsRef.current.has(activeConversationId)) {
             const conversation = getActiveConversation();
-            // Only load if messages haven't been loaded yet
+            const isLocal = activeConversationId.startsWith("local-");
+
+            if (isLocal) {
+                loadedConversationsRef.current.add(activeConversationId);
+                return;
+            }
+
+            // Only load if messages haven't been loaded yet and it's not a local conversation
             if (conversation && conversation.messages.length === 0) {
-                // Only load from API if authenticated and not a local conversation
-                const isLocal = activeConversationId.startsWith("local-");
-                if (isLocal || sessionStatus === "authenticated") {
-                    loadConversation(activeConversationId).catch(console.error);
+                if (sessionStatus === "authenticated") {
+                    loadedConversationsRef.current.add(activeConversationId);
+                    loadConversation(activeConversationId).catch((error) => {
+                        console.error("[UnifiedInterface] Failed to load conversation:", error);
+                        // Remove from set on error to allow retry
+                        loadedConversationsRef.current.delete(activeConversationId);
+                    });
                 }
+            } else if (conversation) {
+                // If it already has messages, consider it loaded
+                loadedConversationsRef.current.add(activeConversationId);
             }
         }
     }, [activeConversationId, hasHydrated, getActiveConversation, loadConversation, sessionStatus]);
 
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        // Use 'auto' instead of 'smooth' to avoid layout/update loops during frequent updates
+        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
     };
 
     useEffect(() => {
@@ -187,6 +279,13 @@ export function UnifiedInterface() {
             inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + "px";
         }
     }, [input]);
+
+    const getConversationAttachmentIds = useCallback((conversationMessages: typeof messages) => {
+        const ids = conversationMessages.flatMap((message) =>
+            message.attachments?.map((attachment) => attachment.id) || []
+        );
+        return Array.from(new Set(ids));
+    }, []);
 
     const handleSubmit = async () => {
         if (!input.trim() || isLoading || isUploading) return;
@@ -201,6 +300,13 @@ export function UnifiedInterface() {
             handleResearch(userMessage);
         } else if (selectedAgent && selectedAgent !== "chat") {
             await handleAgentTask(userMessage, selectedAgent, attachmentIds, messageAttachments);
+        } else if (!selectedAgent && activeConversation?.type && activeConversation.type !== "chat") {
+            await handleAgentTask(
+                userMessage,
+                activeConversation.type as AgentType,
+                attachmentIds,
+                messageAttachments
+            );
         } else {
             await handleChat(userMessage, false, attachmentIds, messageAttachments);
         }
@@ -213,13 +319,32 @@ export function UnifiedInterface() {
         messageAttachments: FileAttachment[] = []
     ) => {
         setStreamingContent("");
+        streamingContentRef.current = "";
+        tokenBatchRef.current = [];
         setAgentStatus(null);
         setStreamingEvents([]);
+        detectedSearchQueriesRef.current = new Set();
+        searchStageCompletedRef.current = true;
 
         let conversationId = activeConversationId;
         if (!conversationId || activeConversation?.type !== "chat") {
             conversationId = await createConversation("chat");
         }
+
+        // Get conversation messages for context BEFORE adding the new message
+        // The backend will add the current message separately
+        const conversationForHistory =
+            conversations.find((conversation) => conversation.id === conversationId) || activeConversation;
+        const conversationMessages = conversationForHistory?.messages || [];
+        const history = conversationMessages
+            .filter(msg => msg.role === "user" || msg.role === "assistant")
+            .map(msg => ({
+                role: msg.role,
+                content: msg.content,
+                metadata: msg.metadata || null,
+            }));
+        const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
+        const combinedAttachmentIds = Array.from(new Set([...historyAttachmentIds, ...attachmentIds]));
 
         if (!skipUserMessage) {
             await addMessage(conversationId, {
@@ -233,12 +358,20 @@ export function UnifiedInterface() {
         setStreaming(true);
 
         let fullContent = "";
+        const collectedEvents: any[] = [];
 
         try {
+
             const response = await fetch("/api/v1/query/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: userMessage, mode: "chat", attachment_ids: attachmentIds }),
+                body: JSON.stringify({
+                    message: userMessage,
+                    mode: "chat",
+                    attachment_ids: combinedAttachmentIds,
+                    conversation_id: conversationId?.startsWith("local-") ? null : conversationId,
+                    history: history,
+                }),
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -258,44 +391,137 @@ export function UnifiedInterface() {
                 buffer = lines.pop() || "";
 
                 for (const line of lines) {
+                    // Skip empty lines
+                    if (!line.trim()) continue;
+
+                    // Handle SSE format: "data: {...}" or "event: message\ndata: {...}"
                     if (line.startsWith("data: ")) {
                         const jsonStr = line.slice(6).trim();
-                        if (jsonStr === "[DONE]") continue;
+                        if (jsonStr === "[DONE]" || !jsonStr) continue;
+
                         try {
                             const event = JSON.parse(jsonStr);
+
+                            // Debug logging
+                            if (process.env.NODE_ENV === "development") {
+                                console.log("[SSE Event]", event.type, event);
+                            }
+
                             if (event.type === "token" && event.data) {
                                 fullContent += event.data;
-                                updateStreamingContent(fullContent);
+                                // Add token to streaming events for stage progress
+                                collectedEvents.push(event);
+                                const searchQueries = extractSearchQueries(fullContent);
+                                for (const query of searchQueries) {
+                                    if (detectedSearchQueriesRef.current.has(query)) {
+                                        continue;
+                                    }
+                                    detectedSearchQueriesRef.current.add(query);
+                                    const searchEvent = {
+                                        type: "tool_call",
+                                        data: { tool: "web_search", args: { query } },
+                                    };
+                                    collectedEvents.push(searchEvent);
+                                    setStreamingEvents(prev => [...prev, searchEvent]);
+                                }
+                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
+                                    continue;
+                                }
+                                // Use batched token updates for smoother rendering
+                                const sanitized = stripAssistantSearchTags(fullContent);
+                                streamingContentRef.current = sanitized;
+                                appendTokenBatch("");
                                 setAgentStatus(null);
-                            } else if (event.type === "step" && event.data) {
-                                setAgentStatus(event.data.description);
-                                setStreamingEvents(prev => [...prev.filter(e => e.type !== 'step' || e.data.status !== 'pending'), event]);
+                            } else if (event.type === "stage") {
+                                // Flush tokens before stage change for immediate visual feedback
+                                flushTokenBatch();
+                                // Handle both flat structure and nested data structure
+                                const stageName = event.name || event.data?.name;
+                                const stageStatus = event.status || event.data?.status;
+                                const stageDescription = event.description || event.data?.description;
+                                if (
+                                    stageName === "tool" &&
+                                    stageStatus === "completed" &&
+                                    !searchStageCompletedRef.current
+                                ) {
+                                    searchStageCompletedRef.current = true;
+                                    const sanitized = stripAssistantSearchTags(fullContent);
+                                    if (sanitized.trim().length > 0) {
+                                        updateStreamingContent(sanitized);
+                                    }
+                                }
+                                setAgentStatus(stageDescription);
+                                collectedEvents.push(event);
+                                setStreamingEvents(prev => [...prev.filter(e => e.type !== 'stage' || (e.status || e.data?.status) !== 'pending'), event]);
                             } else if (event.type === "tool_call" && event.data) {
-                                setAgentStatus(`Searching: ${event.data.data?.args?.query || event.data.data?.tool || "web"}...`);
+                                const toolName = event.data.tool || "web";
+                                if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
+                                    setAgentStatus(tChat("agent.searching", { query: event.data.args?.query || "web" }));
+                                } else {
+                                    setAgentStatus(tChat("agent.executing", { tool: toolName }));
+                                }
+                                collectedEvents.push(event);
+                                setStreamingEvents(prev => [...prev, event]);
+                            } else if (event.type === "tool_result" && event.data) {
+                                if (!searchStageCompletedRef.current) {
+                                    searchStageCompletedRef.current = true;
+                                    const sanitized = stripAssistantSearchTags(fullContent);
+                                    if (sanitized.trim().length > 0) {
+                                        updateStreamingContent(sanitized);
+                                    }
+                                }
+                                collectedEvents.push(event);
                                 setStreamingEvents(prev => [...prev, event]);
                             } else if (event.type === "error") {
-                                fullContent = `Error: ${event.data}`;
+                                fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
+                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
+                                    searchStageCompletedRef.current = true;
+                                    const failedEvent = {
+                                        type: "stage",
+                                        data: {
+                                            name: "tool",
+                                            description: "Search failed",
+                                            status: "failed",
+                                        },
+                                    };
+                                    collectedEvents.push(failedEvent);
+                                    setStreamingEvents(prev => [...prev, failedEvent]);
+                                }
+                            } else if (event.type === "complete") {
+                                // Stream complete, break out of loop
+                                break;
                             }
                         } catch (e) {
-                            console.error("Parse error:", e);
+                            console.error("[SSE Parse Error]", e, "Line:", line);
                         }
+                    } else if (line.startsWith("event: ")) {
+                        // SSE event type line, can be ignored as we parse data lines
+                        continue;
                     }
                 }
             }
 
             if (fullContent) {
-                await addMessage(conversationId, { role: "assistant", content: fullContent });
+                const sanitizedContent = stripAssistantSearchTags(fullContent);
+                await addMessage(conversationId, {
+                    role: "assistant",
+                    content: sanitizedContent,
+                    metadata: collectedEvents.length ? { agentEvents: collectedEvents } : undefined,
+                });
             }
         } catch (error) {
             console.error("Chat error:", error);
             await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
         } finally {
+            flushTokenBatch();
             setStreamingContent("");
+            streamingContentRef.current = "";
             setAgentStatus(null);
             setStreamingEvents([]);
             setLoading(false);
             setStreaming(false);
+            searchStageCompletedRef.current = true;
         }
     };
 
@@ -306,8 +532,12 @@ export function UnifiedInterface() {
         messageAttachments: FileAttachment[] = []
     ) => {
         setStreamingContent("");
+        streamingContentRef.current = "";
+        tokenBatchRef.current = [];
         setAgentStatus(null);
         setStreamingEvents([]);
+        detectedSearchQueriesRef.current = new Set();
+        searchStageCompletedRef.current = true;
 
         // Determine the conversation type based on agent
         const conversationType = agentType === "research" ? "research" : agentType;
@@ -331,6 +561,23 @@ export function UnifiedInterface() {
             throw new Error("Failed to get conversation ID");
         }
 
+        // Get conversation messages for context BEFORE adding the new message
+        // The backend will add the current message separately
+        const conversationForHistory =
+            conversations.find((conversation) => conversation.id === conversationId) || activeConversation;
+        const conversationMessages = conversationForHistory?.messages || [];
+        const history = conversationMessages
+            .filter(msg => msg.role === "user" || msg.role === "assistant")
+            .map(msg => ({
+                role: msg.role,
+                content: msg.content,
+                metadata: msg.metadata || null,
+            }));
+        const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
+        const combinedAttachmentIds = agentType === "research"
+            ? attachmentIds
+            : Array.from(new Set([...historyAttachmentIds, ...attachmentIds]));
+
         await addMessage(conversationId, {
             role: "user",
             content: userMessage,
@@ -339,13 +586,30 @@ export function UnifiedInterface() {
         setLoading(true);
         setStreaming(true);
 
+        // Set initial status to give immediate feedback
+        if (agentType === "data") {
+            setAgentStatus(tChat("agent.analyzing") || "Starting analysis...");
+        } else if (agentType === "research") {
+            setAgentStatus(tChat("agent.researching") || "Starting research...");
+        } else {
+            setAgentStatus(tChat("agent.processing"));
+        }
+
         let fullContent = "";
+        const collectedEvents: any[] = [];
 
         try {
+
             const response = await fetch("/api/v1/query/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: userMessage, mode: agentType, attachment_ids: attachmentIds }),
+                body: JSON.stringify({
+                    message: userMessage,
+                    mode: agentType,
+                    attachment_ids: combinedAttachmentIds,
+                    conversation_id: conversationId?.startsWith("local-") ? null : conversationId,
+                    history: history,
+                }),
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -365,44 +629,133 @@ export function UnifiedInterface() {
                 buffer = lines.pop() || "";
 
                 for (const line of lines) {
+                    // Skip empty lines
+                    if (!line.trim()) continue;
+
+                    // Handle SSE format: "data: {...}" or "event: message\ndata: {...}"
                     if (line.startsWith("data: ")) {
                         const jsonStr = line.slice(6).trim();
-                        if (jsonStr === "[DONE]") continue;
+                        if (jsonStr === "[DONE]" || !jsonStr) continue;
+
                         try {
                             const event = JSON.parse(jsonStr);
+
+                            // Debug logging
+                            if (process.env.NODE_ENV === "development") {
+                                console.log("[SSE Event]", event.type, event);
+                            }
+
                             if (event.type === "token" && event.data) {
                                 fullContent += event.data;
-                                updateStreamingContent(fullContent);
+                                // Add token to streaming events for stage progress
+                                collectedEvents.push(event);
+                                const searchQueries = extractSearchQueries(fullContent);
+                                for (const query of searchQueries) {
+                                    if (detectedSearchQueriesRef.current.has(query)) {
+                                        continue;
+                                    }
+                                    detectedSearchQueriesRef.current.add(query);
+                                    const searchEvent = {
+                                        type: "tool_call",
+                                        data: { tool: "web_search", args: { query } },
+                                    };
+                                    collectedEvents.push(searchEvent);
+                                    setStreamingEvents(prev => [...prev, searchEvent]);
+                                }
+                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
+                                    continue;
+                                }
+                                // Use batched token updates for smoother rendering
+                                const sanitized = stripAssistantSearchTags(fullContent);
+                                streamingContentRef.current = sanitized;
+                                appendTokenBatch("");
                                 setAgentStatus(null);
-                            } else if (event.type === "step" && event.data) {
-                                setAgentStatus(event.data.description);
-                                setStreamingEvents(prev => [...prev.filter(e => e.type !== 'step' || e.data.status !== 'pending'), event]);
+                            } else if (event.type === "stage") {
+                                // Flush tokens before stage change for immediate visual feedback
+                                flushTokenBatch();
+                                // Handle both flat structure and nested data structure
+                                const stageName = event.name || event.data?.name;
+                                const stageStatus = event.status || event.data?.status;
+                                const stageDescription = event.description || event.data?.description;
+                                if (
+                                    stageName === "tool" &&
+                                    stageStatus === "completed" &&
+                                    !searchStageCompletedRef.current
+                                ) {
+                                    searchStageCompletedRef.current = true;
+                                    const sanitized = stripAssistantSearchTags(fullContent);
+                                    if (sanitized.trim().length > 0) {
+                                        updateStreamingContent(sanitized);
+                                    }
+                                }
+                                setAgentStatus(stageDescription);
+                                collectedEvents.push(event);
+                                setStreamingEvents(prev => [...prev.filter(e => e.type !== 'stage' || (e.status || e.data?.status) !== 'pending'), event]);
                             } else if (event.type === "tool_call" && event.data) {
-                                setAgentStatus(`Executing: ${event.data.data?.tool || "tool"}...`);
+                                const toolName = event.data.tool || "tool";
+                                setAgentStatus(tChat("agent.executing", { tool: toolName }));
+                                collectedEvents.push(event);
+                                setStreamingEvents(prev => [...prev, event]);
+                            } else if (event.type === "tool_result" && event.data) {
+                                if (!searchStageCompletedRef.current) {
+                                    searchStageCompletedRef.current = true;
+                                    const sanitized = stripAssistantSearchTags(fullContent);
+                                    if (sanitized.trim().length > 0) {
+                                        updateStreamingContent(sanitized);
+                                    }
+                                }
+                                collectedEvents.push(event);
                                 setStreamingEvents(prev => [...prev, event]);
                             } else if (event.type === "error") {
-                                fullContent = `Error: ${event.data}`;
+                                fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
+                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
+                                    searchStageCompletedRef.current = true;
+                                    const failedEvent = {
+                                        type: "stage",
+                                        data: {
+                                            name: "tool",
+                                            description: "Search failed",
+                                            status: "failed",
+                                        },
+                                    };
+                                    collectedEvents.push(failedEvent);
+                                    setStreamingEvents(prev => [...prev, failedEvent]);
+                                }
+                            } else if (event.type === "complete") {
+                                // Stream complete, break out of loop
+                                break;
                             }
                         } catch (e) {
-                            console.error("Parse error:", e);
+                            console.error("[SSE Parse Error]", e, "Line:", line);
                         }
+                    } else if (line.startsWith("event: ")) {
+                        // SSE event type line, can be ignored as we parse data lines
+                        continue;
                     }
                 }
             }
 
             if (fullContent) {
-                await addMessage(conversationId, { role: "assistant", content: fullContent });
+                const sanitizedContent = stripAssistantSearchTags(fullContent);
+                await addMessage(conversationId, {
+                    role: "assistant",
+                    content: sanitizedContent,
+                    metadata: collectedEvents.length ? { agentEvents: collectedEvents } : undefined,
+                });
             }
         } catch (error) {
             console.error("Agent task error:", error);
             await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
         } finally {
+            flushTokenBatch();
             setStreamingContent("");
+            streamingContentRef.current = "";
             setAgentStatus(null);
             setStreamingEvents([]);
             setLoading(false);
             setStreaming(false);
+            searchStageCompletedRef.current = true;
         }
     };
 
@@ -465,7 +818,7 @@ export function UnifiedInterface() {
     };
 
     const isProcessing = isLoading;
-    const hasMessages = messages.length > 0 || streamingContent;
+    const hasMessages = messages.length > 0 || streamingContent || isLoading;
 
     const getPlaceholder = () => {
         if (selectedAgent === "research" && selectedScenario) {
@@ -498,13 +851,13 @@ export function UnifiedInterface() {
                                     />
                                 </div>
                             ))}
-                            {streamingContent && (
+                            {(streamingContent || isLoading) && (
                                 <div className="animate-fade-in">
                                     <MessageBubble
                                         message={{
                                             id: "streaming",
                                             role: "assistant",
-                                            content: streamingContent,
+                                            content: streamingContent || "",
                                             createdAt: new Date(),
                                         }}
                                         isStreaming={true}
@@ -537,20 +890,31 @@ export function UnifiedInterface() {
                         <div className="text-center mb-12">
                             {/* Logo + Product name */}
                             <div
-                                className="flex items-center justify-center gap-3 mb-8 animate-slide-up"
+                                className="flex items-center justify-center gap-4 mb-8 animate-slide-up"
                                 style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
                             >
-                                <div className="w-11 h-11 rounded-xl bg-foreground flex items-center justify-center">
+                                <div className="relative w-14 h-14 flex items-center justify-center">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-foreground/5 to-foreground/[0.02] rounded-2xl blur-xl" />
                                     <Image
-                                        src="/images/logo.svg"
+                                        src="/images/logo-dark.svg"
                                         alt="HyperAgent"
-                                        width={26}
-                                        height={26}
+                                        width={56}
+                                        height={56}
                                         priority
-                                        className="invert dark:invert-0"
+                                        className="dark:hidden relative z-10 transition-all duration-300 hover:scale-105"
+                                        style={{ opacity: 0.9 }}
+                                    />
+                                    <Image
+                                        src="/images/logo-light.svg"
+                                        alt="HyperAgent"
+                                        width={56}
+                                        height={56}
+                                        priority
+                                        className="hidden dark:block relative z-10 transition-all duration-300 hover:scale-105"
+                                        style={{ opacity: 0.92 }}
                                     />
                                 </div>
-                                <h1 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight">
+                                <h1 className="text-[40px] md:text-5xl font-semibold text-foreground tracking-[-0.02em] opacity-95">
                                     HyperAgent
                                 </h1>
                             </div>
@@ -574,8 +938,7 @@ export function UnifiedInterface() {
                         style={!hasMessages ? { animationDelay: '0.3s', animationFillMode: 'backwards' } : undefined}
                     >
                         <div className={cn(
-                            "relative flex flex-col bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors",
-                            !hasMessages && "shadow-sm"
+                            "relative flex flex-col bg-card rounded-lg border border-border focus-within:border-foreground/30 transition-colors"
                         )}>
                             {/* Attachment preview */}
                             <AttachmentPreview
@@ -583,17 +946,8 @@ export function UnifiedInterface() {
                                 onRemove={removeAttachment}
                             />
 
-                            {/* Main input row with plus button */}
+                            {/* Main input row */}
                             <div className="flex items-end">
-                                {/* Plus button - LEFT of textarea */}
-                                <div className="flex items-center px-2 pb-3">
-                                    <FileUploadButton
-                                        onFilesSelected={addFiles}
-                                        onSourceSelect={handleSourceSelect}
-                                        disabled={isProcessing || isUploading}
-                                    />
-                                </div>
-
                                 {/* Textarea */}
                                 <textarea
                                     ref={inputRef}
@@ -603,8 +957,8 @@ export function UnifiedInterface() {
                                     className={cn(
                                         "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed",
                                         hasMessages
-                                            ? "min-h-[64px] max-h-[160px] py-3 pr-4 text-base"
-                                            : "min-h-[100px] md:min-h-[110px] max-h-[200px] py-4 pr-5 text-base"
+                                            ? "min-h-[64px] max-h-[160px] py-3 px-4 text-base"
+                                            : "min-h-[100px] md:min-h-[110px] max-h-[200px] py-4 px-5 text-base"
                                     )}
                                     rows={hasMessages ? 2 : 3}
                                     onKeyDown={(e) => {
@@ -616,13 +970,20 @@ export function UnifiedInterface() {
                                 />
                             </div>
 
-                            {/* Bottom bar with hint and send button */}
-                            <div className="flex items-center justify-between px-4 md:px-6 py-3 border-t border-border/50">
-                                <p className="text-xs text-muted-foreground">
-                                    {attachments.length > 0
-                                        ? `${attachments.length} file(s) attached`
-                                        : tChat("pressEnterToSend")}
-                                </p>
+                            {/* Bottom bar with plus button, hint and send button */}
+                            <div className="flex items-center justify-between px-2 md:px-3 py-2 border-t border-border/50">
+                                <div className="flex items-center gap-1">
+                                    <FileUploadButton
+                                        onFilesSelected={addFiles}
+                                        onSourceSelect={handleSourceSelect}
+                                        disabled={isProcessing || isUploading}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        {attachments.length > 0
+                                            ? tChat("filesAttached", { count: attachments.length })
+                                            : tChat("pressEnterToSend")}
+                                    </p>
+                                </div>
                                 <button
                                     onClick={handleSubmit}
                                     disabled={!input.trim() || isProcessing || isUploading}
@@ -693,7 +1054,7 @@ export function UnifiedInterface() {
                                                     className="absolute left-0 top-full mt-2 z-50 animate-fade-in"
                                                     onMouseLeave={() => setShowResearchSubmenu(false)}
                                                 >
-                                                    <div className="bg-card border border-border rounded-xl overflow-hidden min-w-[220px]">
+                                                    <div className="bg-card border border-border rounded-lg overflow-hidden min-w-[220px]">
                                                         {SCENARIO_KEYS.map((scenario) => (
                                                             <button
                                                                 key={scenario}

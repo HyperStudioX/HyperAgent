@@ -26,6 +26,8 @@ class FileProcessor:
             "text/markdown": self._extract_text_plain,
             "text/csv": self._extract_csv,
             "application/json": self._extract_json,
+            "application/vnd.ms-excel": self._extract_excel,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": self._extract_excel,
             "text/x-python": self._extract_code,
             "text/javascript": self._extract_code,
             "application/typescript": self._extract_code,
@@ -84,6 +86,52 @@ class FileProcessor:
         parsed = json.loads(content)
         # Pretty print with indentation
         return json.dumps(parsed, indent=2)[:10000]  # Limit to 10k chars
+
+    async def _extract_excel(self, data: BytesIO, filename: str) -> Optional[str]:
+        """Extract text from Excel files as formatted table."""
+        max_rows = 50
+        max_cols = 20
+
+        try:
+            import pandas as pd
+
+            data.seek(0)
+            df = pd.read_excel(data, sheet_name=0, engine=None)
+            df = df.iloc[:max_rows, :max_cols]
+            df = df.fillna("")
+            return df.to_markdown(index=False)
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.error("excel_extraction_failed", filename=filename, error=str(e))
+            return None
+
+        try:
+            from openpyxl import load_workbook
+
+            data.seek(0)
+            workbook = load_workbook(data, read_only=True, data_only=True)
+            sheet = workbook.active
+            rows = []
+            for row in sheet.iter_rows(max_row=max_rows, max_col=max_cols, values_only=True):
+                rows.append([cell if cell is not None else "" for cell in row])
+            if not rows:
+                return ""
+            headers = [str(value) for value in rows[0]]
+            result = []
+            result.append("| " + " | ".join(headers) + " |")
+            result.append("| " + " | ".join(["---"] * len(headers)) + " |")
+            for row in rows[1:]:
+                result.append("| " + " | ".join(str(value) for value in row) + " |")
+            if sheet.max_row > max_rows:
+                result.append(f"\n... ({sheet.max_row - max_rows} more rows)")
+            return "\n".join(result)
+        except ImportError:
+            logger.warning("openpyxl_not_installed", filename=filename)
+            return None
+        except Exception as e:
+            logger.error("excel_extraction_failed", filename=filename, error=str(e))
+            return None
 
     async def _extract_code(self, data: BytesIO, filename: str) -> str:
         """Extract code files with syntax context."""

@@ -80,14 +80,17 @@ app = FastAPI(
 )
 
 # Rate limiting middleware (must be added before CORS)
-if settings.rate_limit_enabled:
-    app.add_middleware(
-        RateLimitMiddleware,
-        redis_url=settings.redis_url,
-        requests_per_minute=settings.rate_limit_rpm,
-        enabled=settings.rate_limit_enabled,
-        exclude_paths=["/api/v1/health", "/docs", "/openapi.json"],
-    )
+# Disabled in development environment
+rate_limit_enabled = (
+    settings.rate_limit_enabled and settings.environment != "development"
+)
+app.add_middleware(
+    RateLimitMiddleware,
+    redis_url=settings.redis_url,
+    requests_per_minute=settings.rate_limit_rpm,
+    enabled=rate_limit_enabled,
+    exclude_paths=["/api/v1/health", "/docs", "/openapi.json"],
+)
 
 # CORS middleware
 app.add_middleware(

@@ -1,32 +1,24 @@
 """Code execution subagent using E2B sandbox."""
 
 from e2b import AsyncSandbox
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langgraph.prebuilt import ToolNode
 from langgraph.graph import END, StateGraph
 
+from app.agents.prompts import CODE_SYSTEM_PROMPT
 from app.agents.state import CodeState
+from app.agents.tools import web_search
+from app.agents.tools.react_utils import build_ai_message_from_chunks
+from app.agents.tools.search_gate import should_enable_web_search
 from app.config import settings
 from app.core.logging import get_logger
+from app.models.schemas import LLMProvider
 from app.services.llm import llm_service
 
 logger = get_logger(__name__)
 
-CODE_SYSTEM_PROMPT = """You are a code assistant that helps users write and execute code.
-
-When the user asks for code:
-1. Write clean, well-documented code
-2. Include error handling where appropriate
-3. Provide explanations for complex logic
-4. Use best practices for the language
-
-When generating code to execute, wrap it in a code block with the language specified:
-```python
-# your code here
-```
-
-Supported languages: Python, JavaScript, TypeScript, Shell/Bash
-
-If the user wants to execute code, provide the code and indicate it should be run."""
+WEB_TOOLS = [web_search]
+MAX_TOOL_ITERATIONS = 3
 
 
 async def generate_code_node(state: CodeState) -> dict:
@@ -38,28 +30,77 @@ async def generate_code_node(state: CodeState) -> dict:
     Returns:
         Dict with generated code and events
     """
-    query = state.get("query", "")
+    query = state.get("query") or ""
 
     events = [
         {
-            "type": "step",
-            "step_type": "generate",
+            "type": "stage",
+            "name": "generate",
             "description": "Generating code...",
             "status": "running",
         }
     ]
 
-    llm = llm_service.get_llm()
+    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    model = state.get("model")
+    llm = llm_service.get_llm(provider=provider, model=model)
+    messages = [SystemMessage(content=CODE_SYSTEM_PROMPT)]
+    _append_history(messages, state.get("messages", []))
+    messages.append(HumanMessage(content=query))
+    history = state.get("messages", [])
 
     try:
+        if should_enable_web_search(query, history):
+            llm_with_tools = llm.bind_tools(WEB_TOOLS)
+            tool_iterations = 0
+            while tool_iterations < MAX_TOOL_ITERATIONS:
+                response_chunks = []
+                async for chunk in llm_with_tools.astream(messages):
+                    response_chunks.append(chunk)
+
+                tool_response = build_ai_message_from_chunks(response_chunks, query)
+                if not tool_response.tool_calls:
+                    break
+
+                messages.append(tool_response)
+                tool_iterations += 1
+                for tool_call in tool_response.tool_calls:
+                    tool_name = tool_call.get("name") or tool_call.get("tool") or ""
+                    if not tool_name:
+                        continue
+                    events.append(
+                        {
+                            "type": "tool_call",
+                            "tool": tool_name,
+                            "args": tool_call.get("args") or {},
+                        }
+                    )
+
+                tool_results = await ToolNode(WEB_TOOLS).ainvoke({"messages": [tool_response]})
+                for msg in tool_results.get("messages", []):
+                    messages.append(msg)
+                    if isinstance(msg, ToolMessage):
+                        events.append(
+                            {
+                                "type": "tool_result",
+                                "tool": msg.name,
+                                "content": msg.content[:500] if len(msg.content) > 500 else msg.content,
+                            }
+                        )
+
+            if tool_iterations >= MAX_TOOL_ITERATIONS:
+                events.append(
+                    {
+                        "type": "stage",
+                        "name": "tool",
+                        "description": "Tool limit reached; continuing without more tool calls.",
+                        "status": "completed",
+                    }
+                )
+
         # Stream the response
         response_chunks = []
-        async for chunk in llm.astream(
-            [
-                SystemMessage(content=CODE_SYSTEM_PROMPT),
-                HumanMessage(content=query),
-            ]
-        ):
+        async for chunk in llm.astream(messages):
             if chunk.content:
                 from app.services.llm import extract_text_from_content
                 content = extract_text_from_content(chunk.content)
@@ -75,8 +116,8 @@ async def generate_code_node(state: CodeState) -> dict:
 
         events.append(
             {
-                "type": "step",
-                "step_type": "generate",
+                "type": "stage",
+                "name": "generate",
                 "description": "Code generated",
                 "status": "completed",
             }
@@ -100,10 +141,11 @@ async def generate_code_node(state: CodeState) -> dict:
         logger.error("code_generation_failed", error=str(e))
         events.append(
             {
-                "type": "step",
-                "step_type": "generate",
+                "type": "error",
+                "name": "generate",
                 "description": f"Error: {str(e)}",
-                "status": "completed",
+                "error": str(e),
+                "status": "failed",
             }
         )
         return {
@@ -138,8 +180,8 @@ async def execute_code_node(state: CodeState) -> dict:
 
     events = [
         {
-            "type": "step",
-            "step_type": "execute",
+            "type": "stage",
+            "name": "execute",
             "description": f"Executing {language} code...",
             "status": "running",
         }
@@ -157,10 +199,11 @@ async def execute_code_node(state: CodeState) -> dict:
         )
         events.append(
             {
-                "type": "step",
-                "step_type": "execute",
+                "type": "error",
+                "name": "execute",
                 "description": "Execution skipped - E2B not configured",
-                "status": "completed",
+                "error": "E2B API key not configured",
+                "status": "failed",
             }
         )
         return {
@@ -180,19 +223,33 @@ async def execute_code_node(state: CodeState) -> dict:
 
         # Determine execution command based on language
         if language in ("python", "py"):
-            cmd = f"python3 -c '''{code}'''"
+            await sandbox.files.write("/tmp/script.py", code)
+            cmd = "python3 /tmp/script.py"
         elif language in ("javascript", "js"):
-            cmd = f"node -e '{code}'"
+            await sandbox.files.write("/tmp/script.js", code)
+            cmd = "node /tmp/script.js"
         elif language in ("typescript", "ts"):
             # Write to file and run with ts-node
             await sandbox.files.write("/tmp/script.ts", code)
-            await sandbox.commands.run("npm install -g ts-node typescript 2>/dev/null || true", timeout=60)
+            install_result = await sandbox.commands.run(
+                "npm install -g ts-node typescript 2>/dev/null || true",
+                timeout=60,
+            )
+            if install_result.exit_code != 0:
+                logger.warning(
+                    "ts_node_install_failed",
+                    stderr=install_result.stderr,
+                    stdout=install_result.stdout,
+                )
             cmd = "ts-node /tmp/script.ts"
         elif language in ("bash", "sh", "shell"):
-            cmd = f"bash -c '{code}'"
+            await sandbox.files.write("/tmp/script.sh", code)
+            await sandbox.commands.run("chmod +x /tmp/script.sh")
+            cmd = "/tmp/script.sh"
         else:
             # Default to python
-            cmd = f"python3 -c '''{code}'''"
+            await sandbox.files.write("/tmp/script.py", code)
+            cmd = "python3 /tmp/script.py"
 
         # Execute the code
         execution = await sandbox.commands.run(cmd, timeout=120)
@@ -220,8 +277,8 @@ async def execute_code_node(state: CodeState) -> dict:
 
         events.append(
             {
-                "type": "step",
-                "step_type": "execute",
+                "type": "stage",
+                "name": "execute",
                 "description": "Execution complete",
                 "status": "completed",
             }
@@ -252,10 +309,11 @@ async def execute_code_node(state: CodeState) -> dict:
         )
         events.append(
             {
-                "type": "step",
-                "step_type": "execute",
+                "type": "error",
+                "name": "execute",
                 "description": f"Execution failed: {str(e)}",
-                "status": "completed",
+                "error": str(e),
+                "status": "failed",
             }
         )
         return {
@@ -272,6 +330,57 @@ async def execute_code_node(state: CodeState) -> dict:
                 logger.warning("sandbox_cleanup_failed", error=str(e))
 
 
+async def finalize_node(state: CodeState) -> dict:
+    """Combine code generation and execution results into final response.
+
+    Args:
+        state: Current code state with code and execution results
+
+    Returns:
+        Dict with final response and events
+    """
+    response = state.get("response", "")
+    execution_result = state.get("execution_result")
+    code = state.get("code", "")
+
+    events = []
+
+    # If code was executed, append results to response
+    if execution_result and code:
+        # Format execution results nicely
+        if execution_result.startswith("Execution error"):
+            # Error case - append as error message
+            response += f"\n\n**Execution Error:**\n```\n{execution_result}\n```"
+        elif execution_result != "E2B API key not configured":
+            # Success case - append as execution result
+            response += f"\n\n**Execution Result:**\n```\n{execution_result}\n```"
+
+        events.append(
+            {
+                "type": "stage",
+                "name": "finalize",
+                "description": "Response finalized with execution results",
+                "status": "completed",
+            }
+        )
+    else:
+        events.append(
+            {
+                "type": "stage",
+                "name": "finalize",
+                "description": "Response finalized",
+                "status": "completed",
+            }
+        )
+
+    logger.info("code_response_finalized", has_execution=bool(execution_result))
+
+    return {
+        "response": response,
+        "events": events,
+    }
+
+
 def should_execute(state: CodeState) -> str:
     """Determine whether to execute the generated code.
 
@@ -279,25 +388,46 @@ def should_execute(state: CodeState) -> str:
         state: Current code state
 
     Returns:
-        Next node name: "execute" or END
+        Next node name: "execute" or "finalize"
     """
-    # For now, don't auto-execute - just generate
-    # Future: check if user explicitly requested execution
     query = state.get("query", "").lower()
-    if "run" in query or "execute" in query or "test" in query:
+    code = state.get("code", "")
+
+    # Must have code to execute
+    if not code:
+        return "finalize"
+
+    # Check for explicit execution keywords
+    execution_keywords = ["run", "execute", "test", "run this", "execute this"]
+    if any(keyword in query for keyword in execution_keywords):
         return "execute"
-    return "end"
+
+    # Default: don't auto-execute, just generate
+    return "finalize"
 
 
 def _extract_code(response: str) -> str:
-    """Extract code from markdown code blocks."""
+    """Extract code from markdown code blocks.
+    
+    If multiple code blocks are found, returns the largest one
+    (most likely the main code to execute).
+    """
     import re
 
-    # Find code blocks with language specifier
+    # Find all code blocks with language specifier
     pattern = r"```(?:\w+)?\n(.*?)```"
     matches = re.findall(pattern, response, re.DOTALL)
 
     if matches:
+        # If multiple blocks, prefer the largest one (likely the main code)
+        if len(matches) > 1:
+            logger.info(
+                "multiple_code_blocks_found",
+                count=len(matches),
+                lengths=[len(m) for m in matches],
+            )
+            # Return the largest block (most likely the main code)
+            return max(matches, key=len).strip()
         return matches[0].strip()
 
     return ""
@@ -326,13 +456,21 @@ def _detect_language(response: str) -> str:
     return "python"  # Default
 
 
+def _append_history(messages: list[BaseMessage], history: list[dict]) -> None:
+    for msg in history:
+        if msg.get("role") == "user":
+            messages.append(HumanMessage(content=msg.get("content", "")))
+        elif msg.get("role") == "assistant":
+            messages.append(AIMessage(content=msg.get("content", "")))
+
+
 def create_code_graph() -> StateGraph:
     """Create the code execution subagent graph.
 
     Graph structure:
-    [generate_code] → [should_execute?] → [execute] → [END]
-                            ↓ (no)
-                          [END]
+    [generate] → [should_execute?] → [execute] → [finalize] → [END]
+                            ↓ (no)                    ↓
+                          [finalize] → [END]
 
     Returns:
         Compiled code graph
@@ -342,6 +480,7 @@ def create_code_graph() -> StateGraph:
     # Add nodes
     graph.add_node("generate", generate_code_node)
     graph.add_node("execute", execute_code_node)
+    graph.add_node("finalize", finalize_node)
 
     # Set entry point
     graph.set_entry_point("generate")
@@ -352,11 +491,13 @@ def create_code_graph() -> StateGraph:
         should_execute,
         {
             "execute": "execute",
-            "end": END,
+            "finalize": "finalize",
         },
     )
 
-    graph.add_edge("execute", END)
+    # After execution, finalize the response
+    graph.add_edge("execute", "finalize")
+    graph.add_edge("finalize", END)
 
     return graph.compile()
 

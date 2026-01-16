@@ -12,24 +12,31 @@ export default function SignInPage() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="max-w-md w-full space-y-8 p-8">
         <div className="text-center">
-          <h2 className="mt-6 text-3xl font-bold text-foreground flex items-center justify-center gap-3">
-            <Image
-              src="/images/logo-dark.svg"
-              alt="HyperAgent"
-              width={32}
-              height={32}
-              className="dark:hidden"
-            />
-            <Image
-              src="/images/logo-light.svg"
-              alt="HyperAgent"
-              width={32}
-              height={32}
-              className="hidden dark:block"
-            />
-            HyperAgent
-          </h2>
-          <p className="mt-2 text-muted-foreground">
+          <div className="flex items-center justify-center gap-4 mb-3">
+            <div className="relative w-12 h-12 flex items-center justify-center">
+              <div className="absolute inset-0 bg-gradient-to-br from-foreground/8 to-foreground/[0.03] rounded-2xl blur-2xl" />
+              <Image
+                src="/images/logo-dark.svg"
+                alt="HyperAgent"
+                width={48}
+                height={48}
+                className="dark:hidden relative z-10 transition-all duration-300"
+                style={{ opacity: 0.9 }}
+              />
+              <Image
+                src="/images/logo-light.svg"
+                alt="HyperAgent"
+                width={48}
+                height={48}
+                className="hidden dark:block relative z-10 transition-all duration-300"
+                style={{ opacity: 0.92 }}
+              />
+            </div>
+            <h2 className="text-[32px] font-semibold text-foreground tracking-[-0.02em] opacity-95">
+              HyperAgent
+            </h2>
+          </div>
+          <p className="mt-4 text-muted-foreground text-[15px] leading-relaxed">
             {tMetadata("description")}
           </p>
         </div>

@@ -130,7 +130,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
             className={cn(
                 "hidden md:flex",
                 "h-full flex-col",
-                "border-r border-border transition-all duration-300 ease-in-out overflow-hidden shadow-sm z-20",
+                "border-r border-border transition-all duration-300 ease-in-out overflow-hidden z-20",
                 "bg-secondary/30",
                 desktopSidebarOpen ? "w-72" : "w-0 opacity-0 border-r-0 pointer-events-none",
                 className
@@ -139,18 +139,27 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
             aria-label="Main navigation"
         >
             {/* Header */}
-            <div className="h-14 px-4 flex items-center justify-between border-b border-border">
-                <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+            <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
+                <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 flex items-center justify-center">
                         <Image
-                            src="/images/logo.svg"
+                            src="/images/logo-dark.svg"
                             alt="HyperAgent"
-                            width={18}
-                            height={18}
-                            className="invert dark:invert-0"
+                            width={28}
+                            height={28}
+                            className="dark:hidden transition-opacity duration-200"
+                            style={{ opacity: 0.92 }}
+                        />
+                        <Image
+                            src="/images/logo-light.svg"
+                            alt="HyperAgent"
+                            width={28}
+                            height={28}
+                            className="hidden dark:block transition-opacity duration-200"
+                            style={{ opacity: 0.95 }}
                         />
                     </div>
-                    <span className="font-semibold text-foreground tracking-tight">HyperAgent</span>
+                    <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                 </div>
                 <MenuToggle
                     isOpen={true}

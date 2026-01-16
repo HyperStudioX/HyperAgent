@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
 import { usePreviewStore } from "@/lib/stores/preview-store";
-import { AgentProgress } from "@/components/chat/agent-progress";
+import { AgentProgress } from "@/components/chat/agent-activity";
 import type { Message, FileAttachment } from "@/lib/types";
 
 interface MessageBubbleProps {
@@ -72,6 +72,11 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
     const t = useTranslations("chat");
+    const effectiveAgentEvents = agentEvents || (message.metadata as any)?.agentEvents;
+    
+    // Always show progress during streaming if there are events, or for completed messages with events
+    const hasEvents = effectiveAgentEvents && effectiveAgentEvents.length > 0;
+    const showProgress = (isStreaming && hasEvents) || (!isStreaming && hasEvents);
 
     const handleCopyMessage = async () => {
         await navigator.clipboard.writeText(message.content);
@@ -96,9 +101,8 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
                         className={cn(
                             "relative px-5 py-3.5",
                             "bg-card text-foreground",
-                            "rounded-2xl rounded-br-md",
-                            "border border-border",
-                            "shadow-sm"
+                            "rounded-xl rounded-br-md",
+                            "border border-border"
                         )}
                     >
                         {message.content && (
@@ -119,29 +123,43 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
             ) : (
                 <div className="max-w-full animate-in slide-in-from-left-2 fade-in duration-300">
                     {/* Assistant header with icon and name */}
-                    <div className="flex items-center gap-2 mb-4">
-                        <Image
-                            src="/images/logo-dark.svg"
-                            alt="HyperAgent"
-                            width={24}
-                            height={24}
-                            className="dark:hidden rounded-md"
-                        />
-                        <Image
-                            src="/images/logo-light.svg"
-                            alt="HyperAgent"
-                            width={24}
-                            height={24}
-                            className="hidden dark:block rounded-md"
-                        />
-                        <span className="text-base font-semibold text-foreground">HyperAgent</span>
+                    <div className="flex items-center gap-2.5 mb-4">
+                        <div className="w-6 h-6 flex items-center justify-center">
+                            <Image
+                                src="/images/logo-dark.svg"
+                                alt="HyperAgent"
+                                width={24}
+                                height={24}
+                                className="dark:hidden transition-opacity duration-200"
+                                style={{ opacity: 0.88 }}
+                            />
+                            <Image
+                                src="/images/logo-light.svg"
+                                alt="HyperAgent"
+                                width={24}
+                                height={24}
+                                className="hidden dark:block transition-opacity duration-200"
+                                style={{ opacity: 0.9 }}
+                            />
+                        </div>
+                        <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                     </div>
 
-                    <AgentProgress
-                        isStreaming={isStreaming}
-                        status={status}
-                        agentEvents={agentEvents}
-                    />
+                    {showProgress && (
+                        <AgentProgress
+                            isStreaming={isStreaming}
+                            status={status}
+                            agentEvents={effectiveAgentEvents}
+                        />
+                    )}
+
+                    {/* Show loading indicator when streaming with no content yet */}
+                    {isStreaming && !message.content && !hasEvents && (
+                        <div className="flex items-center gap-2 mb-3 text-muted-foreground">
+                            <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+                            <span className="text-sm">{t("agent.thinking")}</span>
+                        </div>
+                    )}
 
                     <div
                         className={cn(
@@ -267,6 +285,7 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
                         </ReactMarkdown>
                     </div>
 
+
                     {/* Action buttons for assistant message - only show when not streaming */}
                     {!isStreaming && (
                         <div className="mt-3 flex items-center gap-1">
@@ -376,14 +395,16 @@ function CodeBlock({ language, children }: CodeBlockProps) {
     return (
         <div
             className={cn(
-                "my-5 rounded-xl overflow-hidden",
-                "ring-1 shadow-[0_4px_24px_-4px] transition-all duration-300",
-                isDark
-                    ? "bg-[#282c34] ring-white/[0.08] shadow-black/20"
-                    : "bg-[#fafafa] ring-black/[0.08] shadow-black/5",
-                isHovered && (isDark
-                    ? "shadow-[0_8px_32px_-4px] shadow-black/30 ring-white/[0.12]"
-                    : "shadow-[0_8px_32px_-4px] shadow-black/10 ring-black/[0.12]")
+                "my-5 rounded-lg overflow-hidden",
+                "ring-1 transition-all duration-300",
+                // Light mode styles
+                "bg-[#fafafa] ring-black/[0.08]",
+                // Dark mode styles (forced via .dark class on root)
+                "dark:bg-[#282c34] dark:ring-white/[0.08]",
+                // Hover states
+                isHovered && (
+                    "ring-black/[0.12] dark:ring-white/[0.12]"
+                )
             )}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -447,16 +468,7 @@ function CodeBlock({ language, children }: CodeBlockProps) {
                 </SyntaxHighlighter>
 
                 {/* Subtle gradient fade at bottom */}
-                <div
-                    className={cn(
-                        "absolute bottom-0 left-0 right-0 h-6",
-                        "pointer-events-none opacity-0",
-                        isDark
-                            ? "bg-gradient-to-t from-[#282c34] to-transparent"
-                            : "bg-gradient-to-t from-[#fafafa] to-transparent",
-                        children.split("\n").length > 10 && "opacity-100"
-                    )}
-                />
+                {/* Subtle gradient fade removed */}
             </div>
         </div>
     );

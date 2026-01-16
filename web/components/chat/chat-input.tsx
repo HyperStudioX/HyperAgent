@@ -2,13 +2,14 @@
 
 import React, { useRef, useEffect, KeyboardEvent } from "react";
 import { useTranslations } from "next-intl";
-import { ArrowUp, Loader2 } from "lucide-react";
+import { ArrowUp, Loader2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onStop?: () => void;
   isLoading?: boolean;
   placeholder?: string;
   className?: string;
@@ -18,6 +19,7 @@ export function ChatInput({
   value,
   onChange,
   onSubmit,
+  onStop,
   isLoading = false,
   placeholder,
   className,
@@ -60,22 +62,32 @@ export function ChatInput({
           rows={1}
         />
         <div className="p-2">
-          <button
-            onClick={onSubmit}
-            disabled={!canSubmit}
-            className={cn(
-              "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
-              canSubmit
-                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                : "bg-secondary text-muted-foreground"
-            )}
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <ArrowUp className="w-4 h-4" />
-            )}
-          </button>
+          {isLoading && onStop ? (
+            <button
+              onClick={onStop}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              title={t("stop")}
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              onClick={onSubmit}
+              disabled={!canSubmit}
+              className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
+                canSubmit
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "bg-secondary text-muted-foreground"
+              )}
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ArrowUp className="w-4 h-4" />
+              )}
+            </button>
+          )}
         </div>
       </div>
       <p className="mt-2 text-xs text-center text-muted-foreground/60">

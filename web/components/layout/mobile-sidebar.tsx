@@ -209,7 +209,6 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     "pt-safe pb-safe",
                     "will-change-transform",
                     "motion-reduce:transition-none",
-                    "shadow-[4px_0_24px_-8px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_24px_-8px_rgba(0,0,0,0.3)]",
                     touchOffset === 0 && "transition-transform duration-200",
                     isOpen ? "translate-x-0" : "-translate-x-full",
                     !isOpen && "pointer-events-none"
@@ -223,18 +222,27 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                 aria-label="Main navigation"
             >
                 {/* Header */}
-                <div className="h-14 px-4 flex items-center justify-between border-b border-border">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+                <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
+                    <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 flex items-center justify-center">
                             <Image
-                                src="/images/logo.svg"
+                                src="/images/logo-dark.svg"
                                 alt="HyperAgent"
-                                width={18}
-                                height={18}
-                                className="invert dark:invert-0"
+                                width={28}
+                                height={28}
+                                className="dark:hidden transition-opacity duration-200"
+                                style={{ opacity: 0.92 }}
+                            />
+                            <Image
+                                src="/images/logo-light.svg"
+                                alt="HyperAgent"
+                                width={28}
+                                height={28}
+                                className="hidden dark:block transition-opacity duration-200"
+                                style={{ opacity: 0.95 }}
                             />
                         </div>
-                        <span className="font-semibold text-foreground tracking-tight">HyperAgent</span>
+                        <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                     </div>
 
                     {/* Mobile close button */}

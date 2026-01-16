@@ -9,7 +9,7 @@ from app.agents.routing import route_query
 from app.agents.state import AgentType, SupervisorState
 from app.agents.subagents.chat import chat_subgraph
 from app.agents.subagents.code import code_subgraph
-from app.agents.subagents.data import data_subgraph
+from app.agents.subagents.analytics import data_subgraph
 from app.agents.subagents.research import research_subgraph
 from app.agents.subagents.writing import writing_subgraph
 from app.core.logging import get_logger
@@ -27,7 +27,14 @@ async def router_node(state: SupervisorState) -> dict:
     Returns:
         Dict with selected_agent and routing_reason
     """
-    return await route_query(state)
+    result = await route_query(state)
+    
+    # Emit routing stage event
+    selected_agent = result.get("selected_agent", "chat")
+    events = result.get("events", [])
+    result["events"] = events
+    
+    return result
 
 
 async def chat_node(state: SupervisorState) -> dict:
@@ -42,8 +49,13 @@ async def chat_node(state: SupervisorState) -> dict:
     # Invoke chat subgraph
     result = await chat_subgraph.ainvoke(
         {
-            "query": state.get("query", ""),
-            "messages": state.get("messages", []),
+            "query": state.get("query") or "",
+            "messages": state.get("messages") or [],
+            "user_id": state.get("user_id"),
+            "attachment_ids": state.get("attachment_ids") or [],
+            "system_prompt": state.get("system_prompt"),
+            "provider": state.get("provider"),
+            "model": state.get("model"),
         }
     )
     return {
@@ -68,11 +80,14 @@ async def research_node(state: SupervisorState) -> dict:
     # Invoke research subgraph
     result = await research_subgraph.ainvoke(
         {
-            "query": state.get("query", ""),
+            "query": state.get("query") or "",
             "depth": depth,
             "scenario": scenario,
             "task_id": state.get("task_id"),
             "user_id": state.get("user_id"),
+            "attachment_ids": state.get("attachment_ids") or [],
+            "provider": state.get("provider"),
+            "model": state.get("model"),
         }
     )
     return {
@@ -93,7 +108,12 @@ async def code_node(state: SupervisorState) -> dict:
     # Invoke code subgraph
     result = await code_subgraph.ainvoke(
         {
-            "query": state.get("query", ""),
+            "query": state.get("query") or "",
+            "messages": state.get("messages") or [],
+            "user_id": state.get("user_id"),
+            "attachment_ids": state.get("attachment_ids") or [],
+            "provider": state.get("provider"),
+            "model": state.get("model"),
         }
     )
     return {
@@ -114,7 +134,12 @@ async def writing_node(state: SupervisorState) -> dict:
     # Invoke writing subgraph
     result = await writing_subgraph.ainvoke(
         {
-            "query": state.get("query", ""),
+            "query": state.get("query") or "",
+            "messages": state.get("messages") or [],
+            "user_id": state.get("user_id"),
+            "attachment_ids": state.get("attachment_ids") or [],
+            "provider": state.get("provider"),
+            "model": state.get("model"),
         }
     )
     return {
@@ -137,8 +162,13 @@ async def data_node(state: SupervisorState) -> dict:
     # Invoke data analysis subgraph
     result = await data_subgraph.ainvoke(
         {
-            "query": state.get("query", ""),
+            "query": state.get("query") or "",
+            "messages": state.get("messages") or [],
             "data_source": state.get("data_source", ""),
+            "attachment_ids": state.get("attachment_ids") or [],
+            "user_id": state.get("user_id"),
+            "provider": state.get("provider"),
+            "model": state.get("model"),
         }
     )
     return {
@@ -273,10 +303,25 @@ class AgentSupervisor:
             query=query[:50],
             mode=mode,
             thread_id=thread_id,
+            depth=initial_state.get("depth"),
+            scenario=initial_state.get("scenario"),
         )
 
-        # Track current node to filter tokens appropriately
-        current_node = None
+        # Emit initial thinking stage
+        yield {
+            "type": "stage",
+            "name": "thinking",
+            "description": "Processing your request...",
+            "status": "running",
+        }
+
+        # Track node path for nested subgraphs
+        node_path = []
+        current_content_node = None
+
+        emitted_tool_call_ids = set()
+        emitted_stage_keys = set()  # Track emitted stages to avoid duplicates
+        streamed_tokens = False
 
         try:
             # Stream events from the graph
@@ -290,27 +335,112 @@ class AgentSupervisor:
                     continue
 
                 event_type = event.get("event")
+                node_name = event.get("name", "")
 
-                # Track which node we're currently in
+                # Track node path for nested subgraphs
                 if event_type == "on_chain_start":
-                    node_name = event.get("name", "")
-                    if node_name in ("write", "chat", "code", "writing", "data"):
-                        current_node = node_name
+                    node_path.append(node_name)
+                    
+                    # Track content-generating nodes at any level
+                    content_nodes = ["write", "finalize", "summarize", "generate", "outline"]
+                    if any(node in node_name for node in content_nodes):
+                        current_content_node = node_name
+
+                    # Provide immediate feedback for data analysis steps
+                    if node_name == "plan":
+                        yield {"type": "stage", "name": "plan", "description": "Planning analysis...", "status": "running"}
+                    elif node_name == "generate":
+                        yield {"type": "stage", "name": "generate", "description": "Generating analysis code...", "status": "running"}
+                    elif node_name == "execute":
+                        yield {"type": "stage", "name": "execute", "description": "Executing analysis code...", "status": "running"}
+                    elif node_name == "summarize":
+                        yield {"type": "stage", "name": "summarize", "description": "Summarizing results...", "status": "running"}
                 elif event_type == "on_chain_end":
-                    node_name = event.get("name", "")
-                    if node_name == current_node:
-                        current_node = None
+                    # Update node path
+                    if node_path and node_path[-1] == node_name:
+                        node_path.pop()
+                    if node_name == current_content_node:
+                        current_content_node = None
+
+                    # Mark thinking stage as completed when we start getting results
+                    if node_name == "router" and "thinking" not in emitted_stage_keys:
+                        emitted_stage_keys.add("thinking")
+                        yield {
+                            "type": "stage",
+                            "name": "thinking",
+                            "description": "Request processed",
+                            "status": "completed",
+                        }
+
+                    # Extract events from output (including routing events)
+                    output = event.get("data", {}).get("output", {})
+                    if isinstance(output, dict):
+                        events = output.get("events", [])
+                        if isinstance(events, list):
+                            for e in events:
+                                if isinstance(e, dict):
+                                    # Skip token events if we already streamed them in real-time
+                                    if e.get("type") == "token" and streamed_tokens:
+                                        continue
+                                    # Deduplicate stage events
+                                    if e.get("type") == "stage":
+                                        stage_key = f"{e.get('name')}:{e.get('status')}"
+                                        if stage_key in emitted_stage_keys:
+                                            continue
+                                        emitted_stage_keys.add(stage_key)
+                                    yield e
 
                 # Handle streaming tokens from LLM in real-time
-                # Only stream tokens from write node (for research) or other content-generating nodes
-                if event_type == "on_chat_model_stream":
-                    # For research mode, only stream tokens from the write phase
-                    # For other modes, stream all tokens
-                    should_stream = (
-                        mode != "research" or 
-                        current_node == "write" or
-                        event.get("tags", []) and "write" in str(event.get("tags", []))
-                    )
+                elif event_type == "on_chat_model_stream":
+                    # Build node path string for checking
+                    node_path_str = "/".join(node_path)
+
+                    # Emit tool calls immediately if present in the chunk
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk and getattr(chunk, "tool_calls", None):
+                        for tool_call in chunk.tool_calls:
+                            tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
+                            if tool_id and tool_id in emitted_tool_call_ids:
+                                continue
+                            if tool_id:
+                                emitted_tool_call_ids.add(tool_id)
+                            yield {
+                                "type": "tool_call",
+                                "tool": tool_call.get("name") or tool_call.get("tool"),
+                                "args": tool_call.get("args") or {},
+                            }
+
+                    # Determine if we should stream tokens based on mode and node path
+                    if mode == "research":
+                        # Stream from synthesis and writing for smoother feedback
+                        should_stream = any(node in node_path_str for node in ["synthesize", "write"])
+                    elif mode == "data":
+                        # Stream from planning, generation, and summarization
+                        should_stream = any(node in node_path_str for node in ["plan", "generate", "summarize"])
+                    elif mode == "writing":
+                        # Stream from outline and write nodes
+                        should_stream = any(node in node_path_str for node in ["outline", "write"])
+                    elif mode == "code":
+                        # Stream from generate and finalize nodes
+                        should_stream = any(node in node_path_str for node in ["generate", "finalize"])
+                    elif mode == "chat":
+                        # For chat mode, stream from agent node (where LLM response is generated)
+                        should_stream = "agent" in node_path_str
+                    else:
+                        # For other modes, stream from common content stages
+                        should_stream = any(
+                            node in node_path_str
+                            for node in [
+                                "write",
+                                "finalize",
+                                "summarize",
+                                "generate",
+                                "outline",
+                                "synthesize",
+                                "analyze",
+                                "agent",
+                            ]
+                        )
                     
                     if should_stream:
                         chunk = event.get("data", {}).get("chunk")
@@ -318,24 +448,24 @@ class AgentSupervisor:
                             from app.services.llm import extract_text_from_content
                             content = extract_text_from_content(chunk.content)
                             if content:  # Only yield non-empty content
+                                streamed_tokens = True
                                 yield {"type": "token", "content": content}
 
-                # Extract non-token events from state updates (steps, sources, etc.)
-                elif event_type == "on_chain_end":
-                    output = event.get("data", {}).get("output", {})
-                    if not isinstance(output, dict):
-                        continue
-
-                    events = output.get("events", [])
-                    if not isinstance(events, list):
-                        continue
-
-                    for e in events:
-                        if isinstance(e, dict):
-                            # Skip token events - they were already streamed via on_chat_model_stream
-                            if e.get("type") == "token":
-                                continue
-                            yield e
+                # Handle errors from subagents
+                elif event_type == "on_chain_error":
+                    error = event.get("data", {}).get("error")
+                    if error:
+                        yield {
+                            "type": "error",
+                            "error": str(error),
+                            "node": node_name,
+                        }
+                        logger.error(
+                            "subagent_error",
+                            node=node_name,
+                            error=str(error),
+                            thread_id=thread_id,
+                        )
 
             # Emit completion event
             yield {"type": "complete"}

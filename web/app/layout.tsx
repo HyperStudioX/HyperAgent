@@ -2,52 +2,55 @@ import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import { SessionProvider } from "@/components/providers/session-provider";
+import { ErrorHandler } from "@/components/providers/error-handler";
 import { AuthGuard } from "@/components/auth/auth-guard";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations("metadata");
-  return {
-    title: t("title"),
-    description: t("description"),
-    icons: {
-      icon: "/images/logo.svg",
-      apple: "/images/logo.svg",
-    },
-  };
+    const t = await getTranslations("metadata");
+    return {
+        title: t("title"),
+        description: t("description"),
+        icons: {
+            icon: "/images/logo-dark.svg",
+            apple: "/images/logo-dark.svg",
+        },
+    };
 }
 
 export default async function RootLayout({
-  children,
+    children,
 }: Readonly<{
-  children: React.ReactNode;
+    children: React.ReactNode;
 }>) {
-  const locale = await getLocale();
-  const messages = await getMessages();
+    const locale = await getLocale();
+    const messages = await getMessages();
 
-  return (
-    <html lang={locale} suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
+    return (
+        <html lang={locale} suppressHydrationWarning>
+            <head>
+                <script
+                    dangerouslySetInnerHTML={{
+                        __html: `
               (function() {
-                const stored = localStorage.getItem('theme');
+                const stored = localStorage.getItem('theme-preference');
                 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                const theme = stored || (prefersDark ? 'dark' : 'light');
-                if (theme === 'dark') document.documentElement.classList.add('dark');
+                const theme = stored || 'auto';
+                const resolved = theme === 'auto' ? (prefersDark ? 'dark' : 'light') : theme;
+                if (resolved === 'dark') document.documentElement.classList.add('dark');
               })();
             `,
-          }}
-        />
-      </head>
-      <body className="antialiased">
-        <SessionProvider>
-          <NextIntlClientProvider messages={messages}>
-            <AuthGuard>{children}</AuthGuard>
-          </NextIntlClientProvider>
-        </SessionProvider>
-      </body>
-    </html>
-  );
+                    }}
+                />
+            </head>
+            <body className="antialiased">
+                <ErrorHandler />
+                <SessionProvider>
+                    <NextIntlClientProvider messages={messages}>
+                        <AuthGuard>{children}</AuthGuard>
+                    </NextIntlClientProvider>
+                </SessionProvider>
+            </body>
+        </html>
+    );
 }

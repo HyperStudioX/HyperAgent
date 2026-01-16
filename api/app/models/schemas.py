@@ -91,6 +91,7 @@ class ResearchStatus(str, Enum):
 
 
 class ResearchStepType(str, Enum):
+    THINKING = "thinking"
     SEARCH = "search"
     ANALYZE = "analyze"
     SYNTHESIZE = "synthesize"
