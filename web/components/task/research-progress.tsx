@@ -47,11 +47,11 @@ interface TaskInfo {
     depth: string;
 }
 
-interface TaskProgressProps {
+interface ResearchProgressProps {
     taskId: string;
 }
 
-export function TaskProgress({ taskId }: TaskProgressProps) {
+export function ResearchProgress({ taskId }: ResearchProgressProps) {
     const router = useRouter();
     const t = useTranslations("task");
     const tResearch = useTranslations("research");
@@ -102,7 +102,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
             // 1. Check localStorage for NEW task first (just submitted from Home)
             const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
             if (storedTaskInfo) {
-                console.log(`[TaskProgress] New task detected in local storage for ${taskId}`);
+                console.log(`[ResearchProgress] New task detected in local storage for ${taskId}`);
                 try {
                     const info = JSON.parse(storedTaskInfo) as TaskInfo;
                     setTaskInfo(info);
@@ -116,7 +116,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                     }
                     return; // Successfully initialized new task, skip API fetch
                 } catch (e) {
-                    console.error("[TaskProgress] Failed to parse stored task info:", e);
+                    console.error("[ResearchProgress] Failed to parse stored task info:", e);
                     localStorage.removeItem(`task-${taskId}`);
                 }
             }
@@ -125,7 +125,7 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
             if (hasHydrated) {
                 const existingTask = tasks.find((t) => t.id === taskId);
                 if (existingTask) {
-                    console.log(`[TaskProgress] Loading existing task ${taskId} from store`);
+                    console.log(`[ResearchProgress] Loading existing task ${taskId} from store`);
                     setTaskInfo({
                         query: existingTask.query,
                         scenario: existingTask.scenario,
@@ -147,13 +147,13 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
             }
 
             // 3. Otherwise fetch from API (existing task from history)
-            console.log(`[TaskProgress] Fetching task ${taskId} from API...`);
+            console.log(`[ResearchProgress] Fetching task ${taskId} from API...`);
             try {
                 // Use /result endpoint to get full task data including report, steps, and sources
                 const response = await fetch(`/api/v1/tasks/${taskId}/result`);
                 if (response.ok) {
                     const data = await response.json();
-                    console.log(`[TaskProgress] Task data received from API:`, data);
+                    console.log(`[ResearchProgress] Task data received from API:`, data);
 
                     setTaskInfo({
                         query: data.query,
@@ -211,11 +211,11 @@ export function TaskProgress({ taskId }: TaskProgressProps) {
                 } else if (response.status === 404) {
                     setError(t("taskNotFoundMessage"));
                 } else {
-                    console.warn(`[TaskProgress] API returned status ${response.status}`);
+                    console.warn(`[ResearchProgress] API returned status ${response.status}`);
                     setError("Failed to load task details");
                 }
             } catch (err) {
-                console.error("[TaskProgress] API fetch failed:", err);
+                console.error("[ResearchProgress] API fetch failed:", err);
                 setError("Connection error while loading task");
             }
         };

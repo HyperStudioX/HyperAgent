@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
 import { usePreviewStore } from "@/lib/stores/preview-store";
-import { AgentProgress } from "@/components/chat/agent-activity";
+import { AgentProgress } from "@/components/chat/agent-progress";
 import type { Message, FileAttachment } from "@/lib/types";
 
 interface MessageBubbleProps {

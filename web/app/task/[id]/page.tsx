@@ -1,5 +1,5 @@
 import { MainLayout } from "@/components/layout/main-layout";
-import { TaskProgress } from "@/components/task/task-progress";
+import { ResearchProgress } from "@/components/task/research-progress";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
   const { id } = await params;
   return (
     <MainLayout>
-      <TaskProgress key={id} taskId={id} />
+      <ResearchProgress key={id} taskId={id} />
     </MainLayout>
   );
 }
