@@ -1,6 +1,8 @@
 """Search service using Tavily API."""
 
-from dataclasses import dataclass
+import hashlib
+import time
+from dataclasses import dataclass, field
 
 from tavily import AsyncTavilyClient
 
@@ -10,6 +12,81 @@ from app.models.schemas import ResearchDepth, ResearchScenario
 from app.agents.scenarios import get_scenario_config
 
 logger = get_logger(__name__)
+
+# Cache configuration
+CACHE_TTL_SECONDS = 300  # 5 minutes
+CACHE_MAX_SIZE = 1000  # Maximum number of cached queries
+
+
+@dataclass
+class CacheEntry:
+    """Cache entry with expiration timestamp."""
+
+    results: list
+    expires_at: float
+
+
+class SearchCache:
+    """Simple in-memory TTL cache for search results."""
+
+    def __init__(self, ttl: float = CACHE_TTL_SECONDS, max_size: int = CACHE_MAX_SIZE):
+        self._cache: dict[str, CacheEntry] = {}
+        self._ttl = ttl
+        self._max_size = max_size
+
+    def _make_key(self, query: str, max_results: int, search_depth: str, include_raw_content: bool) -> str:
+        """Generate cache key from search parameters."""
+        key_string = f"{query}|{max_results}|{search_depth}|{include_raw_content}"
+        return hashlib.md5(key_string.encode()).hexdigest()
+
+    def get(self, query: str, max_results: int, search_depth: str, include_raw_content: bool) -> list | None:
+        """Get cached results if not expired."""
+        key = self._make_key(query, max_results, search_depth, include_raw_content)
+        entry = self._cache.get(key)
+
+        if entry is None:
+            return None
+
+        if time.time() > entry.expires_at:
+            # Entry expired, remove it
+            del self._cache[key]
+            return None
+
+        logger.debug("search_cache_hit", query=query[:50])
+        return entry.results
+
+    def set(self, query: str, max_results: int, search_depth: str, include_raw_content: bool, results: list) -> None:
+        """Cache search results with TTL."""
+        # Evict oldest entries if cache is full
+        if len(self._cache) >= self._max_size:
+            self._evict_expired()
+            # If still full, remove oldest entries
+            if len(self._cache) >= self._max_size:
+                oldest_keys = sorted(self._cache.keys(), key=lambda k: self._cache[k].expires_at)[:100]
+                for key in oldest_keys:
+                    del self._cache[key]
+
+        key = self._make_key(query, max_results, search_depth, include_raw_content)
+        self._cache[key] = CacheEntry(
+            results=results,
+            expires_at=time.time() + self._ttl,
+        )
+        logger.debug("search_cache_set", query=query[:50], cache_size=len(self._cache))
+
+    def _evict_expired(self) -> None:
+        """Remove all expired entries."""
+        current_time = time.time()
+        expired_keys = [k for k, v in self._cache.items() if current_time > v.expires_at]
+        for key in expired_keys:
+            del self._cache[key]
+
+    def clear(self) -> None:
+        """Clear all cached entries."""
+        self._cache.clear()
+
+
+# Global cache instance
+_search_cache = SearchCache()
 
 
 @dataclass
@@ -50,18 +127,31 @@ class SearchService:
         max_results: int = 5,
         search_depth: str = "basic",
         include_raw_content: bool = False,
+        use_cache: bool = True,
     ) -> list[SearchResult]:
-        """Perform a raw search using Tavily API.
+        """Perform a raw search using Tavily API with caching.
 
         Args:
             query: Search query
             max_results: Maximum number of results
             search_depth: "basic" or "advanced"
             include_raw_content: Whether to include full page content
+            use_cache: Whether to use cached results (default True)
 
         Returns:
             List of search results
         """
+        # Check cache first
+        if use_cache:
+            cached = _search_cache.get(query, max_results, search_depth, include_raw_content)
+            if cached is not None:
+                logger.info(
+                    "search_raw_cache_hit",
+                    query=query[:50],
+                    results_count=len(cached),
+                )
+                return cached
+
         client = self._get_client()
 
         logger.info(
@@ -90,6 +180,10 @@ class SearchService:
                         relevance_score=item.get("score"),
                     )
                 )
+
+            # Cache the results
+            if use_cache:
+                _search_cache.set(query, max_results, search_depth, include_raw_content, results)
 
             logger.info(
                 "search_raw_completed",

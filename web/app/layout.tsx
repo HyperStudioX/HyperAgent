@@ -1,10 +1,26 @@
 import type { Metadata } from "next";
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { ErrorHandler } from "@/components/providers/error-handler";
 import { AuthGuard } from "@/components/auth/auth-guard";
 import "./globals.css";
+
+// Load fonts with next/font for better performance (eliminates render-blocking request)
+const plusJakartaSans = Plus_Jakarta_Sans({
+    subsets: ["latin"],
+    weight: ["400", "500", "600", "700", "800"],
+    display: "swap",
+    variable: "--font-plus-jakarta-sans",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+    subsets: ["latin"],
+    weight: ["400", "500", "600"],
+    display: "swap",
+    variable: "--font-jetbrains-mono",
+});
 
 export async function generateMetadata(): Promise<Metadata> {
     const t = await getTranslations("metadata");
@@ -27,7 +43,7 @@ export default async function RootLayout({
     const messages = await getMessages();
 
     return (
-        <html lang={locale} suppressHydrationWarning>
+        <html lang={locale} suppressHydrationWarning className={`${plusJakartaSans.variable} ${jetbrainsMono.variable}`}>
             <head>
                 <script
                     dangerouslySetInnerHTML={{

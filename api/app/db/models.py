@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, JSON, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -51,6 +51,11 @@ class ResearchTask(Base):
     """Research task model."""
 
     __tablename__ = "research_tasks"
+    __table_args__ = (
+        # Composite indexes for common query patterns
+        Index("ix_research_tasks_user_status", "user_id", "status"),
+        Index("ix_research_tasks_user_created", "user_id", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     query: Mapped[str] = mapped_column(Text, nullable=False)
@@ -176,6 +181,11 @@ class BackgroundTask(Base):
     """Generic background task model for non-research async work."""
 
     __tablename__ = "background_tasks"
+    __table_args__ = (
+        # Composite indexes for worker polling and status queries
+        Index("ix_background_tasks_status_priority", "status", "priority"),
+        Index("ix_background_tasks_user_status", "user_id", "status"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     task_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -230,6 +240,11 @@ class Conversation(Base):
     """Conversation model for chat sessions."""
 
     __tablename__ = "conversations"
+    __table_args__ = (
+        # Composite indexes for common query patterns (listing user conversations by time)
+        Index("ix_conversations_user_created", "user_id", "created_at"),
+        Index("ix_conversations_user_updated", "user_id", "updated_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)

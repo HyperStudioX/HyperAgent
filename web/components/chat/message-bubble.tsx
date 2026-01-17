@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslations } from "next-intl";
@@ -13,7 +13,62 @@ import { useTheme } from "@/lib/hooks/use-theme";
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
 import { usePreviewStore } from "@/lib/stores/preview-store";
 import { AgentProgress } from "@/components/chat/agent-progress";
+import { Visualization } from "@/components/chat/visualization";
 import type { Message, FileAttachment } from "@/lib/types";
+
+/**
+ * Typing indicator with animated dots
+ */
+function TypingIndicator({ message }: { message?: string }) {
+    const t = useTranslations("chat");
+    const displayMessage = message || t("agent.thinking");
+
+    return (
+        <div className="flex items-center gap-3 py-2 mb-2">
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-muted/50 rounded-full">
+                <span
+                    className="w-2 h-2 bg-primary/60 rounded-full typing-dot"
+                    style={{ animationDelay: "0ms" }}
+                />
+                <span
+                    className="w-2 h-2 bg-primary/60 rounded-full typing-dot"
+                    style={{ animationDelay: "200ms" }}
+                />
+                <span
+                    className="w-2 h-2 bg-primary/60 rounded-full typing-dot"
+                    style={{ animationDelay: "400ms" }}
+                />
+            </div>
+            <span className="text-sm text-muted-foreground animate-pulse">{displayMessage}</span>
+        </div>
+    );
+}
+
+/**
+ * Streaming cursor that blinks at the end of content
+ * Uses pure CSS animation to avoid React re-renders
+ */
+function StreamingCursor() {
+    return (
+        <span
+            className="inline-block w-[2px] h-[1.1em] bg-primary ml-0.5 align-middle streaming-cursor"
+            aria-hidden="true"
+        />
+    );
+}
+
+/**
+ * Loading skeleton with shimmer effect for waiting state
+ */
+function LoadingSkeleton() {
+    return (
+        <div className="space-y-3 py-2 animate-pulse">
+            <div className="h-4 bg-muted/60 rounded-md w-3/4 shimmer" />
+            <div className="h-4 bg-muted/60 rounded-md w-full shimmer" style={{ animationDelay: "150ms" }} />
+            <div className="h-4 bg-muted/60 rounded-md w-5/6 shimmer" style={{ animationDelay: "300ms" }} />
+        </div>
+    );
+}
 
 interface MessageBubbleProps {
     message: Message;
@@ -21,6 +76,7 @@ interface MessageBubbleProps {
     isStreaming?: boolean;
     status?: string | null;
     agentEvents?: any[]; // For detailed search/thinking stages
+    visualizations?: { data: string; mimeType: "image/png" | "text/html" }[]; // For data analytics visualizations
 }
 
 function MessageAttachments({
@@ -67,16 +123,17 @@ function MessageAttachments({
     );
 }
 
-export function MessageBubble({ message, onRegenerate, isStreaming = false, status, agentEvents }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, onRegenerate, isStreaming = false, status, agentEvents, visualizations }: MessageBubbleProps) {
     const isUser = message.role === "user";
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
     const t = useTranslations("chat");
     const effectiveAgentEvents = agentEvents || (message.metadata as any)?.agentEvents;
-    
-    // Always show progress during streaming if there are events, or for completed messages with events
+    const effectiveVisualizations = visualizations || message.metadata?.visualizations;
+
+    // Only show progress during streaming - hide for completed messages loaded from storage
     const hasEvents = effectiveAgentEvents && effectiveAgentEvents.length > 0;
-    const showProgress = (isStreaming && hasEvents) || (!isStreaming && hasEvents);
+    const showProgress = isStreaming && hasEvents;
 
     const handleCopyMessage = async () => {
         await navigator.clipboard.writeText(message.content);
@@ -153,12 +210,9 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
                         />
                     )}
 
-                    {/* Show loading indicator when streaming with no content yet */}
-                    {isStreaming && !message.content && !hasEvents && (
-                        <div className="flex items-center gap-2 mb-3 text-muted-foreground">
-                            <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                            <span className="text-sm">{t("agent.thinking")}</span>
-                        </div>
+                    {/* Show typing indicator immediately when no content yet */}
+                    {!message.content && !hasEvents && (
+                        <TypingIndicator />
                     )}
 
                     <div
@@ -204,16 +258,58 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
                                 li: ({ children }) => (
                                     <li className="leading-relaxed">{children}</li>
                                 ),
-                                a: ({ href, children }) => (
-                                    <a
-                                        href={href}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
-                                    >
-                                        {children}
-                                    </a>
-                                ),
+                                a: ({ href, children }) => {
+                                    // Filter out invalid URLs (e.g., Chinese text being used as URLs)
+                                    const isValidUrl = href && (
+                                        href.startsWith('http://') ||
+                                        href.startsWith('https://') ||
+                                        href.startsWith('/') ||
+                                        href.startsWith('#')
+                                    );
+
+                                    if (!isValidUrl) {
+                                        // Render as plain text if URL is invalid
+                                        return <span className="text-foreground">{children}</span>;
+                                    }
+
+                                    return (
+                                        <a
+                                            href={href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-accent-blue underline underline-offset-2 hover:text-accent-blue/80 transition-colors"
+                                        >
+                                            {children}
+                                        </a>
+                                    );
+                                },
+                                img: ({ src, alt }) => {
+                                    // Filter out invalid image sources (e.g., Chinese text being used as src)
+                                    const isValidSrc = src && (
+                                        src.startsWith('http://') ||
+                                        src.startsWith('https://') ||
+                                        src.startsWith('/') ||
+                                        src.startsWith('data:')
+                                    );
+
+                                    if (!isValidSrc) {
+                                        // Render alt text if src is invalid
+                                        return (
+                                            <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-secondary rounded text-sm text-muted-foreground">
+                                                <ImageIcon className="w-4 h-4" />
+                                                {alt || 'Invalid image source'}
+                                            </span>
+                                        );
+                                    }
+
+                                    return (
+                                        <img
+                                            src={src}
+                                            alt={alt || ''}
+                                            className="max-w-full h-auto rounded-lg my-4"
+                                        />
+                                    );
+                                },
                                 code: ({ node, className, children, ...props }) => {
                                     const match = /language-(\w+)/.exec(className || "");
                                     const isInline = !match;
@@ -283,8 +379,22 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
                         >
                             {message.content}
                         </ReactMarkdown>
+                        {/* Show streaming cursor at the end of content */}
+                        {isStreaming && message.content && <StreamingCursor />}
                     </div>
 
+                    {/* Visualizations from data analytics agent */}
+                    {effectiveVisualizations && effectiveVisualizations.length > 0 && (
+                        <div className="mt-4">
+                            {effectiveVisualizations.map((viz, index) => (
+                                <Visualization
+                                    key={index}
+                                    data={viz.data}
+                                    mimeType={viz.mimeType}
+                                />
+                            ))}
+                        </div>
+                    )}
 
                     {/* Action buttons for assistant message - only show when not streaming */}
                     {!isStreaming && (
@@ -295,11 +405,11 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
                                     "flex items-center gap-1.5",
                                     "px-2.5 py-1.5",
                                     "text-xs font-medium",
-                                    "rounded-lg",
+                                    "rounded-xl",
                                     "transition-all duration-200",
                                     copied
-                                        ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-                                        : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+                                        ? "text-accent-cyan bg-accent-cyan/10"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                                 )}
                             >
                                 {copied ? (
@@ -322,9 +432,9 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
                                         "flex items-center gap-1.5",
                                         "px-2.5 py-1.5",
                                         "text-xs font-medium",
-                                        "rounded-lg",
+                                        "rounded-xl",
                                         "transition-all duration-200",
-                                        "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+                                        "text-muted-foreground hover:text-foreground hover:bg-secondary"
                                     )}
                                 >
                                     <RotateCcw className="w-3.5 h-3.5" />
@@ -339,13 +449,14 @@ export function MessageBubble({ message, onRegenerate, isStreaming = false, stat
             {/* File preview is now handled by the layout level via usePreviewStore */}
         </div>
     );
-}
+});
 
 interface CodeBlockProps {
     language: string;
     children: string;
 }
 
+// Pre-computed code themes with custom overrides
 const darkCodeTheme: { [key: string]: React.CSSProperties } = {
     ...oneDark,
     'pre[class*="language-"]': {
@@ -392,18 +503,20 @@ function CodeBlock({ language, children }: CodeBlockProps) {
         setTimeout(() => setCopied(false), 2000);
     };
 
+    const currentStyle = isDark ? darkCodeTheme : lightCodeTheme;
+
     return (
         <div
             className={cn(
-                "my-5 rounded-lg overflow-hidden",
+                "my-5 rounded-xl overflow-hidden",
                 "ring-1 transition-all duration-300",
                 // Light mode styles
-                "bg-[#fafafa] ring-black/[0.08]",
-                // Dark mode styles (forced via .dark class on root)
-                "dark:bg-[#282c34] dark:ring-white/[0.08]",
+                "bg-secondary ring-border",
+                // Dark mode styles (deep black for Cursor aesthetic)
+                "dark:bg-[#0d0d0d] dark:ring-white/[0.08]",
                 // Hover states
                 isHovered && (
-                    "ring-black/[0.12] dark:ring-white/[0.12]"
+                    "ring-foreground/20 dark:ring-white/[0.15] dark:shadow-glow-sm"
                 )
             )}
             onMouseEnter={() => setIsHovered(true)}
@@ -461,14 +574,11 @@ function CodeBlock({ language, children }: CodeBlockProps) {
             <div className="relative p-3 md:p-4 overflow-x-auto">
                 <SyntaxHighlighter
                     language={language}
-                    style={isDark ? darkCodeTheme : lightCodeTheme}
+                    style={currentStyle}
                     customStyle={{ background: "transparent", margin: 0, padding: 0 }}
                 >
                     {children}
                 </SyntaxHighlighter>
-
-                {/* Subtle gradient fade at bottom */}
-                {/* Subtle gradient fade removed */}
             </div>
         </div>
     );

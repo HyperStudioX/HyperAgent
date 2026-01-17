@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 
 from app.config import settings
 from app.models.schemas import LLMProvider, ChatMessage, MessageRole
+from app.services.model_tiers import ModelTier, get_model_for_tier, get_tier_for_task, get_provider_for_tier
 
 
 def extract_text_from_content(content: Any) -> str:
@@ -116,6 +117,63 @@ class LLMService:
             return self._get_gemini(model)
         else:
             raise ValueError(f"Unknown provider: {provider}")
+
+    def get_llm_for_tier(
+        self,
+        tier: ModelTier,
+        provider: LLMProvider | None = None,
+        model_override: str | None = None,
+    ) -> BaseChatModel:
+        """Get LLM for a specific tier, with optional model override.
+
+        Args:
+            tier: The model tier to use
+            provider: The LLM provider (if None, auto-selects based on tier configuration)
+            model_override: Optional model override (bypasses tier selection)
+
+        Returns:
+            LLM instance configured for the specified tier
+        """
+        # Auto-select provider based on tier if not explicitly provided
+        if provider is None:
+            provider = get_provider_for_tier(tier, settings.tier_providers)
+
+        if model_override:
+            return self.get_llm(provider, model_override)
+
+        model = get_model_for_tier(tier, provider, settings.tier_mappings)
+        return self.get_llm(provider, model)
+
+    def get_llm_for_task(
+        self,
+        task_type: str,
+        provider: LLMProvider | None = None,
+        tier_override: ModelTier | None = None,
+        model_override: str | None = None,
+    ) -> BaseChatModel:
+        """Get LLM based on task type with auto-routing.
+
+        Priority: model_override > tier_override > auto-routing
+
+        Args:
+            task_type: Type of task (e.g., "research", "chat", "code")
+            provider: The LLM provider (if None, auto-selects based on tier configuration)
+            tier_override: Optional tier override (bypasses auto-routing)
+            model_override: Optional model override (bypasses tier and auto-routing)
+
+        Returns:
+            LLM instance configured for the task
+        """
+        tier = tier_override or get_tier_for_task(task_type)
+
+        # Auto-select provider based on tier if not explicitly provided
+        if provider is None:
+            provider = get_provider_for_tier(tier, settings.tier_providers)
+
+        if model_override:
+            return self.get_llm(provider, model_override)
+
+        return self.get_llm_for_tier(tier, provider)
 
     def convert_messages(self, messages: list[ChatMessage]) -> list:
         """Convert chat messages to LangChain format."""

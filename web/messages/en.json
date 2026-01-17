@@ -166,8 +166,13 @@
             "thinking": "Thinking...",
             "processing": "Processing...",
             "searching": "Searching...",
+            "generatingImage": "Generating: {prompt}",
+            "generatingImageDefault": "Generating image...",
+            "analyzingImage": "Analyzing: {prompt}",
+            "analyzingImageDefault": "Analyzing image...",
             "analyzing": "Analyzing...",
             "researching": "Researching...",
+            "handoffTo": "Delegating to {target}...",
             "inProgress": "In progress",
             "completed": "Completed",
             "completedWithErrors": "Completed with errors",
@@ -177,6 +182,24 @@
             "expandStage": "Click to expand details",
             "collapseStage": "Click to collapse details",
             "detailCount": "{count, plural, =1 {1 detail} other {# details}}",
+            "routedTo": "Routed to {agent}",
+            "lowConfidence": "Low confidence routing - try rephrasing if needed",
+            "handoffTo": "Delegating to {target}",
+            "sourceFound": "Source found",
+            "codeExecuted": "Code executed successfully",
+            "codeError": "Error: {error}",
+            "tools": {
+                "web_search": "Web Search",
+                "google_search": "Web Search",
+                "web": "Web Search",
+                "generate_image": "Image Generation",
+                "analyze_image": "Image Analysis",
+                "execute_code": "Code Execution",
+                "sandbox_file": "File Operation",
+                "browser_use": "Browser Automation",
+                "browser_navigate": "Browser Navigation",
+                "default": "Tool"
+            },
             "stages": {
                 "thinking": {
                     "running": "Processing request...",
@@ -187,6 +210,11 @@
                     "running": "Routing to agent...",
                     "completed": "Routed",
                     "failed": "Routing failed"
+                },
+                "handoff": {
+                    "running": "Handing off...",
+                    "completed": "Handoff complete",
+                    "failed": "Handoff failed"
                 },
                 "chat": {
                     "running": "Generating response...",
@@ -259,6 +287,16 @@
                     "failed": "Data analysis failed",
                     "pending": "Analyze data"
                 },
+                "source": {
+                    "running": "Finding sources...",
+                    "completed": "Sources found",
+                    "failed": "Source lookup failed"
+                },
+                "code_result": {
+                    "running": "Executing code...",
+                    "completed": "Code executed",
+                    "failed": "Code execution failed"
+                },
                 "default": {
                     "running": "Processing...",
                     "completed": "Complete",
@@ -292,6 +330,16 @@
                 "unsupportedType": "File type \"{type}\" is not supported",
                 "maxSize": "File exceeds maximum size of {size}MB"
             }
+        },
+        "voice": {
+            "startRecording": "Start voice input",
+            "stopRecording": "Stop recording",
+            "transcribing": "Transcribing...",
+            "error": "Voice input error",
+            "microphoneAccessDenied": "Microphone access denied",
+            "recordingTooShort": "Recording too short",
+            "transcriptionFailed": "Transcription failed",
+            "browserNotSupported": "Voice input not supported in this browser"
         }
     },
     "conversation": {
@@ -318,5 +366,20 @@
         "failedToLoadImage": "Error loading image: {error}",
         "loadingImage": "Loading image...",
         "loadingPdf": "Loading PDF..."
+    },
+    "settings": {
+        "modelTier": "Model Tier",
+        "autoTier": "Auto",
+        "tierDescription": {
+            "auto": "System selects based on task",
+            "max": "Complex reasoning & research",
+            "pro": "Balanced general tasks",
+            "flash": "Quick responses"
+        }
+    },
+    "preferences": {
+        "voice": {
+            "language": "Language"
+        }
     }
 }

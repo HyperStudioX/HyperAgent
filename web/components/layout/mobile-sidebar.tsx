@@ -71,10 +71,8 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
 
         // Only load from API if authenticated, otherwise just set hydrated
         if (status === "authenticated") {
-            console.log("[MobileSidebar] Loading conversations from database");
             loadConversations();
         } else {
-            console.log("[MobileSidebar] Not authenticated, using local mode");
             useChatStore.setState({ hasHydrated: true });
         }
     }, [status, chatHydrated, loadConversations]);
@@ -86,10 +84,8 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
         }
 
         if (status === "authenticated") {
-            console.log("[MobileSidebar] Loading tasks from database");
             loadTasks();
         } else {
-            console.log("[MobileSidebar] Not authenticated, using local tasks only");
             useTaskStore.setState({ hasHydrated: true });
         }
     }, [status, taskHydrated, loadTasks]);
@@ -224,25 +220,23 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                 {/* Header */}
                 <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
                     <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 flex items-center justify-center">
+                        <div className="w-8 h-8 flex items-center justify-center">
                             <Image
                                 src="/images/logo-dark.svg"
                                 alt="HyperAgent"
-                                width={28}
-                                height={28}
-                                className="dark:hidden transition-opacity duration-200"
-                                style={{ opacity: 0.92 }}
+                                width={32}
+                                height={32}
+                                className="dark:hidden transition-transform duration-200 hover:scale-105"
                             />
                             <Image
                                 src="/images/logo-light.svg"
                                 alt="HyperAgent"
-                                width={28}
-                                height={28}
-                                className="hidden dark:block transition-opacity duration-200"
-                                style={{ opacity: 0.95 }}
+                                width={32}
+                                height={32}
+                                className="hidden dark:block transition-transform duration-200 hover:scale-105"
                             />
                         </div>
-                        <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
+                        <span className="brand-title brand-title-sm">HyperAgent</span>
                     </div>
 
                     {/* Mobile close button */}

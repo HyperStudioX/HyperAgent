@@ -63,12 +63,12 @@ export function PreferencesPanel({
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "w-full h-9 px-3 rounded-lg",
+          "w-full h-9 px-3 rounded-xl",
           "flex items-center justify-between",
           "text-sm",
           "text-muted-foreground hover:text-foreground",
-          "hover:bg-secondary/50",
-          "transition-colors"
+          "hover:bg-secondary",
+          "transition-all duration-200"
         )}
       >
         <div className="flex items-center gap-2">
@@ -86,7 +86,7 @@ export function PreferencesPanel({
         <div
           className={cn(
             "absolute bottom-full left-0 right-0 mb-1 z-50",
-            "bg-card border border-border rounded-xl",
+            "bg-card border border-border rounded-xl shadow-lg",
             "overflow-hidden"
           )}
         >
@@ -107,11 +107,11 @@ export function PreferencesPanel({
                   key={value}
                   onClick={() => handleThemeChange(value as "light" | "dark" | "auto")}
                   className={cn(
-                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-colors",
+                    "flex-1 h-8 rounded-xl flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-all duration-200",
                     mounted && theme === value
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      ? "bg-foreground text-background shadow-glow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                   )}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -134,11 +134,11 @@ export function PreferencesPanel({
                   key={loc.code}
                   onClick={() => handleLocaleChange(loc.code)}
                   className={cn(
-                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-colors",
+                    "flex-1 h-8 rounded-xl flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-all duration-200",
                     currentLocale.code === loc.code
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      ? "bg-foreground text-background shadow-glow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                   )}
                 >
                   <Globe className="w-3.5 h-3.5" />

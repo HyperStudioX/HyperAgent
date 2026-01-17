@@ -34,6 +34,41 @@ class Settings(BaseSettings):
     default_model_openai: str = "gpt-4o"
     default_model_gemini: str = "gemini-2.5-flash"
 
+    # Model Tier Configuration
+    # Providers for each tier (which provider to use for each complexity level)
+    tier_max_provider: Literal["anthropic", "openai", "gemini"] = "anthropic"
+    tier_pro_provider: Literal["anthropic", "openai", "gemini"] = "anthropic"
+    tier_flash_provider: Literal["anthropic", "openai", "gemini"] = "anthropic"
+
+    # Models for each tier and provider combination
+    tier_max_anthropic: str = "claude-opus-4-20250514"
+    tier_max_openai: str = "gpt-4o"
+    tier_max_gemini: str = "gemini-2.5-pro"
+
+    tier_pro_anthropic: str = "claude-sonnet-4-20250514"
+    tier_pro_openai: str = "gpt-4o-mini"
+    tier_pro_gemini: str = "gemini-2.5-flash"
+
+    tier_flash_anthropic: str = "claude-3-5-haiku-20241022"
+    tier_flash_openai: str = "gpt-4o-mini"
+    tier_flash_gemini: str = "gemini-2.0-flash"
+
+    # Multimodal Model Configuration
+    # Image Understanding (Vision - Gemini only)
+    vision_model: str = "gemini-2.5-flash"
+
+    # Image Generation (Gemini Imagen)
+    image_gen_model: str = "imagen-3.0-generate-001"
+    image_gen_default_size: str = "1024x1024"
+    image_gen_safety_filter: str = "block_some"  # block_none, block_some, block_most
+
+    # Audio Transcription (Gemini only)
+    audio_transcription_model: str = "gemini-2.0-flash-exp"
+
+    # Audio Text-to-Speech (Gemini only)
+    audio_tts_model: str = "gemini-2.0-flash-exp"
+    audio_tts_voice: str = "Puck"  # Voice options: Puck, Charon, Kore, Fenrir, Aoede
+
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hyperagent"
     redis_url: str = "redis://localhost:6379"
@@ -48,6 +83,7 @@ class Settings(BaseSettings):
 
     # E2B Sandbox
     e2b_api_key: str = ""
+    e2b_template_id: str = ""  # Optional: custom template with pre-installed packages for faster startup
 
     # Search
     tavily_api_key: str = ""
@@ -69,6 +105,47 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def tier_mappings(self) -> dict:
+        """Get tier mappings from configuration."""
+        from app.services.model_tiers import ModelTier, ModelMapping
+
+        return {
+            ModelTier.MAX: ModelMapping(
+                anthropic=self.tier_max_anthropic,
+                openai=self.tier_max_openai,
+                gemini=self.tier_max_gemini,
+            ),
+            ModelTier.PRO: ModelMapping(
+                anthropic=self.tier_pro_anthropic,
+                openai=self.tier_pro_openai,
+                gemini=self.tier_pro_gemini,
+            ),
+            ModelTier.FLASH: ModelMapping(
+                anthropic=self.tier_flash_anthropic,
+                openai=self.tier_flash_openai,
+                gemini=self.tier_flash_gemini,
+            ),
+        }
+
+    @property
+    def tier_providers(self) -> dict:
+        """Get provider for each tier from configuration."""
+        from app.services.model_tiers import ModelTier
+        from app.models.schemas import LLMProvider
+
+        provider_map = {
+            "anthropic": LLMProvider.ANTHROPIC,
+            "openai": LLMProvider.OPENAI,
+            "gemini": LLMProvider.GEMINI,
+        }
+
+        return {
+            ModelTier.MAX: provider_map[self.tier_max_provider],
+            ModelTier.PRO: provider_map[self.tier_pro_provider],
+            ModelTier.FLASH: provider_map[self.tier_flash_provider],
+        }
 
 
 @lru_cache

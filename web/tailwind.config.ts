@@ -37,6 +37,10 @@ const config: Config = {
           foreground: "hsl(var(--accent-foreground))",
           vibrant: "hsl(var(--accent-vibrant))",
           "vibrant-foreground": "hsl(var(--accent-vibrant-foreground))",
+          cyan: "hsl(var(--accent-cyan))",
+          amber: "hsl(var(--accent-amber))",
+          rose: "hsl(var(--accent-rose))",
+          blue: "hsl(var(--accent-blue))",
         },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
@@ -50,9 +54,12 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 0.25rem)",
+        "2xl": "calc(var(--radius) + 0.5rem)",
       },
       fontFamily: {
         sans: [
+          "var(--font-plus-jakarta-sans)",
           "system-ui",
           "-apple-system",
           "BlinkMacSystemFont",
@@ -63,6 +70,7 @@ const config: Config = {
           "sans-serif",
         ],
         mono: [
+          "var(--font-jetbrains-mono)",
           "ui-monospace",
           "SFMono-Regular",
           "SF Mono",
@@ -71,6 +79,11 @@ const config: Config = {
           "Liberation Mono",
           "monospace",
         ],
+      },
+      boxShadow: {
+        glow: "0 0 20px -5px hsl(var(--accent-cyan) / 0.4)",
+        "glow-sm": "0 0 10px -3px hsl(var(--accent-cyan) / 0.3)",
+        "glow-lg": "0 0 30px -5px hsl(var(--accent-cyan) / 0.5)",
       },
     },
   },

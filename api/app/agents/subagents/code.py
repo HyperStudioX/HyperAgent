@@ -1,23 +1,39 @@
-"""Code execution subagent using E2B sandbox."""
+"""Code execution subagent using E2B sandbox with handoff support."""
 
-from e2b import AsyncSandbox
+import json
+import re
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import END, StateGraph
 
 from app.agents.prompts import CODE_SYSTEM_PROMPT
 from app.agents.state import CodeState
-from app.agents.tools import web_search
-from app.agents.tools.react_utils import build_ai_message_from_chunks
-from app.agents.tools.search_gate import should_enable_web_search
+from app.agents.tools import (
+    web_search,
+    generate_image,
+    analyze_image,
+    get_handoff_tools_for_agent,
+)
+from app.agents.tools.code_execution import execute_code_with_context
+from app.agents.tools.react_tool import build_ai_message_from_chunks
+from app.agents.tools.search_gate import should_enable_tools
+from app.agents.utils import (
+    append_history,
+    extract_and_add_image_events,
+    create_stage_event,
+    create_error_event,
+    create_tool_call_event,
+    create_tool_result_event,
+)
+from app.agents import events
 from app.config import settings
 from app.core.logging import get_logger
 from app.models.schemas import LLMProvider
-from app.services.llm import llm_service
+from app.services.llm import llm_service, extract_text_from_content
 
 logger = get_logger(__name__)
 
-WEB_TOOLS = [web_search]
+CODING_TOOLS = [web_search, generate_image, analyze_image]
 MAX_TOOL_ITERATIONS = 3
 
 
@@ -28,31 +44,31 @@ async def generate_code_node(state: CodeState) -> dict:
         state: Current code state with query
 
     Returns:
-        Dict with generated code and events
+        Dict with generated code, events, and potential handoff
     """
     query = state.get("query") or ""
 
-    events = [
-        {
-            "type": "stage",
-            "name": "generate",
-            "description": "Generating code...",
-            "status": "running",
-        }
-    ]
+    event_list = [create_stage_event("generate", "Generating code...", "running")]
 
     provider = state.get("provider") or LLMProvider.ANTHROPIC
+    tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm(provider=provider, model=model)
+    llm = llm_service.get_llm_for_task("code", provider=provider, tier_override=tier, model_override=model)
     messages = [SystemMessage(content=CODE_SYSTEM_PROMPT)]
-    _append_history(messages, state.get("messages", []))
+    append_history(messages, state.get("messages", []))
     messages.append(HumanMessage(content=query))
     history = state.get("messages", [])
 
+    # Get handoff tools for code agent
+    handoff_tools = get_handoff_tools_for_agent("code")
+
     try:
-        if should_enable_web_search(query, history):
-            llm_with_tools = llm.bind_tools(WEB_TOOLS)
+        if should_enable_tools(query, history):
+            all_tools = CODING_TOOLS + handoff_tools
+            llm_with_tools = llm.bind_tools(all_tools)
             tool_iterations = 0
+            pending_handoff = None
+
             while tool_iterations < MAX_TOOL_ITERATIONS:
                 response_chunks = []
                 async for chunk in llm_with_tools.astream(messages):
@@ -62,51 +78,68 @@ async def generate_code_node(state: CodeState) -> dict:
                 if not tool_response.tool_calls:
                     break
 
+                # Check for handoff
+                for tool_call in tool_response.tool_calls:
+                    tool_name = tool_call.get("name") or ""
+                    if tool_name.startswith("handoff_to_"):
+                        target_agent = tool_name.replace("handoff_to_", "")
+                        task_description = tool_call.get("args", {}).get("task_description", "")
+                        context = tool_call.get("args", {}).get("context", "")
+
+                        pending_handoff = {
+                            "source_agent": "code",
+                            "target_agent": target_agent,
+                            "task_description": task_description,
+                            "context": context,
+                        }
+
+                        event_list.append(events.handoff(
+                            source="code",
+                            target=target_agent,
+                            task=task_description,
+                        ))
+
+                        logger.info("code_handoff_detected", target=target_agent)
+                        break
+
+                if pending_handoff:
+                    return {
+                        "response": "",
+                        "events": event_list,
+                        "pending_handoff": pending_handoff,
+                    }
+
                 messages.append(tool_response)
                 tool_iterations += 1
                 for tool_call in tool_response.tool_calls:
                     tool_name = tool_call.get("name") or tool_call.get("tool") or ""
                     if not tool_name:
                         continue
-                    events.append(
-                        {
-                            "type": "tool_call",
-                            "tool": tool_name,
-                            "args": tool_call.get("args") or {},
-                        }
-                    )
+                    event_list.append(create_tool_call_event(tool_name, tool_call.get("args") or {}))
 
-                tool_results = await ToolNode(WEB_TOOLS).ainvoke({"messages": [tool_response]})
+                tool_results = await ToolNode(all_tools).ainvoke({"messages": [tool_response]})
                 for msg in tool_results.get("messages", []):
                     messages.append(msg)
                     if isinstance(msg, ToolMessage):
-                        events.append(
-                            {
-                                "type": "tool_result",
-                                "tool": msg.name,
-                                "content": msg.content[:500] if len(msg.content) > 500 else msg.content,
-                            }
-                        )
+                        if msg.name == "generate_image":
+                            extract_and_add_image_events(msg.content, event_list)
+                        event_list.append(create_tool_result_event(msg.name, msg.content))
 
             if tool_iterations >= MAX_TOOL_ITERATIONS:
-                events.append(
-                    {
-                        "type": "stage",
-                        "name": "tool",
-                        "description": "Tool limit reached; continuing without more tool calls.",
-                        "status": "completed",
-                    }
-                )
+                event_list.append(create_stage_event(
+                    "tool",
+                    "Tool limit reached; continuing without more tool calls.",
+                    "completed",
+                ))
 
         # Stream the response
         response_chunks = []
         async for chunk in llm.astream(messages):
             if chunk.content:
-                from app.services.llm import extract_text_from_content
                 content = extract_text_from_content(chunk.content)
-                if content:  # Only append non-empty content
+                if content:
                     response_chunks.append(content)
-                    events.append({"type": "token", "content": content})
+                    event_list.append(events.token(content))
 
         response = "".join(response_chunks)
 
@@ -114,14 +147,7 @@ async def generate_code_node(state: CodeState) -> dict:
         code = _extract_code(response)
         language = _detect_language(response)
 
-        events.append(
-            {
-                "type": "stage",
-                "name": "generate",
-                "description": "Code generated",
-                "status": "completed",
-            }
-        )
+        event_list.append(create_stage_event("generate", "Code generated", "completed"))
 
         logger.info(
             "code_generated",
@@ -134,23 +160,15 @@ async def generate_code_node(state: CodeState) -> dict:
             "response": response,
             "code": code,
             "language": language,
-            "events": events,
+            "events": event_list,
         }
 
     except Exception as e:
         logger.error("code_generation_failed", error=str(e))
-        events.append(
-            {
-                "type": "error",
-                "name": "generate",
-                "description": f"Error: {str(e)}",
-                "error": str(e),
-                "status": "failed",
-            }
-        )
+        event_list.append(create_error_event("generate", str(e)))
         return {
             "response": f"I apologize, but I encountered an error generating code: {str(e)}",
-            "events": events,
+            "events": event_list,
         }
 
 
@@ -169,165 +187,61 @@ async def execute_code_node(state: CodeState) -> dict:
     if not code:
         return {
             "execution_result": "No code to execute",
-            "events": [
-                {
-                    "type": "code_result",
-                    "output": "No code to execute",
-                    "error": None,
-                }
-            ],
+            "events": [events.code_result("No code to execute")],
         }
 
-    events = [
-        {
-            "type": "stage",
-            "name": "execute",
-            "description": f"Executing {language} code...",
-            "status": "running",
-        }
-    ]
+    event_list = [create_stage_event("execute", f"Executing {language} code...", "running")]
 
     # Check for E2B API key
     if not settings.e2b_api_key:
         logger.warning("e2b_api_key_not_configured")
-        events.append(
-            {
-                "type": "code_result",
-                "output": "[E2B API key not configured. Please set E2B_API_KEY in environment.]",
-                "error": "E2B API key not configured",
-            }
-        )
-        events.append(
-            {
-                "type": "error",
-                "name": "execute",
-                "description": "Execution skipped - E2B not configured",
-                "error": "E2B API key not configured",
-                "status": "failed",
-            }
-        )
-        return {
-            "execution_result": "E2B API key not configured",
-            "events": events,
-        }
+        error_msg = "[E2B API key not configured. Please set E2B_API_KEY in environment.]"
+        event_list.append(events.code_result(error_msg, error="E2B API key not configured"))
+        event_list.append(create_error_event("execute", "E2B API key not configured"))
+        return {"execution_result": "E2B API key not configured", "events": event_list}
 
-    sandbox = None
     try:
-        # Create E2B sandbox
-        sandbox = await AsyncSandbox.create(
-            api_key=settings.e2b_api_key,
-            timeout=300,  # 5 minute timeout
+        # Use the execute_code tool with session context
+        exec_result = await execute_code_with_context(
+            code=code,
+            language=language,
+            capture_visualizations=True,
+            user_id=state.get("user_id"),
+            task_id=state.get("task_id"),
         )
 
-        logger.info("e2b_sandbox_created", sandbox_id=sandbox.sandbox_id, language=language)
-
-        # Determine execution command based on language
-        if language in ("python", "py"):
-            await sandbox.files.write("/tmp/script.py", code)
-            cmd = "python3 /tmp/script.py"
-        elif language in ("javascript", "js"):
-            await sandbox.files.write("/tmp/script.js", code)
-            cmd = "node /tmp/script.js"
-        elif language in ("typescript", "ts"):
-            # Write to file and run with ts-node
-            await sandbox.files.write("/tmp/script.ts", code)
-            install_result = await sandbox.commands.run(
-                "npm install -g ts-node typescript 2>/dev/null || true",
-                timeout=60,
-            )
-            if install_result.exit_code != 0:
-                logger.warning(
-                    "ts_node_install_failed",
-                    stderr=install_result.stderr,
-                    stdout=install_result.stdout,
-                )
-            cmd = "ts-node /tmp/script.ts"
-        elif language in ("bash", "sh", "shell"):
-            await sandbox.files.write("/tmp/script.sh", code)
-            await sandbox.commands.run("chmod +x /tmp/script.sh")
-            cmd = "/tmp/script.sh"
-        else:
-            # Default to python
-            await sandbox.files.write("/tmp/script.py", code)
-            cmd = "python3 /tmp/script.py"
-
-        # Execute the code
-        execution = await sandbox.commands.run(cmd, timeout=120)
-
-        stdout = execution.stdout or ""
-        stderr = execution.stderr or ""
-
-        # Build result
         result_parts = []
-        if stdout:
-            result_parts.append(f"Output:\n{stdout}")
-        if stderr and execution.exit_code != 0:
-            result_parts.append(f"Errors:\n{stderr}")
+        if exec_result.get("stdout"):
+            result_parts.append(f"Output:\n{exec_result['stdout']}")
+        if exec_result.get("stderr") and exec_result.get("exit_code") != 0:
+            result_parts.append(f"Errors:\n{exec_result['stderr']}")
 
         execution_result = "\n\n".join(result_parts) if result_parts else "Code executed successfully (no output)"
 
-        events.append(
-            {
-                "type": "code_result",
-                "output": execution_result,
-                "exit_code": execution.exit_code,
-                "error": stderr if execution.exit_code != 0 else None,
-            }
-        )
+        event_list.append(events.code_result(
+            execution_result,
+            exit_code=exec_result.get("exit_code"),
+            error_msg=exec_result.get("stderr") if exec_result.get("exit_code") != 0 else None,
+        ))
 
-        events.append(
-            {
-                "type": "stage",
-                "name": "execute",
-                "description": "Execution complete",
-                "status": "completed",
-            }
-        )
-
-        logger.info(
-            "code_execution_completed",
-            language=language,
-            exit_code=execution.exit_code,
-        )
+        event_list.append(create_stage_event("execute", "Execution complete", "completed"))
 
         return {
             "execution_result": execution_result,
-            "stdout": stdout,
-            "stderr": stderr,
-            "sandbox_id": sandbox.sandbox_id,
-            "events": events,
+            "stdout": exec_result.get("stdout", ""),
+            "stderr": exec_result.get("stderr", ""),
+            "sandbox_id": exec_result.get("sandbox_id"),
+            "events": event_list,
         }
 
     except Exception as e:
         logger.error("code_execution_failed", error=str(e))
-        events.append(
-            {
-                "type": "code_result",
-                "output": f"Execution error: {str(e)}",
-                "error": str(e),
-            }
-        )
-        events.append(
-            {
-                "type": "error",
-                "name": "execute",
-                "description": f"Execution failed: {str(e)}",
-                "error": str(e),
-                "status": "failed",
-            }
-        )
+        event_list.append(events.code_result(f"Execution error: {str(e)}", error_msg=str(e)))
+        event_list.append(create_error_event("execute", str(e), f"Execution failed: {str(e)}"))
         return {
             "execution_result": f"Execution error: {str(e)}",
-            "events": events,
+            "events": event_list,
         }
-
-    finally:
-        # Clean up sandbox
-        if sandbox:
-            try:
-                await sandbox.kill()
-            except Exception as e:
-                logger.warning("sandbox_cleanup_failed", error=str(e))
 
 
 async def finalize_node(state: CodeState) -> dict:
@@ -337,48 +251,41 @@ async def finalize_node(state: CodeState) -> dict:
         state: Current code state with code and execution results
 
     Returns:
-        Dict with final response and events
+        Dict with final response, events, and potential handoff
     """
     response = state.get("response", "")
     execution_result = state.get("execution_result")
     code = state.get("code", "")
 
-    events = []
+    event_list = []
 
-    # If code was executed, append results to response
     if execution_result and code:
-        # Format execution results nicely
         if execution_result.startswith("Execution error"):
-            # Error case - append as error message
             response += f"\n\n**Execution Error:**\n```\n{execution_result}\n```"
         elif execution_result != "E2B API key not configured":
-            # Success case - append as execution result
             response += f"\n\n**Execution Result:**\n```\n{execution_result}\n```"
 
-        events.append(
-            {
-                "type": "stage",
-                "name": "finalize",
-                "description": "Response finalized with execution results",
-                "status": "completed",
-            }
-        )
+        event_list.append(create_stage_event(
+            "finalize",
+            "Response finalized with execution results",
+            "completed",
+        ))
     else:
-        events.append(
-            {
-                "type": "stage",
-                "name": "finalize",
-                "description": "Response finalized",
-                "status": "completed",
-            }
-        )
+        event_list.append(create_stage_event("finalize", "Response finalized", "completed"))
 
     logger.info("code_response_finalized", has_execution=bool(execution_result))
 
-    return {
+    result = {
         "response": response,
-        "events": events,
+        "events": event_list,
     }
+
+    # Propagate handoff if present
+    pending_handoff = state.get("pending_handoff")
+    if pending_handoff:
+        result["pending_handoff"] = pending_handoff
+
+    return result
 
 
 def should_execute(state: CodeState) -> str:
@@ -390,43 +297,35 @@ def should_execute(state: CodeState) -> str:
     Returns:
         Next node name: "execute" or "finalize"
     """
+    # Check for pending handoff
+    if state.get("pending_handoff"):
+        return "finalize"
+
     query = state.get("query", "").lower()
     code = state.get("code", "")
 
-    # Must have code to execute
     if not code:
         return "finalize"
 
-    # Check for explicit execution keywords
     execution_keywords = ["run", "execute", "test", "run this", "execute this"]
     if any(keyword in query for keyword in execution_keywords):
         return "execute"
 
-    # Default: don't auto-execute, just generate
     return "finalize"
 
 
 def _extract_code(response: str) -> str:
-    """Extract code from markdown code blocks.
-    
-    If multiple code blocks are found, returns the largest one
-    (most likely the main code to execute).
-    """
-    import re
-
-    # Find all code blocks with language specifier
+    """Extract code from markdown code blocks."""
     pattern = r"```(?:\w+)?\n(.*?)```"
     matches = re.findall(pattern, response, re.DOTALL)
 
     if matches:
-        # If multiple blocks, prefer the largest one (likely the main code)
         if len(matches) > 1:
             logger.info(
                 "multiple_code_blocks_found",
                 count=len(matches),
                 lengths=[len(m) for m in matches],
             )
-            # Return the largest block (most likely the main code)
             return max(matches, key=len).strip()
         return matches[0].strip()
 
@@ -435,15 +334,11 @@ def _extract_code(response: str) -> str:
 
 def _detect_language(response: str) -> str:
     """Detect the programming language from code blocks."""
-    import re
-
-    # Look for language specifier in code blocks
     pattern = r"```(\w+)\n"
     match = re.search(pattern, response)
 
     if match:
         lang = match.group(1).lower()
-        # Normalize language names
         lang_map = {
             "py": "python",
             "js": "javascript",
@@ -453,39 +348,23 @@ def _detect_language(response: str) -> str:
         }
         return lang_map.get(lang, lang)
 
-    return "python"  # Default
-
-
-def _append_history(messages: list[BaseMessage], history: list[dict]) -> None:
-    for msg in history:
-        if msg.get("role") == "user":
-            messages.append(HumanMessage(content=msg.get("content", "")))
-        elif msg.get("role") == "assistant":
-            messages.append(AIMessage(content=msg.get("content", "")))
+    return "python"
 
 
 def create_code_graph() -> StateGraph:
     """Create the code execution subagent graph.
-
-    Graph structure:
-    [generate] → [should_execute?] → [execute] → [finalize] → [END]
-                            ↓ (no)                    ↓
-                          [finalize] → [END]
 
     Returns:
         Compiled code graph
     """
     graph = StateGraph(CodeState)
 
-    # Add nodes
     graph.add_node("generate", generate_code_node)
     graph.add_node("execute", execute_code_node)
     graph.add_node("finalize", finalize_node)
 
-    # Set entry point
     graph.set_entry_point("generate")
 
-    # Conditional edge: execute only if requested
     graph.add_conditional_edges(
         "generate",
         should_execute,
@@ -495,12 +374,10 @@ def create_code_graph() -> StateGraph:
         },
     )
 
-    # After execution, finalize the response
     graph.add_edge("execute", "finalize")
     graph.add_edge("finalize", END)
 
     return graph.compile()
 
 
-# Compiled subgraph for use by supervisor
 code_subgraph = create_code_graph()

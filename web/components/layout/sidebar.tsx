@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, memo } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -20,7 +20,7 @@ interface SidebarProps {
     onClose?: () => void;
 }
 
-export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
     const router = useRouter();
     const { data: session, status } = useSession();
     const {
@@ -72,10 +72,8 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
 
         // Only load from API if authenticated, otherwise just set hydrated
         if (status === "authenticated") {
-            console.log("[Sidebar] Loading conversations from database");
             loadConversations();
         } else {
-            console.log("[Sidebar] Not authenticated, using local mode");
             useChatStore.setState({ hasHydrated: true });
         }
     }, [status, chatHydrated, loadConversations]);
@@ -87,10 +85,8 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
         }
 
         if (status === "authenticated") {
-            console.log("[Sidebar] Loading tasks from database");
             loadTasks();
         } else {
-            console.log("[Sidebar] Not authenticated, using local tasks only");
             useTaskStore.setState({ hasHydrated: true });
         }
     }, [status, taskHydrated, loadTasks]);
@@ -210,7 +206,7 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
                 className={cn(
                     "h-full flex flex-col border-border",
                     // Solid background for mobile, semi-transparent for desktop
-                    "bg-background md:bg-secondary/30",
+                    "bg-background md:bg-card/50",
                     // Desktop: fixed width sidebar
                     "md:w-72 md:border-r md:relative",
                     // Mobile: full-screen overlay
@@ -238,26 +234,25 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
             >
                 {/* Header */}
                 <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
-                    <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 flex items-center justify-center">
+                    <div className="flex items-center gap-3 group cursor-pointer">
+                        <div className="w-8 h-8 flex items-center justify-center relative">
+                            <div className="absolute inset-0 bg-accent-cyan/20 rounded-lg blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                             <Image
                                 src="/images/logo-dark.svg"
                                 alt="HyperAgent"
-                                width={28}
-                                height={28}
-                                className="dark:hidden transition-opacity duration-200"
-                                style={{ opacity: 0.92 }}
+                                width={32}
+                                height={32}
+                                className="dark:hidden transition-transform duration-200 group-hover:scale-110 relative z-10"
                             />
                             <Image
                                 src="/images/logo-light.svg"
                                 alt="HyperAgent"
-                                width={28}
-                                height={28}
-                                className="hidden dark:block transition-opacity duration-200"
-                                style={{ opacity: 0.95 }}
+                                width={32}
+                                height={32}
+                                className="hidden dark:block transition-transform duration-200 group-hover:scale-110 relative z-10"
                             />
                         </div>
-                        <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
+                        <span className="brand-title brand-title-sm">HyperAgent</span>
                     </div>
 
                     {/* Mobile close button */}
@@ -308,4 +303,4 @@ export function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
             </aside>
         </>
     );
-}
+});

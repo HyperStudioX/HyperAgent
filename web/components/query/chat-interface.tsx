@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -21,8 +21,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
+import { useShallow } from "zustand/shallow";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { FileUploadButton } from "@/components/chat/file-upload-button";
+import { VoiceInputButton } from "@/components/chat/voice-input-button";
 import { AttachmentPreview } from "@/components/chat/attachment-preview";
 import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { useGoogleDrivePicker } from "@/lib/hooks/use-google-drive-picker";
@@ -53,7 +55,68 @@ const DEPTH_ICONS: Record<ResearchDepth, React.ReactNode> = {
     deep: <Layers className="w-4 h-4" />,
 };
 
-export function UnifiedInterface() {
+// Memoized message list to prevent re-renders on input changes
+interface MessageListProps {
+    messages: any[];
+    streamingContent: string;
+    isLoading: boolean;
+    agentStatus: string | null;
+    streamingEvents: any[];
+    streamingVisualizations: any[];
+    streamingStartTime: Date;
+    onRegenerate: (messageId: string) => void;
+    messagesEndRef: React.RefObject<HTMLDivElement>;
+}
+
+const MessageList = memo(function MessageList({
+    messages,
+    streamingContent,
+    isLoading,
+    agentStatus,
+    streamingEvents,
+    streamingVisualizations,
+    streamingStartTime,
+    onRegenerate,
+    messagesEndRef,
+}: MessageListProps) {
+    return (
+        <div className="space-y-1">
+            {messages.map((message, index) => (
+                <div
+                    key={message.id}
+                    className="animate-slide-up"
+                    style={{ animationDelay: `${Math.min(index * 50, 200)}ms` }}
+                >
+                    <MessageBubble
+                        message={message}
+                        onRegenerate={
+                            message.role === "assistant" ? () => onRegenerate(message.id) : undefined
+                        }
+                    />
+                </div>
+            ))}
+            {(streamingContent || isLoading) && (
+                <div className="animate-fade-in">
+                    <MessageBubble
+                        message={{
+                            id: "streaming",
+                            role: "assistant",
+                            content: streamingContent || "",
+                            createdAt: streamingStartTime,
+                        }}
+                        isStreaming={true}
+                        status={agentStatus}
+                        agentEvents={streamingEvents}
+                        visualizations={streamingVisualizations}
+                    />
+                </div>
+            )}
+            <div ref={messagesEndRef} />
+        </div>
+    );
+});
+
+export function ChatInterface() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { status: sessionStatus } = useSession();
@@ -69,13 +132,13 @@ export function UnifiedInterface() {
     const [streamingContent, setStreamingContent] = useState("");
     const [agentStatus, setAgentStatus] = useState<string | null>(null);
     const [streamingEvents, setStreamingEvents] = useState<any[]>([]);
+    const [streamingVisualizations, setStreamingVisualizations] = useState<{ data: string; mimeType: "image/png" | "text/html" }[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const researchRef = useRef<HTMLDivElement>(null);
     const streamingContentRef = useRef("");
     const updateScheduledRef = useRef(false);
-    const detectedSearchQueriesRef = useRef<Set<string>>(new Set());
-    const searchStageCompletedRef = useRef(false);
+    const streamingStartTimeRef = useRef<Date>(new Date());
 
     // File upload hook
     const {
@@ -91,7 +154,6 @@ export function UnifiedInterface() {
     const { openPicker: openGoogleDrivePicker, error: googleDriveError } = useGoogleDrivePicker({
         onFilesSelected: (driveFiles) => {
             // TODO: Download Google Drive files and convert to local files
-            console.log("Google Drive files selected:", driveFiles);
             // For now, just show a placeholder
             alert(tChat("googleDriveSoon", { count: driveFiles.length }));
         },
@@ -110,15 +172,26 @@ export function UnifiedInterface() {
     const batchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const BATCH_INTERVAL_MS = 50; // Batch tokens every 50ms for smooth rendering
 
+    // Event batching for smoother AgentProgress updates
+    const eventBatchRef = useRef<any[]>([]);
+    const eventUpdateScheduledRef = useRef(false);
+
     // Throttled streaming content update using requestAnimationFrame with batching
     const updateStreamingContent = useCallback((content: string) => {
+        // Only update if content actually changed
+        if (streamingContentRef.current === content) return;
         streamingContentRef.current = content;
         if (!updateScheduledRef.current) {
             updateScheduledRef.current = true;
             // Use requestAnimationFrame for smooth updates
             requestAnimationFrame(() => {
-                setStreamingContent(streamingContentRef.current);
                 updateScheduledRef.current = false;
+                // Only set state if we're still streaming (component not unmounted)
+                setStreamingContent(prev => {
+                    // Prevent unnecessary updates
+                    if (prev === streamingContentRef.current) return prev;
+                    return streamingContentRef.current;
+                });
             });
         }
     }, []);
@@ -157,38 +230,41 @@ export function UnifiedInterface() {
         }
     }, [updateStreamingContent]);
 
-    const stripAssistantSearchTags = useCallback((content: string) => {
-        return content
-            .replace(/<search_quality_score>[\s\S]*?<\/search_quality_score>/gi, "")
-            .replace(/<search_query>[\s\S]*?<\/search_query>/gi, "")
-            .replace(/<search>[\s\S]*?<\/search>/gi, "");
+    // Batched event update to reduce AgentProgress re-renders
+    const batchEventUpdate = useCallback((event: any) => {
+        eventBatchRef.current.push(event);
+        if (!eventUpdateScheduledRef.current) {
+            eventUpdateScheduledRef.current = true;
+            requestAnimationFrame(() => {
+                const batch = eventBatchRef.current;
+                eventBatchRef.current = [];
+                eventUpdateScheduledRef.current = false;
+                if (batch.length > 0) {
+                    setStreamingEvents(prev => [...prev, ...batch]);
+                }
+            });
+        }
     }, []);
 
-    const extractSearchQueries = useCallback((content: string) => {
-        const matches = content.matchAll(/<search>([\s\S]*?)<\/search>/gi);
-        const queries: string[] = [];
-        for (const match of matches) {
-            const query = (match[1] || "").trim();
-            if (query) {
-                queries.push(query);
-            }
-        }
-        return queries;
+    // Reset streaming events (for starting a new stream)
+    const resetStreamingEvents = useCallback((initialEvents: any[] = []) => {
+        eventBatchRef.current = [];
+        eventUpdateScheduledRef.current = false;
+        setStreamingEvents(initialEvents);
     }, []);
 
-    const markSearchStageCompleted = useCallback(() => {
-        if (searchStageCompletedRef.current) {
-            return null;
+    // Throttled agent status update
+    const agentStatusRef = useRef<string | null>(null);
+    const statusUpdateScheduledRef = useRef(false);
+    const throttledSetAgentStatus = useCallback((status: string | null) => {
+        agentStatusRef.current = status;
+        if (!statusUpdateScheduledRef.current) {
+            statusUpdateScheduledRef.current = true;
+            requestAnimationFrame(() => {
+                setAgentStatus(agentStatusRef.current);
+                statusUpdateScheduledRef.current = false;
+            });
         }
-        searchStageCompletedRef.current = true;
-        return {
-            type: "stage",
-            data: {
-                name: "tool",
-                description: "Search completed",
-                status: "completed",
-            },
-        };
     }, []);
 
     // Close research submenu when clicking outside
@@ -213,17 +289,34 @@ export function UnifiedInterface() {
         }
     }, [searchParams, router]);
 
-    const activeConversationId = useChatStore((state) => state.activeConversationId);
-    const isLoading = useChatStore((state) => state.isLoading);
-    const hasHydrated = useChatStore((state) => state.hasHydrated);
-    const setLoading = useChatStore((state) => state.setLoading);
-    const setStreaming = useChatStore((state) => state.setStreaming);
-    const addMessage = useChatStore((state) => state.addMessage);
-    const removeMessage = useChatStore((state) => state.removeMessage);
-    const createConversation = useChatStore((state) => state.createConversation);
-    const getActiveConversation = useChatStore((state) => state.getActiveConversation);
-    const loadConversation = useChatStore((state) => state.loadConversation);
-    const conversations = useChatStore((state) => state.conversations);
+    // Consolidate store selectors into a single subscription for better performance
+    const {
+        activeConversationId,
+        isLoading,
+        hasHydrated,
+        setLoading,
+        setStreaming,
+        addMessage,
+        removeMessage,
+        createConversation,
+        getActiveConversation,
+        loadConversation,
+        conversations,
+    } = useChatStore(
+        useShallow((state) => ({
+            activeConversationId: state.activeConversationId,
+            isLoading: state.isLoading,
+            hasHydrated: state.hasHydrated,
+            setLoading: state.setLoading,
+            setStreaming: state.setStreaming,
+            addMessage: state.addMessage,
+            removeMessage: state.removeMessage,
+            createConversation: state.createConversation,
+            getActiveConversation: state.getActiveConversation,
+            loadConversation: state.loadConversation,
+            conversations: state.conversations,
+        }))
+    );
 
     const activeConversation = hasHydrated ? getActiveConversation() : undefined;
     const messages = activeConversation?.messages || [];
@@ -264,21 +357,33 @@ export function UnifiedInterface() {
         }
     }, [activeConversationId, hasHydrated, getActiveConversation, loadConversation, sessionStatus]);
 
-    const scrollToBottom = () => {
-        // Use 'auto' instead of 'smooth' to avoid layout/update loops during frequent updates
-        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-    };
+    const scrollToBottomRef = useRef<number | null>(null);
+    const scrollToBottom = useCallback(() => {
+        // Throttle scroll updates to avoid performance issues during streaming
+        if (scrollToBottomRef.current) return;
+        scrollToBottomRef.current = requestAnimationFrame(() => {
+            scrollToBottomRef.current = null;
+            messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+        });
+    }, []);
 
+    // Separate effect for messages to avoid re-running on every streamingContent change
     useEffect(() => {
         scrollToBottom();
-    }, [messages, streamingContent]);
+    }, [messages, scrollToBottom]);
 
+    // Throttled scroll for streaming - only scroll occasionally during streaming
+    const lastScrollTimeRef = useRef<number>(0);
     useEffect(() => {
-        if (inputRef.current) {
-            inputRef.current.style.height = "auto";
-            inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + "px";
+        if (!streamingContent) return;
+        const now = Date.now();
+        // Only scroll every 100ms during streaming to avoid performance issues
+        if (now - lastScrollTimeRef.current > 100) {
+            lastScrollTimeRef.current = now;
+            scrollToBottom();
         }
-    }, [input]);
+    }, [streamingContent, scrollToBottom]);
+
 
     const getConversationAttachmentIds = useCallback((conversationMessages: typeof messages) => {
         const ids = conversationMessages.flatMap((message) =>
@@ -322,9 +427,8 @@ export function UnifiedInterface() {
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
         setAgentStatus(null);
-        setStreamingEvents([]);
-        detectedSearchQueriesRef.current = new Set();
-        searchStageCompletedRef.current = true;
+        resetStreamingEvents();
+        setStreamingVisualizations([]);
 
         let conversationId = activeConversationId;
         if (!conversationId || activeConversation?.type !== "chat") {
@@ -356,9 +460,20 @@ export function UnifiedInterface() {
 
         setLoading(true);
         setStreaming(true);
+        streamingStartTimeRef.current = new Date();
+
+        // Add initial thinking event immediately for instant feedback
+        const thinkingEvent = {
+            type: "stage",
+            name: "thinking",
+            description: tChat("agent.thinking"),
+            status: "running",
+        };
+        resetStreamingEvents([thinkingEvent]);
 
         let fullContent = "";
-        const collectedEvents: any[] = [];
+        const collectedEvents: any[] = [thinkingEvent];
+        const collectedVisualizations: { data: string; mimeType: "image/png" | "text/html" }[] = [];
 
         try {
 
@@ -402,92 +517,62 @@ export function UnifiedInterface() {
                         try {
                             const event = JSON.parse(jsonStr);
 
-                            // Debug logging
-                            if (process.env.NODE_ENV === "development") {
-                                console.log("[SSE Event]", event.type, event);
-                            }
-
                             if (event.type === "token" && event.data) {
                                 fullContent += event.data;
-                                // Add token to streaming events for stage progress
-                                collectedEvents.push(event);
-                                const searchQueries = extractSearchQueries(fullContent);
-                                for (const query of searchQueries) {
-                                    if (detectedSearchQueriesRef.current.has(query)) {
-                                        continue;
-                                    }
-                                    detectedSearchQueriesRef.current.add(query);
-                                    const searchEvent = {
-                                        type: "tool_call",
-                                        data: { tool: "web_search", args: { query } },
-                                    };
-                                    collectedEvents.push(searchEvent);
-                                    setStreamingEvents(prev => [...prev, searchEvent]);
-                                }
-                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
-                                    continue;
-                                }
-                                // Use batched token updates for smoother rendering
-                                const sanitized = stripAssistantSearchTags(fullContent);
-                                streamingContentRef.current = sanitized;
-                                appendTokenBatch("");
-                                setAgentStatus(null);
+                                // Simply update streaming content - search queries come via tool_call events
+                                updateStreamingContent(fullContent);
+                                throttledSetAgentStatus(null);
                             } else if (event.type === "stage") {
                                 // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
-                                // Handle both flat structure and nested data structure
-                                const stageName = event.name || event.data?.name;
-                                const stageStatus = event.status || event.data?.status;
                                 const stageDescription = event.description || event.data?.description;
-                                if (
-                                    stageName === "tool" &&
-                                    stageStatus === "completed" &&
-                                    !searchStageCompletedRef.current
-                                ) {
-                                    searchStageCompletedRef.current = true;
-                                    const sanitized = stripAssistantSearchTags(fullContent);
-                                    if (sanitized.trim().length > 0) {
-                                        updateStreamingContent(sanitized);
-                                    }
-                                }
-                                setAgentStatus(stageDescription);
+                                throttledSetAgentStatus(stageDescription);
                                 collectedEvents.push(event);
                                 setStreamingEvents(prev => [...prev.filter(e => e.type !== 'stage' || (e.status || e.data?.status) !== 'pending'), event]);
-                            } else if (event.type === "tool_call" && event.data) {
-                                const toolName = event.data.tool || "web";
+                            } else if (event.type === "tool_call") {
+                                // Handle both flat structure and legacy data wrapper
+                                const toolName = event.tool || event.data?.tool || "web";
+                                const args = event.args || event.data?.args || {};
                                 if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
-                                    setAgentStatus(tChat("agent.searching", { query: event.data.args?.query || "web" }));
+                                    throttledSetAgentStatus(tChat("agent.searching", { query: args.query || "web" }));
                                 } else {
-                                    setAgentStatus(tChat("agent.executing", { tool: toolName }));
+                                    throttledSetAgentStatus(tChat("agent.executing", { tool: toolName }));
                                 }
                                 collectedEvents.push(event);
-                                setStreamingEvents(prev => [...prev, event]);
-                            } else if (event.type === "tool_result" && event.data) {
-                                if (!searchStageCompletedRef.current) {
-                                    searchStageCompletedRef.current = true;
-                                    const sanitized = stripAssistantSearchTags(fullContent);
-                                    if (sanitized.trim().length > 0) {
-                                        updateStreamingContent(sanitized);
-                                    }
-                                }
+                                batchEventUpdate(event);
+                            } else if (event.type === "tool_result") {
                                 collectedEvents.push(event);
-                                setStreamingEvents(prev => [...prev, event]);
+                                batchEventUpdate(event);
+                            } else if (event.type === "routing") {
+                                // Handle routing decision events
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "handoff") {
+                                // Handle agent handoff events
+                                const target = event.target || "";
+                                throttledSetAgentStatus(tChat("agent.handoffTo", { target }));
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "source") {
+                                // Handle source events from search
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "code_result") {
+                                // Handle code execution results
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "visualization" && event.data && event.mime_type) {
+                                // Handle visualization event from data analytics agent
+                                const visualization = {
+                                    data: event.data as string,
+                                    mimeType: event.mime_type as "image/png" | "text/html",
+                                };
+                                collectedVisualizations.push(visualization);
+                                setStreamingVisualizations(prev => [...prev, visualization]);
+                                collectedEvents.push(event);
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
-                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
-                                    searchStageCompletedRef.current = true;
-                                    const failedEvent = {
-                                        type: "stage",
-                                        data: {
-                                            name: "tool",
-                                            description: "Search failed",
-                                            status: "failed",
-                                        },
-                                    };
-                                    collectedEvents.push(failedEvent);
-                                    setStreamingEvents(prev => [...prev, failedEvent]);
-                                }
                             } else if (event.type === "complete") {
                                 // Stream complete, break out of loop
                                 break;
@@ -503,11 +588,14 @@ export function UnifiedInterface() {
             }
 
             if (fullContent) {
-                const sanitizedContent = stripAssistantSearchTags(fullContent);
+                const sanitizedContent = fullContent;
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: collectedEvents.length ? { agentEvents: collectedEvents } : undefined,
+                    metadata: (collectedEvents.length || collectedVisualizations.length) ? {
+                        agentEvents: collectedEvents.length ? collectedEvents : undefined,
+                        visualizations: collectedVisualizations.length ? collectedVisualizations : undefined,
+                    } : undefined,
                 });
             }
         } catch (error) {
@@ -518,10 +606,10 @@ export function UnifiedInterface() {
             setStreamingContent("");
             streamingContentRef.current = "";
             setAgentStatus(null);
-            setStreamingEvents([]);
+            resetStreamingEvents();
+            setStreamingVisualizations([]);
             setLoading(false);
             setStreaming(false);
-            searchStageCompletedRef.current = true;
         }
     };
 
@@ -535,9 +623,8 @@ export function UnifiedInterface() {
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
         setAgentStatus(null);
-        setStreamingEvents([]);
-        detectedSearchQueriesRef.current = new Set();
-        searchStageCompletedRef.current = true;
+        resetStreamingEvents();
+        setStreamingVisualizations([]);
 
         // Determine the conversation type based on agent
         const conversationType = agentType === "research" ? "research" : agentType;
@@ -551,10 +638,7 @@ export function UnifiedInterface() {
             activeConversation.type !== conversationType;
 
         if (needsNewConversation) {
-            console.log(`[UnifiedInterface] Creating new ${conversationType} conversation`);
             conversationId = await createConversation(conversationType);
-        } else {
-            console.log(`[UnifiedInterface] Reusing existing ${conversationType} conversation`);
         }
 
         if (!conversationId) {
@@ -585,18 +669,20 @@ export function UnifiedInterface() {
         });
         setLoading(true);
         setStreaming(true);
+        streamingStartTimeRef.current = new Date();
 
-        // Set initial status to give immediate feedback
-        if (agentType === "data") {
-            setAgentStatus(tChat("agent.analyzing") || "Starting analysis...");
-        } else if (agentType === "research") {
-            setAgentStatus(tChat("agent.researching") || "Starting research...");
-        } else {
-            setAgentStatus(tChat("agent.processing"));
-        }
+        // Add initial thinking event immediately for instant feedback
+        const thinkingEvent = {
+            type: "stage",
+            name: "thinking",
+            description: tChat("agent.thinking"),
+            status: "running",
+        };
+        resetStreamingEvents([thinkingEvent]);
 
         let fullContent = "";
-        const collectedEvents: any[] = [];
+        const collectedEvents: any[] = [thinkingEvent];
+        const collectedVisualizations: { data: string; mimeType: "image/png" | "text/html" }[] = [];
 
         try {
 
@@ -640,88 +726,62 @@ export function UnifiedInterface() {
                         try {
                             const event = JSON.parse(jsonStr);
 
-                            // Debug logging
-                            if (process.env.NODE_ENV === "development") {
-                                console.log("[SSE Event]", event.type, event);
-                            }
-
                             if (event.type === "token" && event.data) {
                                 fullContent += event.data;
-                                // Add token to streaming events for stage progress
-                                collectedEvents.push(event);
-                                const searchQueries = extractSearchQueries(fullContent);
-                                for (const query of searchQueries) {
-                                    if (detectedSearchQueriesRef.current.has(query)) {
-                                        continue;
-                                    }
-                                    detectedSearchQueriesRef.current.add(query);
-                                    const searchEvent = {
-                                        type: "tool_call",
-                                        data: { tool: "web_search", args: { query } },
-                                    };
-                                    collectedEvents.push(searchEvent);
-                                    setStreamingEvents(prev => [...prev, searchEvent]);
-                                }
-                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
-                                    continue;
-                                }
-                                // Use batched token updates for smoother rendering
-                                const sanitized = stripAssistantSearchTags(fullContent);
-                                streamingContentRef.current = sanitized;
-                                appendTokenBatch("");
-                                setAgentStatus(null);
+                                // Simply update streaming content - search queries come via tool_call events
+                                updateStreamingContent(fullContent);
+                                throttledSetAgentStatus(null);
                             } else if (event.type === "stage") {
                                 // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
-                                // Handle both flat structure and nested data structure
-                                const stageName = event.name || event.data?.name;
-                                const stageStatus = event.status || event.data?.status;
                                 const stageDescription = event.description || event.data?.description;
-                                if (
-                                    stageName === "tool" &&
-                                    stageStatus === "completed" &&
-                                    !searchStageCompletedRef.current
-                                ) {
-                                    searchStageCompletedRef.current = true;
-                                    const sanitized = stripAssistantSearchTags(fullContent);
-                                    if (sanitized.trim().length > 0) {
-                                        updateStreamingContent(sanitized);
-                                    }
-                                }
-                                setAgentStatus(stageDescription);
+                                throttledSetAgentStatus(stageDescription);
                                 collectedEvents.push(event);
                                 setStreamingEvents(prev => [...prev.filter(e => e.type !== 'stage' || (e.status || e.data?.status) !== 'pending'), event]);
-                            } else if (event.type === "tool_call" && event.data) {
-                                const toolName = event.data.tool || "tool";
-                                setAgentStatus(tChat("agent.executing", { tool: toolName }));
-                                collectedEvents.push(event);
-                                setStreamingEvents(prev => [...prev, event]);
-                            } else if (event.type === "tool_result" && event.data) {
-                                if (!searchStageCompletedRef.current) {
-                                    searchStageCompletedRef.current = true;
-                                    const sanitized = stripAssistantSearchTags(fullContent);
-                                    if (sanitized.trim().length > 0) {
-                                        updateStreamingContent(sanitized);
-                                    }
+                            } else if (event.type === "tool_call") {
+                                // Handle both flat structure and legacy data wrapper
+                                const toolName = event.tool || event.data?.tool || "tool";
+                                const args = event.args || event.data?.args || {};
+                                if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
+                                    throttledSetAgentStatus(tChat("agent.searching", { query: args.query || "web" }));
+                                } else {
+                                    throttledSetAgentStatus(tChat("agent.executing", { tool: toolName }));
                                 }
                                 collectedEvents.push(event);
-                                setStreamingEvents(prev => [...prev, event]);
+                                batchEventUpdate(event);
+                            } else if (event.type === "tool_result") {
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "routing") {
+                                // Handle routing decision events
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "handoff") {
+                                // Handle agent handoff events
+                                const target = event.target || "";
+                                throttledSetAgentStatus(tChat("agent.handoffTo", { target }));
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "source") {
+                                // Handle source events from search
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "code_result") {
+                                // Handle code execution results
+                                collectedEvents.push(event);
+                                batchEventUpdate(event);
+                            } else if (event.type === "visualization" && event.data && event.mime_type) {
+                                // Handle visualization event from data analytics agent
+                                const visualization = {
+                                    data: event.data as string,
+                                    mimeType: event.mime_type as "image/png" | "text/html",
+                                };
+                                collectedVisualizations.push(visualization);
+                                setStreamingVisualizations(prev => [...prev, visualization]);
+                                collectedEvents.push(event);
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
-                                if (detectedSearchQueriesRef.current.size > 0 && !searchStageCompletedRef.current) {
-                                    searchStageCompletedRef.current = true;
-                                    const failedEvent = {
-                                        type: "stage",
-                                        data: {
-                                            name: "tool",
-                                            description: "Search failed",
-                                            status: "failed",
-                                        },
-                                    };
-                                    collectedEvents.push(failedEvent);
-                                    setStreamingEvents(prev => [...prev, failedEvent]);
-                                }
                             } else if (event.type === "complete") {
                                 // Stream complete, break out of loop
                                 break;
@@ -737,11 +797,14 @@ export function UnifiedInterface() {
             }
 
             if (fullContent) {
-                const sanitizedContent = stripAssistantSearchTags(fullContent);
+                const sanitizedContent = fullContent;
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: collectedEvents.length ? { agentEvents: collectedEvents } : undefined,
+                    metadata: (collectedEvents.length || collectedVisualizations.length) ? {
+                        agentEvents: collectedEvents.length ? collectedEvents : undefined,
+                        visualizations: collectedVisualizations.length ? collectedVisualizations : undefined,
+                    } : undefined,
                 });
             }
         } catch (error) {
@@ -752,10 +815,10 @@ export function UnifiedInterface() {
             setStreamingContent("");
             streamingContentRef.current = "";
             setAgentStatus(null);
-            setStreamingEvents([]);
+            resetStreamingEvents();
+            setStreamingVisualizations([]);
             setLoading(false);
             setStreaming(false);
-            searchStageCompletedRef.current = true;
         }
     };
 
@@ -767,7 +830,9 @@ export function UnifiedInterface() {
         router.push(`/task/${taskId}`);
     };
 
-    const handleRegenerate = async (messageId: string) => {
+    // Use ref for stable callback reference
+    const handleRegenerateRef = useRef<(messageId: string) => Promise<void>>();
+    handleRegenerateRef.current = async (messageId: string) => {
         if (!activeConversationId || isLoading) return;
         const messageIndex = messages.findIndex((m) => m.id === messageId);
         if (messageIndex === -1) return;
@@ -784,6 +849,22 @@ export function UnifiedInterface() {
         removeMessage(activeConversationId, messageId);
         await handleChat(userMessage, true);
     };
+
+    const handleRegenerate = useCallback((messageId: string) => {
+        handleRegenerateRef.current?.(messageId);
+    }, []);
+
+    const handleVoiceTranscription = useCallback((text: string) => {
+        // Append transcribed text to existing input, separated by space if needed
+        setInput((prev) => {
+            if (prev.trim()) {
+                return `${prev.trim()} ${text}`;
+            }
+            return text;
+        });
+        // Focus the input after transcription
+        inputRef.current?.focus();
+    }, []);
 
     const handleAgentSelect = (agent: AgentType) => {
         if (agent === "research") {
@@ -836,38 +917,17 @@ export function UnifiedInterface() {
             {hasMessages && (
                 <div className="flex-1 overflow-y-auto">
                     <div className="max-w-4xl mx-auto px-4 md:px-6 py-4 md:py-6">
-                        <div className="space-y-1">
-                            {messages.map((message, index) => (
-                                <div
-                                    key={message.id}
-                                    className="animate-slide-up"
-                                    style={{ animationDelay: `${Math.min(index * 50, 200)}ms` }}
-                                >
-                                    <MessageBubble
-                                        message={message}
-                                        onRegenerate={
-                                            message.role === "assistant" ? () => handleRegenerate(message.id) : undefined
-                                        }
-                                    />
-                                </div>
-                            ))}
-                            {(streamingContent || isLoading) && (
-                                <div className="animate-fade-in">
-                                    <MessageBubble
-                                        message={{
-                                            id: "streaming",
-                                            role: "assistant",
-                                            content: streamingContent || "",
-                                            createdAt: new Date(),
-                                        }}
-                                        isStreaming={true}
-                                        status={agentStatus}
-                                        agentEvents={streamingEvents}
-                                    />
-                                </div>
-                            )}
-                            <div ref={messagesEndRef} />
-                        </div>
+                        <MessageList
+                            messages={messages}
+                            streamingContent={streamingContent}
+                            isLoading={isLoading}
+                            agentStatus={agentStatus}
+                            streamingEvents={streamingEvents}
+                            streamingVisualizations={streamingVisualizations}
+                            streamingStartTime={streamingStartTimeRef.current}
+                            onRegenerate={handleRegenerate}
+                            messagesEndRef={messagesEndRef}
+                        />
                     </div>
                 </div>
             )}
@@ -893,16 +953,15 @@ export function UnifiedInterface() {
                                 className="flex items-center justify-center gap-4 mb-8 animate-slide-up"
                                 style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
                             >
-                                <div className="relative w-14 h-14 flex items-center justify-center">
-                                    <div className="absolute inset-0 bg-gradient-to-br from-foreground/5 to-foreground/[0.02] rounded-2xl blur-xl" />
+                                <div className="relative w-14 h-14 flex items-center justify-center group">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-foreground/12 to-foreground/3 rounded-2xl blur-xl opacity-50 group-hover:opacity-100 transition-opacity duration-500" />
                                     <Image
                                         src="/images/logo-dark.svg"
                                         alt="HyperAgent"
                                         width={56}
                                         height={56}
                                         priority
-                                        className="dark:hidden relative z-10 transition-all duration-300 hover:scale-105"
-                                        style={{ opacity: 0.9 }}
+                                        className="dark:hidden relative z-10 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3"
                                     />
                                     <Image
                                         src="/images/logo-light.svg"
@@ -910,11 +969,10 @@ export function UnifiedInterface() {
                                         width={56}
                                         height={56}
                                         priority
-                                        className="hidden dark:block relative z-10 transition-all duration-300 hover:scale-105"
-                                        style={{ opacity: 0.92 }}
+                                        className="hidden dark:block relative z-10 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3"
                                     />
                                 </div>
-                                <h1 className="text-[40px] md:text-5xl font-semibold text-foreground tracking-[-0.02em] opacity-95">
+                                <h1 className="brand-title brand-title-lg">
                                     HyperAgent
                                 </h1>
                             </div>
@@ -938,7 +996,7 @@ export function UnifiedInterface() {
                         style={!hasMessages ? { animationDelay: '0.3s', animationFillMode: 'backwards' } : undefined}
                     >
                         <div className={cn(
-                            "relative flex flex-col bg-card rounded-lg border border-border focus-within:border-foreground/30 transition-colors"
+                            "relative flex flex-col bg-card rounded-xl border border-border focus-within:border-foreground/30 focus-within:shadow-glow-sm transition-all duration-200"
                         )}>
                             {/* Attachment preview */}
                             <AttachmentPreview
@@ -955,10 +1013,10 @@ export function UnifiedInterface() {
                                     onChange={(e) => setInput(e.target.value)}
                                     placeholder={getPlaceholder()}
                                     className={cn(
-                                        "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed",
+                                        "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed textarea-auto-resize",
                                         hasMessages
-                                            ? "min-h-[64px] max-h-[160px] py-3 px-4 text-base"
-                                            : "min-h-[100px] md:min-h-[110px] max-h-[200px] py-4 px-5 text-base"
+                                            ? "min-h-[64px] max-h-[160px] px-4 py-3 text-base"
+                                            : "min-h-[100px] md:min-h-[110px] max-h-[200px] px-5 py-4 text-base"
                                     )}
                                     rows={hasMessages ? 2 : 3}
                                     onKeyDown={(e) => {
@@ -970,12 +1028,16 @@ export function UnifiedInterface() {
                                 />
                             </div>
 
-                            {/* Bottom bar with plus button, hint and send button */}
+                            {/* Bottom bar with plus button, voice input, hint and send button */}
                             <div className="flex items-center justify-between px-2 md:px-3 py-2 border-t border-border/50">
                                 <div className="flex items-center gap-1">
                                     <FileUploadButton
                                         onFilesSelected={addFiles}
                                         onSourceSelect={handleSourceSelect}
+                                        disabled={isProcessing || isUploading}
+                                    />
+                                    <VoiceInputButton
+                                        onTranscription={handleVoiceTranscription}
                                         disabled={isProcessing || isUploading}
                                     />
                                     <p className="text-xs text-muted-foreground">
@@ -988,9 +1050,9 @@ export function UnifiedInterface() {
                                     onClick={handleSubmit}
                                     disabled={!input.trim() || isProcessing || isUploading}
                                     className={cn(
-                                        "px-4 py-2 rounded-lg transition-colors min-h-[44px] flex items-center justify-center gap-2 font-medium text-sm",
+                                        "px-4 py-2 rounded-xl transition-all duration-200 min-h-[44px] flex items-center justify-center gap-2 font-medium text-sm",
                                         input.trim() && !isProcessing && !isUploading
-                                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                            ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-glow-sm"
                                             : "bg-secondary text-muted-foreground"
                                     )}
                                 >
@@ -1022,11 +1084,11 @@ export function UnifiedInterface() {
                                                 onClick={() => handleAgentSelect(agent)}
                                                 onMouseEnter={() => agent === "research" && setShowResearchSubmenu(true)}
                                                 className={cn(
-                                                    "relative flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
+                                                    "relative flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-200",
                                                     "text-sm font-medium",
                                                     isSelected
-                                                        ? "bg-secondary text-foreground ring-1 ring-foreground/50"
-                                                        : "bg-card text-muted-foreground border border-border hover:bg-secondary/50 hover:text-foreground"
+                                                        ? "bg-secondary text-foreground ring-1 ring-foreground/50 shadow-glow-sm"
+                                                        : "bg-card text-muted-foreground border border-border hover:bg-secondary/50 hover:text-foreground hover:border-foreground/20"
                                                 )}
                                             >
                                                 {/* Selection checkmark */}
@@ -1054,7 +1116,7 @@ export function UnifiedInterface() {
                                                     className="absolute left-0 top-full mt-2 z-50 animate-fade-in"
                                                     onMouseLeave={() => setShowResearchSubmenu(false)}
                                                 >
-                                                    <div className="bg-card border border-border rounded-lg overflow-hidden min-w-[220px]">
+                                                    <div className="bg-card border border-border rounded-xl overflow-hidden min-w-[220px] shadow-lg">
                                                         {SCENARIO_KEYS.map((scenario) => (
                                                             <button
                                                                 key={scenario}
@@ -1101,9 +1163,9 @@ export function UnifiedInterface() {
                                                                             setSelectedDepth(depth);
                                                                         }}
                                                                         className={cn(
-                                                                            "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                                                                            "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-medium transition-all duration-200",
                                                                             selectedDepth === depth
-                                                                                ? "bg-foreground text-background"
+                                                                                ? "bg-foreground text-background shadow-glow-sm"
                                                                                 : "bg-secondary text-muted-foreground hover:text-foreground"
                                                                         )}
                                                                     >

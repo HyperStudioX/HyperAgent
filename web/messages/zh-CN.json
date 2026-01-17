@@ -166,8 +166,13 @@
             "thinking": "思考中...",
             "processing": "处理中...",
             "searching": "搜索中...",
+            "generatingImage": "正在生成：{prompt}",
+            "generatingImageDefault": "正在生成图片...",
+            "analyzingImage": "正在分析：{prompt}",
+            "analyzingImageDefault": "正在分析图片...",
             "analyzing": "分析中...",
             "researching": "研究中...",
+            "handoffTo": "正在委派给 {target}...",
             "inProgress": "进行中",
             "completed": "已完成",
             "completedWithErrors": "完成但有错误",
@@ -177,6 +182,24 @@
             "expandStage": "点击展开详情",
             "collapseStage": "点击收起详情",
             "detailCount": "{count, plural, =1 {1 条详情} other {# 条详情}}",
+            "routedTo": "已路由到 {agent}",
+            "lowConfidence": "路由置信度较低 - 如有需要请重新表述",
+            "handoffTo": "委派给 {target}",
+            "sourceFound": "已找到来源",
+            "codeExecuted": "代码执行成功",
+            "codeError": "错误：{error}",
+            "tools": {
+                "web_search": "网络搜索",
+                "google_search": "网络搜索",
+                "web": "网络搜索",
+                "generate_image": "图片生成",
+                "analyze_image": "图片分析",
+                "execute_code": "代码执行",
+                "sandbox_file": "文件操作",
+                "browser_use": "浏览器自动化",
+                "browser_navigate": "浏览器导航",
+                "default": "工具"
+            },
             "stages": {
                 "thinking": {
                     "running": "正在处理请求...",
@@ -187,6 +210,11 @@
                     "running": "正在路由...",
                     "completed": "已路由",
                     "failed": "路由失败"
+                },
+                "handoff": {
+                    "running": "正在移交...",
+                    "completed": "移交完成",
+                    "failed": "移交失败"
                 },
                 "chat": {
                     "running": "正在生成回复...",
@@ -259,6 +287,16 @@
                     "failed": "数据分析失败",
                     "pending": "分析数据"
                 },
+                "source": {
+                    "running": "正在查找来源...",
+                    "completed": "已找到来源",
+                    "failed": "来源查找失败"
+                },
+                "code_result": {
+                    "running": "正在执行代码...",
+                    "completed": "代码已执行",
+                    "failed": "代码执行失败"
+                },
                 "default": {
                     "running": "处理中...",
                     "completed": "已完成",
@@ -292,6 +330,16 @@
                 "unsupportedType": "不支持文件类型 \"{type}\"",
                 "maxSize": "文件大小超过最大值 {size}MB"
             }
+        },
+        "voice": {
+            "startRecording": "开始语音输入",
+            "stopRecording": "停止录音",
+            "transcribing": "正在转录...",
+            "error": "语音输入错误",
+            "microphoneAccessDenied": "麦克风访问被拒绝",
+            "recordingTooShort": "录音时间太短",
+            "transcriptionFailed": "转录失败",
+            "browserNotSupported": "此浏览器不支持语音输入"
         }
     },
     "conversation": {
@@ -318,5 +366,20 @@
         "failedToLoadImage": "加载图片出错：{error}",
         "loadingImage": "正在加载图片...",
         "loadingPdf": "正在加载 PDF..."
+    },
+    "settings": {
+        "modelTier": "模型等级",
+        "autoTier": "自动",
+        "tierDescription": {
+            "auto": "系统根据任务自动选择",
+            "max": "复杂推理与研究",
+            "pro": "平衡通用任务",
+            "flash": "快速响应"
+        }
+    },
+    "preferences": {
+        "voice": {
+            "language": "语言"
+        }
     }
 }

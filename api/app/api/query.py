@@ -1,5 +1,7 @@
 """Unified query router for both chat and research modes."""
 
+import asyncio
+import base64
 import json
 import uuid
 from typing import AsyncGenerator
@@ -26,6 +28,7 @@ from app.models.schemas import (
 )
 from app.services.llm import llm_service
 from app.services.storage import storage_service
+from app.services.file_storage import file_storage_service
 from app.agents import agent_supervisor
 
 logger = get_logger(__name__)
@@ -142,6 +145,73 @@ async def get_file_context(
     if context_parts:
         return "\n---\n".join(context_parts)
     return ""
+
+
+# Image MIME types that can be processed by vision tools
+IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+async def get_image_attachments(
+    db: AsyncSession,
+    attachment_ids: list[str],
+    user_id: str,
+) -> list[dict]:
+    """Get image attachments as base64 for vision tool usage.
+
+    Uses asyncio.gather for parallel downloads to improve performance.
+
+    Returns:
+        List of dicts with {id, filename, base64_data, mime_type}
+    """
+    if not attachment_ids:
+        return []
+
+    result = await db.execute(
+        select(FileModel).where(
+            FileModel.id.in_(attachment_ids),
+            FileModel.user_id == user_id,
+        )
+    )
+    files = result.scalars().all()
+
+    # Filter to only image files
+    image_files = [f for f in files if f.content_type in IMAGE_MIME_TYPES]
+
+    if not image_files:
+        return []
+
+    async def process_image(file: FileModel) -> dict | None:
+        """Process a single image file and return attachment dict or None on error."""
+        try:
+            file_data = await file_storage_service.download_file(file.storage_key)
+            base64_data = base64.b64encode(file_data.read()).decode("utf-8")
+
+            logger.info(
+                "image_attachment_loaded",
+                file_id=file.id,
+                filename=file.original_filename,
+                mime_type=file.content_type,
+            )
+
+            return {
+                "id": file.id,
+                "filename": file.original_filename,
+                "base64_data": base64_data,
+                "mime_type": file.content_type,
+            }
+        except Exception as e:
+            logger.error(
+                "image_attachment_load_failed",
+                file_id=file.id,
+                error=str(e),
+            )
+            return None
+
+    # Download all images in parallel
+    results = await asyncio.gather(*[process_image(f) for f in image_files])
+
+    # Filter out None results (failed downloads)
+    return [r for r in results if r is not None]
 
 
 @router.post("/", response_model=UnifiedQueryResponse)
@@ -274,6 +344,13 @@ async def stream_query(
             current_user.id,
         )
 
+        # Get image attachments as base64 for vision tool usage
+        image_attachments = await get_image_attachments(
+            db,
+            request.attachment_ids,
+            current_user.id,
+        )
+
         # Enhance system prompt with file context
         system_prompt = CHAT_SYSTEM_PROMPT
         if file_context:
@@ -291,6 +368,7 @@ async def stream_query(
                     provider=request.provider,
                     model=request.model,
                     attachment_ids=request.attachment_ids,
+                    image_attachments=image_attachments,
                 ):
                     if event["type"] == "token":
                         data = json.dumps({"type": "token", "data": event["content"]})
@@ -300,11 +378,67 @@ async def stream_query(
                         data = json.dumps(event)
                         yield f"data: {data}\n\n"
                     elif event["type"] == "tool_call":
-                        # Stream tool calls
-                        data = json.dumps({"type": "tool_call", "data": event})
+                        # Stream tool calls with flat structure (no data wrapper)
+                        data = json.dumps({
+                            "type": "tool_call",
+                            "tool": event.get("tool", ""),
+                            "args": event.get("args", {}),
+                            "id": event.get("id"),
+                        })
                         yield f"data: {data}\n\n"
                     elif event["type"] == "tool_result":
-                        data = json.dumps({"type": "tool_result", "data": event})
+                        # Stream tool results with flat structure
+                        data = json.dumps({
+                            "type": "tool_result",
+                            "tool": event.get("tool", ""),
+                            "content": event.get("content", ""),
+                            "id": event.get("id"),
+                        })
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "routing":
+                        # Stream routing decision events
+                        data = json.dumps({
+                            "type": "routing",
+                            "agent": event.get("agent", ""),
+                            "reason": event.get("reason", ""),
+                            "confidence": event.get("confidence"),
+                            "low_confidence": event.get("low_confidence", False),
+                        })
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "handoff":
+                        # Stream agent handoff events
+                        data = json.dumps({
+                            "type": "handoff",
+                            "source": event.get("source", ""),
+                            "target": event.get("target", ""),
+                            "task": event.get("task", ""),
+                        })
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "source":
+                        # Stream source events from search results
+                        data = json.dumps({
+                            "type": "source",
+                            "title": event.get("title", ""),
+                            "url": event.get("url", ""),
+                            "snippet": event.get("snippet", ""),
+                        })
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "code_result":
+                        # Stream code execution results
+                        data = json.dumps({
+                            "type": "code_result",
+                            "output": event.get("output", ""),
+                            "exit_code": event.get("exit_code"),
+                            "error": event.get("error"),
+                        })
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "visualization":
+                        # Stream visualization events (generated images, charts, etc.)
+                        data = json.dumps({
+                            "type": "visualization",
+                            "data": event.get("data"),
+                            "mime_type": event.get("mime_type", "image/png"),
+                        })
                         yield f"data: {data}\n\n"
                     elif event["type"] == "complete":
                         yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
@@ -358,6 +492,66 @@ async def stream_query(
             report_content = []
             step_ids = {}
 
+            # Batching configuration - reduces DB sessions from ~10 per task to ~3
+            BATCH_FLUSH_INTERVAL = 0.5  # seconds
+            pending_steps: list[dict] = []
+            pending_sources: list[dict] = []
+            pending_step_updates: list[dict] = []
+            import time
+            last_flush_time = time.time()
+
+            async def flush_pending_writes():
+                """Flush all pending database writes in a single transaction."""
+                nonlocal pending_steps, pending_sources, pending_step_updates, last_flush_time
+
+                if not pending_steps and not pending_sources and not pending_step_updates:
+                    return
+
+                async with (await get_db_session()) as session:
+                    # Add new steps
+                    for step_data in pending_steps:
+                        await storage_service.add_step(
+                            db=session,
+                            task_id=task_id,
+                            step_id=step_data["step_id"],
+                            step_type=step_data["step_type"],
+                            description=step_data["description"],
+                            status=step_data["status"],
+                        )
+
+                    # Update step statuses
+                    for update_data in pending_step_updates:
+                        await storage_service.update_step_status(
+                            db=session,
+                            step_id=update_data["step_id"],
+                            status=update_data["status"],
+                        )
+
+                    # Add sources
+                    for source_data in pending_sources:
+                        await storage_service.add_source(
+                            db=session,
+                            task_id=task_id,
+                            source_id=source_data["source_id"],
+                            title=source_data["title"],
+                            url=source_data["url"],
+                            snippet=source_data.get("snippet"),
+                            relevance_score=source_data.get("relevance_score"),
+                        )
+
+                    await session.commit()
+
+                # Clear buffers
+                pending_steps = []
+                pending_sources = []
+                pending_step_updates = []
+                last_flush_time = time.time()
+
+            async def maybe_flush():
+                """Flush if enough time has passed since last flush."""
+                if time.time() - last_flush_time >= BATCH_FLUSH_INTERVAL:
+                    await flush_pending_writes()
+
             # Update task status to running
             async with (await get_db_session()) as session:
                 await storage_service.update_task_status(session, task_id, "running")
@@ -383,29 +577,24 @@ async def stream_query(
                         # Track step IDs for updates
                         if event["status"] == "running":
                             step_ids[step_type] = step_id
-
-                            # Add step to database
-                            async with (await get_db_session()) as session:
-                                await storage_service.add_step(
-                                    db=session,
-                                    task_id=task_id,
-                                    step_id=step_id,
-                                    step_type=step_type,
-                                    description=event["description"],
-                                    status=event["status"],
-                                )
-                                await session.commit()
+                            # Queue step for batched insert
+                            pending_steps.append({
+                                "step_id": step_id,
+                                "step_type": step_type,
+                                "description": event["description"],
+                                "status": event["status"],
+                            })
                         else:
-                            # Update existing step
+                            # Queue step status update
                             if step_type in step_ids:
-                                async with (await get_db_session()) as session:
-                                    await storage_service.update_step_status(
-                                        db=session,
-                                        step_id=step_ids[step_type],
-                                        status=event["status"],
-                                    )
-                                    await session.commit()
+                                pending_step_updates.append({
+                                    "step_id": step_ids[step_type],
+                                    "status": event["status"],
+                                })
                                 step_id = step_ids[step_type]
+
+                        # Maybe flush pending writes
+                        await maybe_flush()
 
                         step = ResearchStep(
                             id=step_id,
@@ -425,18 +614,17 @@ async def stream_query(
                     elif event["type"] == "source":
                         source_id = str(uuid.uuid4())
 
-                        # Add source to database
-                        async with (await get_db_session()) as session:
-                            await storage_service.add_source(
-                                db=session,
-                                task_id=task_id,
-                                source_id=source_id,
-                                title=event["title"],
-                                url=event["url"],
-                                snippet=event.get("snippet"),
-                                relevance_score=event.get("relevance_score"),
-                            )
-                            await session.commit()
+                        # Queue source for batched insert
+                        pending_sources.append({
+                            "source_id": source_id,
+                            "title": event["title"],
+                            "url": event["url"],
+                            "snippet": event.get("snippet"),
+                            "relevance_score": event.get("relevance_score"),
+                        })
+
+                        # Maybe flush pending writes
+                        await maybe_flush()
 
                         source = Source(
                             id=source_id,
@@ -459,6 +647,9 @@ async def stream_query(
                                 "data": json.dumps({"type": "token", "data": content}),
                             }
 
+                # Flush any remaining pending writes
+                await flush_pending_writes()
+
                 # Update task as completed with report
                 async with (await get_db_session()) as session:
                     await storage_service.update_task_report(
@@ -477,6 +668,12 @@ async def stream_query(
 
             except Exception as e:
                 logger.error("research_stream_error", task_id=task_id, error=str(e))
+                # Flush any pending writes before error handling
+                try:
+                    await flush_pending_writes()
+                except Exception:
+                    pass  # Don't mask the original error
+
                 async with (await get_db_session()) as session:
                     await storage_service.update_task_status(
                         session, task_id, "failed", error=str(e)

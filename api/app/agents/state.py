@@ -8,7 +8,7 @@ from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from app.models.schemas import LLMProvider, ResearchDepth, ResearchScenario
+from app.models.schemas import LLMProvider, ModelTier, ResearchDepth, ResearchScenario
 from app.services.search import SearchResult
 
 
@@ -20,6 +20,43 @@ class AgentType(str, Enum):
     CODE = "code"
     WRITING = "writing"
     DATA = "data"
+
+
+class HandoffInfo(TypedDict, total=False):
+    """Information about a handoff request."""
+
+    source_agent: str  # Agent that initiated the handoff
+    target_agent: str  # Agent to transfer control to
+    task_description: str  # What the target agent should do
+    context: str  # Additional context for the handoff
+
+
+class SharedAgentMemory(TypedDict, total=False):
+    """Shared memory accessible across agents during handoffs.
+
+    This allows agents to share findings, intermediate results, and context
+    when delegating tasks to other agents.
+    """
+
+    # Research findings from research agent
+    research_findings: str
+    research_sources: list[dict[str, Any]]
+
+    # Code artifacts from code agent
+    generated_code: str
+    code_language: str
+    execution_results: str
+
+    # Writing artifacts from writing agent
+    writing_outline: str
+    writing_draft: str
+
+    # Data analysis artifacts from data agent
+    data_analysis_plan: str
+    data_visualizations: list[dict[str, str]]
+
+    # General context that any agent can add
+    additional_context: str
 
 
 class SupervisorState(TypedDict, total=False):
@@ -37,6 +74,19 @@ class SupervisorState(TypedDict, total=False):
     # Routing
     selected_agent: str  # The agent type selected by router
     routing_reason: str  # Explanation for routing decision
+    routing_confidence: float  # Confidence score from router (0.0 to 1.0)
+
+    # Handoff support (multi-agent collaboration)
+    active_agent: str | None  # Currently active agent (for handoff tracking)
+    delegated_task: str | None  # Task description if this was a handoff
+    handoff_context: str | None  # Additional context from handoff
+    handoff_count: int  # Number of handoffs in current request
+    handoff_history: list[HandoffInfo]  # History of handoffs
+    pending_handoff: HandoffInfo | None  # Pending handoff to process
+    shared_memory: SharedAgentMemory  # Shared state across agents
+
+    # Tool execution tracking (shared across all agents)
+    tool_iterations: int  # Count of tool-call loops for current agent
 
     # Output
     response: str  # Final text response
@@ -46,8 +96,10 @@ class SupervisorState(TypedDict, total=False):
     task_id: str | None
     user_id: str | None
     attachment_ids: list[str]  # IDs of attached files for tool access
+    image_attachments: list[dict]  # Base64-encoded image data for vision tools [{id, filename, base64_data, mime_type}]
     provider: LLMProvider
     model: str | None
+    tier: ModelTier | None  # User-specified tier override
 
 
 class ChatState(SupervisorState, total=False):
@@ -56,7 +108,7 @@ class ChatState(SupervisorState, total=False):
     # Chat-specific fields
     system_prompt: str
     lc_messages: list[BaseMessage]  # LangChain messages for tool calling
-    tool_iterations: int  # Count of tool-call loops for this chat request
+    # Note: tool_iterations is inherited from SupervisorState
 
 
 class ResearchState(SupervisorState, total=False):
@@ -73,6 +125,9 @@ class ResearchState(SupervisorState, total=False):
     lc_messages: list[BaseMessage]  # LangChain messages for ReAct loop
     search_complete: bool  # Flag to exit search loop
     search_count: int  # Track number of search iterations
+
+    # Handoff tracking
+    deferred_handoff: HandoffInfo | None  # Handoff deferred until search tools complete
 
     # Research outputs
     sources: list[SearchResult]
@@ -123,6 +178,7 @@ class DataAnalysisState(SupervisorState, total=False):
     stderr: str
     sandbox_id: str | None
 
-    # Visualization output
-    visualization: str | None  # Base64 encoded image or HTML content
-    visualization_type: str | None  # mime type (image/png, text/html)
+    # Visualization output (supports multiple visualizations)
+    visualization: str | None  # DEPRECATED: Use visualizations instead
+    visualization_type: str | None  # DEPRECATED: Use visualizations instead
+    visualizations: list[dict[str, str]] | None  # List of {data: str, type: str, path: str}

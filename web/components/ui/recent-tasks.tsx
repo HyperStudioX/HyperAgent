@@ -1,7 +1,11 @@
 "use client";
 
-import { useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
+
+// Configuration for virtual/lazy rendering
+const INITIAL_RENDER_COUNT = 30; // Items to render initially
+const BATCH_SIZE = 20; // Additional items to render on scroll
 import {
   MessageCircle,
   Search,
@@ -97,6 +101,9 @@ export function RecentTasks({
 }: RecentTasksProps) {
   const t = useTranslations("sidebar");
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_RENDER_COUNT);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Combine and sort items
   const allItems = useMemo(() => {
@@ -128,10 +135,41 @@ export function RecentTasks({
     );
   }, [allItems, activeFilter]);
 
-  const groupedItems = useMemo(
-    () => groupByTimePeriod(filteredItems),
-    [filteredItems]
+  // Reset visible count when filter changes
+  useEffect(() => {
+    setVisibleCount(INITIAL_RENDER_COUNT);
+  }, [activeFilter]);
+
+  // Lazy render: only render visible items for better performance with 100+ items
+  const visibleItems = useMemo(
+    () => filteredItems.slice(0, visibleCount),
+    [filteredItems, visibleCount]
   );
+
+  const hasMore = visibleCount < filteredItems.length;
+
+  const groupedItems = useMemo(
+    () => groupByTimePeriod(visibleItems),
+    [visibleItems]
+  );
+
+  // Intersection observer for infinite scroll
+  useEffect(() => {
+    const loadMore = loadMoreRef.current;
+    if (!loadMore || !hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, filteredItems.length));
+        }
+      },
+      { rootMargin: "100px" }
+    );
+
+    observer.observe(loadMore);
+    return () => observer.disconnect();
+  }, [hasMore, filteredItems.length]);
 
   // Get available filters based on existing items
   const availableFilters = useMemo(() => {
@@ -238,7 +276,7 @@ export function RecentTasks({
       )}
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-3 pb-3">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 pb-3">
         {allItems.length === 0 ? (
           <EmptyState />
         ) : filteredItems.length === 0 ? (
@@ -260,6 +298,14 @@ export function RecentTasks({
                     onDelete={onDelete}
                   />
                 )
+            )}
+            {/* Infinite scroll trigger */}
+            {hasMore && (
+              <div ref={loadMoreRef} className="py-2 text-center">
+                <span className="text-xs text-muted-foreground">
+                  Loading more...
+                </span>
+              </div>
             )}
           </div>
         )}

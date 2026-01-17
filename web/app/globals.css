@@ -4,58 +4,66 @@
 
 @layer base {
   :root {
-    /* Warm Stone Light - Soft cream/stone palette */
-    --background: 40 25% 96%;
-    --foreground: 30 10% 15%;
-    --card: 40 25% 99%;
-    --card-foreground: 30 10% 15%;
-    --popover: 40 25% 99%;
-    --popover-foreground: 30 10% 15%;
-    --primary: 30 15% 15%;
-    --primary-foreground: 40 20% 97%;
-    --secondary: 35 15% 93%;
-    --secondary-foreground: 30 10% 15%;
-    --muted: 35 12% 91%;
-    --muted-foreground: 30 8% 45%;
-    --accent: 35 15% 90%;
-    --accent-foreground: 30 12% 30%;
+    /* Cursor Aesthetic Light - Clean white with neutral grays */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 98%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 98%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 20%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 35 12% 88%;
-    --input: 35 12% 88%;
-    --ring: 30 10% 35%;
-    --radius: 0.3rem;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 20%;
+    --radius: 0.75rem;
 
-    /* Vibrant accent for CTAs and highlights */
-    --accent-vibrant: 210 85% 52%;
-    --accent-vibrant-foreground: 0 0% 100%;
+    /* Vibrant accent colors */
+    --accent-cyan: 168 60% 68%;
+    --accent-amber: 30 75% 72%;
+    --accent-rose: 310 60% 74%;
+    --accent-blue: 210 100% 76%;
+    --accent-vibrant: 168 60% 68%;
+    --accent-vibrant-foreground: 0 0% 9%;
   }
 
   .dark {
-    /* Refined Ink Dark - Deep blue-gray with warmth */
-    --background: 220 18% 12%;
-    --foreground: 40 15% 92%;
-    --card: 220 14% 16%;
-    --card-foreground: 40 15% 92%;
-    --popover: 220 14% 16%;
-    --popover-foreground: 40 15% 92%;
-    --primary: 40 15% 92%;
-    --primary-foreground: 220 15% 13%;
-    --secondary: 220 12% 22%;
-    --secondary-foreground: 40 12% 88%;
-    --muted: 220 10% 20%;
-    --muted-foreground: 220 8% 58%;
-    --accent: 220 12% 24%;
-    --accent-foreground: 40 15% 92%;
+    /* Cursor Aesthetic Dark - Deep black with neutral grays */
+    --background: 0 0% 4%;
+    --foreground: 0 0% 89%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 89%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 89%;
+    --primary: 0 0% 89%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 89%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 50%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 89%;
     --destructive: 0 72% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 10% 25%;
-    --input: 220 10% 25%;
-    --ring: 40 15% 85%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 0 0% 80%;
 
-    /* Vibrant accent for CTAs and highlights */
-    --accent-vibrant: 45 95% 60%;
-    --accent-vibrant-foreground: 220 18% 12%;
+    /* Vibrant accent colors */
+    --accent-cyan: 168 60% 68%;
+    --accent-amber: 30 75% 72%;
+    --accent-rose: 310 60% 74%;
+    --accent-blue: 210 100% 76%;
+    --accent-vibrant: 168 60% 68%;
+    --accent-vibrant-foreground: 0 0% 4%;
   }
 }
 
@@ -226,6 +234,21 @@ code:not(pre code) {
   animation: slide-in-left 0.3s ease-out forwards;
 }
 
+@keyframes pulse-recording {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-recording {
+  animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
 /* Touch targets */
 button, a {
   min-height: 32px;
@@ -257,4 +280,142 @@ button, a {
 
 .border-muted {
   border-color: hsl(var(--border) / 0.3);
+}
+
+/* Brand Typography - uses next/font CSS variables */
+.brand-title {
+  font-family: var(--font-plus-jakarta-sans), system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: hsl(var(--foreground));
+  position: relative;
+}
+
+.dark .brand-title {
+  background: linear-gradient(135deg,
+    hsl(var(--foreground)) 0%,
+    hsl(var(--accent-cyan)) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Brand title size variants */
+.brand-title-sm {
+  font-size: 17px;
+}
+
+.brand-title-md {
+  font-size: 32px;
+}
+
+.brand-title-lg {
+  font-size: 40px;
+}
+
+@media (min-width: 768px) {
+  .brand-title-lg {
+    font-size: 48px;
+  }
+}
+
+/* Shimmer loading effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted) / 0.6) 0%,
+    hsl(var(--muted) / 0.3) 50%,
+    hsl(var(--muted) / 0.6) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Typing indicator bounce animation */
+@keyframes typing-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-4px);
+  }
+}
+
+.typing-dot {
+  animation: typing-bounce 1.4s ease-in-out infinite;
+}
+
+/* Auto-resize textarea using modern CSS */
+.textarea-auto-resize {
+  field-sizing: content;
+  resize: none;
+}
+
+/* Glow utilities */
+.glow-sm {
+  box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.3);
+}
+
+.glow-md {
+  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.4);
+}
+
+.hover-glow:hover {
+  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.3);
+}
+
+/* Focus glow for inputs */
+.focus-glow:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--background)),
+              0 0 0 4px hsl(var(--accent-cyan) / 0.5);
+  outline: none;
+}
+
+/* Interactive element glow */
+.interactive-glow {
+  transition: box-shadow 0.2s ease-out;
+}
+
+.interactive-glow:hover {
+  box-shadow: 0 0 15px -3px hsl(var(--accent-cyan) / 0.25);
+}
+
+.interactive-glow:active {
+  box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.35);
+}
+
+/* Accent button variant */
+.btn-accent {
+  background-color: hsl(var(--accent-cyan));
+  color: hsl(0 0% 9%);
+  transition: all 0.2s ease-out;
+}
+
+.btn-accent:hover {
+  background-color: hsl(var(--accent-cyan) / 0.9);
+  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.5);
+}
+
+/* Streaming cursor blink animation - pure CSS, no JS re-renders */
+@keyframes cursor-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.streaming-cursor {
+  animation: cursor-blink 1.06s ease-in-out infinite;
 }

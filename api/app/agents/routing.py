@@ -1,5 +1,6 @@
 """LLM-based routing logic for the multi-agent system."""
 
+import json
 from dataclasses import dataclass
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -7,10 +8,45 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agents.state import AgentType, SupervisorState
 from app.core.logging import get_logger
 from app.services.llm import llm_service
+from app.services.model_tiers import ModelTier
 
 logger = get_logger(__name__)
 
+# Structured JSON-based router prompt for more reliable parsing
 ROUTER_PROMPT = """You are a routing assistant that determines which specialized agent should handle a user query.
+
+Available agents:
+1. chat - For general conversation, simple Q&A, greetings, and casual interactions
+2. research - For in-depth research tasks requiring web search, analysis, and comprehensive reports
+3. code - For code execution, writing scripts, debugging, and programming tasks
+4. writing - For long-form content creation like articles, documentation, essays, and creative writing
+5. data - For data analysis, CSV/JSON processing, statistics, and data visualization
+
+Analyze the user's query and respond with a JSON object containing:
+- "agent": The agent name (chat, research, code, writing, or data)
+- "confidence": Your confidence level (0.0 to 1.0)
+- "reason": Brief explanation for your choice
+
+Respond with ONLY the JSON object, no other text.
+
+Examples:
+Query: "Hello, how are you?"
+{"agent": "chat", "confidence": 0.95, "reason": "Simple greeting requiring conversational response"}
+
+Query: "Research the latest AI developments in 2024"
+{"agent": "research", "confidence": 0.9, "reason": "Requires web search and comprehensive analysis"}
+
+Query: "Write a Python function to sort a list"
+{"agent": "code", "confidence": 0.95, "reason": "Programming task requiring code generation"}
+
+Query: "Write a blog post about climate change"
+{"agent": "writing", "confidence": 0.85, "reason": "Long-form content creation"}
+
+Query: "Analyze this CSV data and find trends"
+{"agent": "data", "confidence": 0.9, "reason": "Data analysis task"}"""
+
+# Fallback prompt for legacy parsing (backward compatibility)
+ROUTER_PROMPT_LEGACY = """You are a routing assistant that determines which specialized agent should handle a user query.
 
 Available agents:
 1. CHAT - For general conversation, simple Q&A, greetings, and casual interactions
@@ -23,14 +59,7 @@ Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, C
 
 Format your response exactly as:
 AGENT: <agent_name>
-REASON: <brief_explanation>
-
-Examples:
-- "Hello, how are you?" → AGENT: CHAT | REASON: Simple greeting requiring conversational response
-- "Research the latest AI developments in 2024" → AGENT: RESEARCH | REASON: Requires web search and comprehensive analysis
-- "Write a Python function to sort a list" → AGENT: CODE | REASON: Programming task requiring code generation
-- "Write a blog post about climate change" → AGENT: WRITING | REASON: Long-form content creation
-- "Analyze this CSV data and find trends" → AGENT: DATA | REASON: Data analysis task"""
+REASON: <brief_explanation>"""
 
 
 @dataclass
@@ -39,10 +68,68 @@ class RoutingResult:
 
     agent: AgentType
     reason: str
+    confidence: float = 1.0
+    is_low_confidence: bool = False
 
 
-def parse_router_response(response: str) -> RoutingResult:
-    """Parse the LLM router response into a structured result.
+# Confidence threshold - below this, routing is considered low confidence
+ROUTING_CONFIDENCE_THRESHOLD = 0.5
+
+
+# Agent name mapping (handles both lowercase and uppercase)
+AGENT_NAME_MAP = {
+    "chat": AgentType.CHAT,
+    "research": AgentType.RESEARCH,
+    "code": AgentType.CODE,
+    "writing": AgentType.WRITING,
+    "data": AgentType.DATA,
+    "CHAT": AgentType.CHAT,
+    "RESEARCH": AgentType.RESEARCH,
+    "CODE": AgentType.CODE,
+    "WRITING": AgentType.WRITING,
+    "DATA": AgentType.DATA,
+}
+
+
+def parse_router_response_json(response: str) -> RoutingResult | None:
+    """Parse JSON-formatted router response.
+
+    Args:
+        response: Raw LLM response string (expected to be JSON)
+
+    Returns:
+        RoutingResult if parsing succeeds, None otherwise
+    """
+    try:
+        # Clean up response (remove markdown code blocks if present)
+        clean_response = response.strip()
+        if clean_response.startswith("```"):
+            # Remove code block markers
+            lines = clean_response.split("\n")
+            clean_response = "\n".join(
+                line for line in lines
+                if not line.startswith("```")
+            ).strip()
+
+        data = json.loads(clean_response)
+
+        agent_name = data.get("agent", "chat").lower()
+        agent_type = AGENT_NAME_MAP.get(agent_name, AgentType.CHAT)
+        confidence = float(data.get("confidence", 0.8))
+
+        return RoutingResult(
+            agent=agent_type,
+            reason=data.get("reason", ""),
+            confidence=confidence,
+            is_low_confidence=confidence < ROUTING_CONFIDENCE_THRESHOLD,
+        )
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+        logger.debug("json_router_parse_failed", error=str(e))
+        return None
+
+
+def parse_router_response_legacy(response: str) -> RoutingResult:
+    """Parse legacy text-formatted router response.
 
     Args:
         response: Raw LLM response string
@@ -68,18 +155,32 @@ def parse_router_response(response: str) -> RoutingResult:
             else:
                 agent_part = agent_part.upper()
             # Map to AgentType
-            agent_map = {
-                "CHAT": AgentType.CHAT,
-                "RESEARCH": AgentType.RESEARCH,
-                "CODE": AgentType.CODE,
-                "WRITING": AgentType.WRITING,
-                "DATA": AgentType.DATA,
-            }
-            agent_str = agent_map.get(agent_part, AgentType.CHAT).value
+            agent_type = AGENT_NAME_MAP.get(agent_part, AgentType.CHAT)
+            agent_str = agent_type.value
         elif line.upper().startswith("REASON:"):
             reason = line.split(":", 1)[1].strip()
 
     return RoutingResult(agent=AgentType(agent_str), reason=reason)
+
+
+def parse_router_response(response: str) -> RoutingResult:
+    """Parse the LLM router response into a structured result.
+
+    Attempts JSON parsing first, falls back to legacy text parsing.
+
+    Args:
+        response: Raw LLM response string
+
+    Returns:
+        RoutingResult with agent type and reason
+    """
+    # Try JSON parsing first
+    result = parse_router_response_json(response)
+    if result:
+        return result
+
+    # Fall back to legacy parsing
+    return parse_router_response_legacy(response)
 
 
 async def route_query(state: SupervisorState) -> dict:
@@ -119,9 +220,10 @@ async def route_query(state: SupervisorState) -> dict:
             logger.warning("invalid_explicit_mode", mode=explicit_mode)
             # Fall through to LLM routing
 
-    # LLM-based routing
+    # LLM-based routing (use FLASH tier for fast, cost-efficient routing)
     query = state.get("query", "")
-    llm = llm_service.get_llm()
+    provider = state.get("provider")
+    llm = llm_service.get_llm_for_tier(ModelTier.FLASH, provider=provider)
 
     try:
         response = await llm.ainvoke(
@@ -132,23 +234,38 @@ async def route_query(state: SupervisorState) -> dict:
         )
         result = parse_router_response(response.content)
 
-        logger.info(
+        # Log with confidence level
+        log_method = logger.warning if result.is_low_confidence else logger.info
+        log_method(
             "routing_llm",
             query=query[:50],
             agent=result.agent.value,
             reason=result.reason,
+            confidence=result.confidence,
+            is_low_confidence=result.is_low_confidence,
         )
+
+        # Build routing event with confidence info
+        routing_event = {
+            "type": "routing",
+            "agent": result.agent.value,
+            "reason": result.reason,
+            "confidence": result.confidence,
+        }
+
+        # Add low confidence warning to event if applicable
+        if result.is_low_confidence:
+            routing_event["low_confidence"] = True
+            routing_event["message"] = (
+                f"Low confidence ({result.confidence:.0%}) routing to {result.agent.value}. "
+                "If the response doesn't match your intent, try rephrasing your query."
+            )
 
         return {
             "selected_agent": result.agent.value,
             "routing_reason": result.reason,
-            "events": [
-                {
-                    "type": "routing",
-                    "agent": result.agent.value,
-                    "reason": result.reason,
-                }
-            ],
+            "routing_confidence": result.confidence,
+            "events": [routing_event],
         }
     except Exception as e:
         logger.error("routing_failed", error=str(e))
@@ -156,11 +273,13 @@ async def route_query(state: SupervisorState) -> dict:
         return {
             "selected_agent": AgentType.CHAT.value,
             "routing_reason": f"Default (routing error: {str(e)})",
+            "routing_confidence": 0.0,
             "events": [
                 {
                     "type": "routing",
                     "agent": AgentType.CHAT.value,
                     "reason": "Default due to routing error",
+                    "confidence": 0.0,
                 }
             ],
         }

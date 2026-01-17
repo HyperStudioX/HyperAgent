@@ -25,10 +25,12 @@ dependencies = [
     "e2b>=1.0.0",
     "sse-starlette>=2.2.0",
     "tavily-python>=0.5.0",
-    "structlog>=24.0.0",
+    "loguru>=0.7.0",
     "PyJWT>=2.8.0",
     "arq>=0.26.0",
     "browser-use>=0.11.2",
+    "openpyxl>=3.1.0",
+    "xlrd>=2.0.0",
 ]
 
 [project.optional-dependencies]

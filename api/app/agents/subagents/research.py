@@ -1,4 +1,4 @@
-"""Research subagent for multi-step deep research tasks with tool calling."""
+"""Research subagent for multi-step deep research tasks with tool calling and handoff support."""
 
 from typing import Literal
 
@@ -19,16 +19,29 @@ from app.agents.prompts import (
 )
 from app.agents.scenarios import get_scenario_config
 from app.agents.state import ResearchState
-from app.agents.tools import parse_search_results, web_search
+from app.agents.tools import (
+    parse_search_results,
+    web_search,
+    generate_image,
+    analyze_image,
+    get_handoff_tools_for_agent,
+)
+from app.agents.utils import (
+    extract_and_add_image_events,
+    create_stage_event,
+    create_error_event,
+    create_tool_call_event,
+)
+from app.agents import events
 from app.core.logging import get_logger
 from app.models.schemas import LLMProvider, ResearchDepth, ResearchScenario
-from app.services.llm import llm_service
+from app.services.llm import llm_service, extract_text_from_content
 from app.services.search import SearchResult
 
 logger = get_logger(__name__)
 
 # Tools available for research
-RESEARCH_TOOLS = [web_search]
+RESEARCH_TOOLS = [web_search, generate_image, analyze_image]
 
 # Depth-based configuration
 DEPTH_CONFIG = {
@@ -91,17 +104,11 @@ async def init_config_node(state: ResearchState) -> dict:
         "search_complete": False,
         "search_count": 0,
         "events": [
-            {
-                "type": "config",
-                "depth": depth.value if isinstance(depth, ResearchDepth) else depth,
-                "scenario": scenario.value if isinstance(scenario, ResearchScenario) else scenario,
-            },
-            {
-                "type": "stage",
-                "name": "search",
-                "description": "Searching for sources...",
-                "status": "running",
-            },
+            events.config(
+                depth=depth.value if isinstance(depth, ResearchDepth) else depth,
+                scenario=scenario.value if isinstance(scenario, ResearchScenario) else scenario,
+            ),
+            create_stage_event("search", "Searching for sources...", "running"),
         ],
     }
 
@@ -113,12 +120,33 @@ async def search_agent_node(state: ResearchState) -> dict:
         state: Current research state
 
     Returns:
-        Dict with updated messages and events
+        Dict with updated messages, events, and potential handoff
     """
     lc_messages = state.get("lc_messages", [])
     depth_config = state.get("depth_config", {})
     search_count = state.get("search_count", 0)
     max_searches = depth_config.get("max_searches", 5)
+
+    # Check for deferred handoff from previous iteration
+    # This occurs when LLM returned both search tools and handoff - we execute
+    # search tools first, then return the handoff on the next iteration
+    deferred_handoff = state.get("deferred_handoff")
+    if deferred_handoff:
+        logger.info(
+            "processing_deferred_handoff",
+            target=deferred_handoff.get("target_agent"),
+        )
+        return {
+            "lc_messages": lc_messages,
+            "search_complete": True,
+            "events": [events.handoff(
+                source="research",
+                target=deferred_handoff.get("target_agent", ""),
+                task=deferred_handoff.get("task_description", ""),
+            )],
+            "pending_handoff": deferred_handoff,
+            "deferred_handoff": None,  # Clear the deferred handoff
+        }
 
     logger.info(
         "search_agent_processing",
@@ -138,22 +166,26 @@ async def search_agent_node(state: ResearchState) -> dict:
             "lc_messages": lc_messages,
             "search_complete": True,
             "events": [
-                {
-                    "type": "stage",
-                    "name": "search",
-                    "description": f"Reached maximum searches ({max_searches}). Proceeding with available sources.",
-                    "status": "completed",
-                }
+                create_stage_event(
+                    "search",
+                    f"Reached maximum searches ({max_searches}). Proceeding with available sources.",
+                    "completed",
+                )
             ],
         }
 
-    events = []
+    event_list = []
+
+    # Get handoff tools for research agent
+    handoff_tools = get_handoff_tools_for_agent("research")
+    all_tools = RESEARCH_TOOLS + handoff_tools
 
     # Get LLM with tools bound
     provider = state.get("provider") or LLMProvider.ANTHROPIC
+    tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm(provider=provider, model=model)
-    llm_with_tools = llm.bind_tools(RESEARCH_TOOLS)
+    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
+    llm_with_tools = llm.bind_tools(all_tools)
 
     try:
         response = await llm_with_tools.ainvoke(lc_messages)
@@ -165,30 +197,116 @@ async def search_agent_node(state: ResearchState) -> dict:
             return {
                 "lc_messages": lc_messages,
                 "search_complete": True,
-                "events": events,
+                "events": event_list,
             }
 
         # Track and log tool calls
         if response.tool_calls:
-            # Increment search count for each tool call
+            # First pass: separate handoff and non-handoff tool calls
+            handoff_call = None
+            other_tool_calls = []
+
+            for tool_call in response.tool_calls:
+                tool_name = tool_call.get("name") or ""
+                if tool_name.startswith("handoff_to_"):
+                    handoff_call = tool_call
+                else:
+                    other_tool_calls.append(tool_call)
+
+            # If we have a handoff but also other tools, defer the handoff
+            # to let the search tools execute first
+            if handoff_call and other_tool_calls:
+                target_agent = handoff_call.get("name", "").replace("handoff_to_", "")
+                task_description = handoff_call.get("args", {}).get("task_description", "")
+                context = handoff_call.get("args", {}).get("context", "")
+
+                deferred_handoff_info = {
+                    "source_agent": "research",
+                    "target_agent": target_agent,
+                    "task_description": task_description,
+                    "context": context,
+                }
+
+                logger.info(
+                    "handoff_deferred_for_tools",
+                    target=target_agent,
+                    pending_tools=[tc.get("name") for tc in other_tool_calls],
+                )
+
+                # Increment search count for non-handoff tool calls only
+                search_count += len(other_tool_calls)
+                for tool_call in other_tool_calls:
+                    valid_tool_names = [tool.name for tool in all_tools]
+                    if tool_call["name"] not in valid_tool_names:
+                        logger.warning(
+                            "invalid_tool_call",
+                            tool=tool_call["name"],
+                            allowed=valid_tool_names,
+                        )
+                        continue
+                    event_list.append(create_tool_call_event(
+                        tool_call["name"],
+                        tool_call["args"],
+                    ))
+
+                logger.info(
+                    "search_tool_calls",
+                    tools=[tc["name"] for tc in other_tool_calls],
+                    search_count=search_count,
+                )
+
+                return {
+                    "lc_messages": lc_messages,
+                    "search_count": search_count,
+                    "events": event_list,
+                    "deferred_handoff": deferred_handoff_info,
+                }
+
+            # If only handoff (no other tools), process it immediately
+            if handoff_call and not other_tool_calls:
+                target_agent = handoff_call.get("name", "").replace("handoff_to_", "")
+                task_description = handoff_call.get("args", {}).get("task_description", "")
+                context = handoff_call.get("args", {}).get("context", "")
+
+                pending_handoff = {
+                    "source_agent": "research",
+                    "target_agent": target_agent,
+                    "task_description": task_description,
+                    "context": context,
+                }
+
+                event_list.append(events.handoff(
+                    source="research",
+                    target=target_agent,
+                    task=task_description,
+                ))
+
+                logger.info("research_handoff_detected", target=target_agent)
+
+                return {
+                    "lc_messages": lc_messages,
+                    "search_complete": True,
+                    "events": event_list,
+                    "pending_handoff": pending_handoff,
+                }
+
+            # No handoff - process all tool calls normally
             search_count += len(response.tool_calls)
             for tool_call in response.tool_calls:
                 # Validate tool name
-                if tool_call["name"] not in [tool.name for tool in RESEARCH_TOOLS]:
+                valid_tool_names = [tool.name for tool in all_tools]
+                if tool_call["name"] not in valid_tool_names:
                     logger.warning(
                         "invalid_tool_call",
                         tool=tool_call["name"],
-                        allowed=[tool.name for tool in RESEARCH_TOOLS],
+                        allowed=valid_tool_names,
                     )
                     continue
 
-                events.append(
-                    {
-                        "type": "tool_call",
-                        "tool": tool_call["name"],
-                        "args": tool_call["args"],
-                    }
-                )
+                event_list.append(create_tool_call_event(
+                    tool_call["name"],
+                    tool_call["args"],
+                ))
             logger.info(
                 "search_tool_calls",
                 tools=[tc["name"] for tc in response.tool_calls],
@@ -200,30 +318,21 @@ async def search_agent_node(state: ResearchState) -> dict:
             return {
                 "lc_messages": lc_messages,
                 "search_complete": True,
-                "events": events,
+                "events": event_list,
             }
 
         return {
             "lc_messages": lc_messages,
             "search_count": search_count,
-            "events": events,
+            "events": event_list,
         }
 
     except Exception as e:
         logger.error("search_agent_failed", error=str(e), search_count=search_count)
-        # On error, mark search complete to proceed with available sources
         return {
             "lc_messages": lc_messages,
             "search_complete": True,
-            "events": [
-                {
-                    "type": "error",
-                    "name": "search",
-                    "description": f"Search error: {str(e)}",
-                    "error": str(e),
-                    "status": "failed",
-                }
-            ],
+            "events": [create_error_event("search", str(e), f"Search error: {str(e)}")],
         }
 
 
@@ -239,43 +348,48 @@ async def search_tools_node(state: ResearchState) -> dict:
     lc_messages = state.get("lc_messages", [])
     sources = list(state.get("sources", []))
 
-    events = []
+    event_list = []
 
     # Get the last AI message with tool calls
     last_message = lc_messages[-1] if lc_messages else None
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return {"lc_messages": lc_messages, "events": events}
+        return {"lc_messages": lc_messages, "events": event_list}
+
+    # Get handoff tools for research agent
+    handoff_tools = get_handoff_tools_for_agent("research")
+    all_tools = RESEARCH_TOOLS + handoff_tools
 
     # Execute tools
-    tool_executor = ToolNode(RESEARCH_TOOLS)
+    tool_executor = ToolNode(all_tools)
     tool_results = await tool_executor.ainvoke({"messages": [last_message]})
 
     # Process results
     for msg in tool_results.get("messages", []):
         lc_messages = lc_messages + [msg]
         if isinstance(msg, ToolMessage):
+            # Handle image generation results
+            if msg.name == "generate_image":
+                extract_and_add_image_events(msg.content, event_list)
+
             # Parse structured results from tool output
             new_sources = parse_search_results(msg.content)
             sources.extend(new_sources)
 
             # Emit source events
             for source in new_sources:
-                events.append(
-                    {
-                        "type": "source",
-                        "title": source.title,
-                        "url": source.url,
-                        "snippet": source.snippet,
-                        "relevance_score": source.relevance_score,
-                    }
-                )
+                event_list.append(events.source(
+                    title=source.title,
+                    url=source.url,
+                    snippet=source.snippet,
+                    relevance_score=source.relevance_score,
+                ))
 
     logger.info("search_tools_executed", new_sources=len(sources))
 
     return {
         "lc_messages": lc_messages,
         "sources": sources,
-        "events": events,
+        "events": event_list,
     }
 
 
@@ -288,6 +402,10 @@ def should_continue_search(state: ResearchState) -> Literal["tools", "collect"]:
     Returns:
         Next node: "tools" if tool calls pending, "collect" if done
     """
+    # Check for pending handoff
+    if state.get("pending_handoff"):
+        return "collect"
+
     # Check if search is marked complete
     if state.get("search_complete", False):
         return "collect"
@@ -313,18 +431,22 @@ async def collect_sources_node(state: ResearchState) -> dict:
     """
     sources = state.get("sources", [])
 
-    events = [
-        {
-            "type": "stage",
-            "name": "search",
-            "description": f"Found {len(sources)} sources",
-            "status": "completed",
-        }
-    ]
+    event_list = [create_stage_event(
+        "search",
+        f"Found {len(sources)} sources",
+        "completed",
+    )]
 
     logger.info("sources_collected", count=len(sources))
 
-    return {"events": events}
+    result = {"events": event_list}
+
+    # Propagate handoff if present
+    pending_handoff = state.get("pending_handoff")
+    if pending_handoff:
+        result["pending_handoff"] = pending_handoff
+
+    return result
 
 
 async def analyze_node(state: ResearchState) -> dict:
@@ -336,23 +458,30 @@ async def analyze_node(state: ResearchState) -> dict:
     Returns:
         Dict with analysis and events
     """
-    query = state.get("query") or ""
+    pending_handoff = state.get("pending_handoff")
     sources = state.get("sources") or []
+
+    # Only skip if there's a pending handoff AND no sources to analyze
+    # When handoff is pending but we have sources, run analysis first
+    # to populate research_findings for the target agent
+    if pending_handoff and not sources:
+        logger.info("analyze_skipped_no_sources", has_handoff=True)
+        return {"analysis": "", "events": [], "pending_handoff": pending_handoff}
+
+    query = state.get("query") or ""
     system_prompt = state.get("system_prompt") or ""
     depth_config = state.get("depth_config") or {}
 
-    events = [
-        {
-            "type": "stage",
-            "name": "analyze",
-            "description": f"Analyzing sources ({depth_config.get('analysis_detail', 'thorough')})...",
-            "status": "running",
-        }
-    ]
+    event_list = [create_stage_event(
+        "analyze",
+        f"Analyzing sources ({depth_config.get('analysis_detail', 'thorough')})...",
+        "running",
+    )]
 
     provider = state.get("provider") or LLMProvider.ANTHROPIC
+    tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm(provider=provider, model=model)
+    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     sources_text = _format_sources(sources)
 
     analysis_prompt = get_analysis_prompt(
@@ -362,31 +491,29 @@ async def analyze_node(state: ResearchState) -> dict:
     )
 
     try:
-        response = await llm.ainvoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=analysis_prompt),
-            ]
-        )
+        response = await llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=analysis_prompt),
+        ])
         analysis_text = response.content
         logger.info("analysis_completed", query=query[:50])
     except Exception as e:
         logger.error("analysis_failed", error=str(e))
         analysis_text = f"Analysis of '{query}' based on {len(sources)} sources."
 
-    events.append(
-        {
-            "type": "stage",
-            "name": "analyze",
-            "description": "Source analysis complete",
-            "status": "completed",
-        }
-    )
+    event_list.append(create_stage_event("analyze", "Source analysis complete", "completed"))
 
-    return {
+    result = {
         "analysis": analysis_text,
-        "events": events,
+        "events": event_list,
     }
+
+    # Preserve pending handoff if present
+    if pending_handoff:
+        result["pending_handoff"] = pending_handoff
+        logger.info("analyze_completed_with_handoff", target=pending_handoff.get("target_agent"))
+
+    return result
 
 
 async def synthesize_node(state: ResearchState) -> dict:
@@ -398,52 +525,41 @@ async def synthesize_node(state: ResearchState) -> dict:
     Returns:
         Dict with synthesis and events
     """
+    # Skip if there's a pending handoff
+    if state.get("pending_handoff"):
+        return {"synthesis": "", "events": [], "pending_handoff": state.get("pending_handoff")}
+
     query = state.get("query") or ""
     analysis_text = state.get("analysis") or ""
     system_prompt = state.get("system_prompt") or ""
 
-    events = [
-        {
-            "type": "stage",
-            "name": "synthesize",
-            "description": "Synthesizing findings...",
-            "status": "running",
-        }
-    ]
+    event_list = [create_stage_event("synthesize", "Synthesizing findings...", "running")]
 
     provider = state.get("provider") or LLMProvider.ANTHROPIC
+    tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm(provider=provider, model=model)
+    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     synthesis_prompt = get_synthesis_prompt(
         query=query,
         analysis_text=analysis_text,
     )
 
     try:
-        response = await llm.ainvoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=synthesis_prompt),
-            ]
-        )
+        response = await llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=synthesis_prompt),
+        ])
         synthesis_text = response.content
         logger.info("synthesis_completed", query=query[:50])
     except Exception as e:
         logger.error("synthesis_failed", error=str(e))
         synthesis_text = analysis_text
 
-    events.append(
-        {
-            "type": "stage",
-            "name": "synthesize",
-            "description": "Synthesis complete",
-            "status": "completed",
-        }
-    )
+    event_list.append(create_stage_event("synthesize", "Synthesis complete", "completed"))
 
     return {
         "synthesis": synthesis_text,
-        "events": events,
+        "events": event_list,
     }
 
 
@@ -454,8 +570,18 @@ async def write_node(state: ResearchState) -> dict:
         state: Current research state with analysis/synthesis
 
     Returns:
-        Dict with report chunks and events
+        Dict with report chunks, events, and potential handoff
     """
+    # Check for pending handoff
+    pending_handoff = state.get("pending_handoff")
+    if pending_handoff:
+        return {
+            "report_chunks": [],
+            "response": "",
+            "events": [],
+            "pending_handoff": pending_handoff,
+        }
+
     query = state.get("query") or ""
     analysis = state.get("analysis") or ""
     synthesis = state.get("synthesis") or ""
@@ -464,14 +590,7 @@ async def write_node(state: ResearchState) -> dict:
     report_structure = state.get("report_structure") or []
     depth_config = state.get("depth_config") or {}
 
-    events = [
-        {
-            "type": "stage",
-            "name": "write",
-            "description": "Writing research report...",
-            "status": "running",
-        }
-    ]
+    event_list = [create_stage_event("write", "Writing research report...", "running")]
 
     # Use synthesis if available, otherwise analysis
     combined_findings = synthesis if synthesis else analysis
@@ -486,42 +605,33 @@ async def write_node(state: ResearchState) -> dict:
     )
 
     provider = state.get("provider") or LLMProvider.ANTHROPIC
+    tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm(provider=provider, model=model)
+    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     report_chunks = []
 
     try:
-        async for chunk in llm.astream(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=report_prompt),
-            ]
-        ):
+        async for chunk in llm.astream([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=report_prompt),
+        ]):
             if chunk.content:
-                from app.services.llm import extract_text_from_content
                 content = extract_text_from_content(chunk.content)
-                if content:  # Only append non-empty content
+                if content:
                     report_chunks.append(content)
-                    events.append({"type": "token", "content": content})
+                    event_list.append(events.token(content))
 
         logger.info("report_completed", query=query[:50])
     except Exception as e:
         logger.error("report_generation_failed", error=str(e))
-        events.append({"type": "token", "content": f"\n\nError generating report: {str(e)}"})
+        event_list.append(events.token(f"\n\nError generating report: {str(e)}"))
 
-    events.append(
-        {
-            "type": "stage",
-            "name": "write",
-            "description": "Report complete",
-            "status": "completed",
-        }
-    )
+    event_list.append(create_stage_event("write", "Report complete", "completed"))
 
     return {
         "report_chunks": report_chunks,
         "response": "".join(report_chunks),
-        "events": events,
+        "events": event_list,
     }
 
 
@@ -534,6 +644,10 @@ def should_synthesize(state: ResearchState) -> str:
     Returns:
         Next node name: "synthesize" or "write"
     """
+    # Skip synthesis if there's a pending handoff
+    if state.get("pending_handoff"):
+        return "write"
+
     depth_config = state.get("depth_config", {})
     if depth_config.get("skip_synthesis", False):
         return "write"
@@ -554,15 +668,6 @@ def _format_sources(results: list[SearchResult]) -> str:
 
 def create_research_graph() -> StateGraph:
     """Create the research subagent graph with ReAct search pattern.
-
-    Graph structure:
-    [init_config] → [search_agent] ⟲ [search_tools] (ReAct loop)
-                            ↓
-                    [collect_sources]
-                            ↓
-                      [analyze]
-                            ↓
-                    [synthesize?] → [write] → [END]
 
     Returns:
         Compiled research graph

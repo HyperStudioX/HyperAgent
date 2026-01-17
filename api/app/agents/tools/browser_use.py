@@ -1,7 +1,6 @@
 """Browser automation tool for AI agents using browser-use library."""
 
 import json
-from typing import Literal, Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
