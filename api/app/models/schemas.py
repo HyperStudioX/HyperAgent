@@ -257,61 +257,9 @@ class UpdateMessageRequest(BaseModel):
 
 
 # Multimodal Schemas
-class ImageGenerationRequest(BaseModel):
-    """Request to generate an image using Gemini Imagen."""
-
-    prompt: str
-    size: str = "1024x1024"
-    n: int = 1
-    safety_filter: str | None = None  # block_none, block_some, block_most
-    model: str | None = None  # Optional model override
-
-
 class ImageGenerationResult(BaseModel):
-    """Single image generation result."""
+    """Single image generation result (used by image generation service)."""
 
     base64_data: str | None = None
     url: str | None = None
     revised_prompt: str | None = None
-
-
-class ImageGenerationResponse(BaseModel):
-    """Response from image generation."""
-
-    images: list[ImageGenerationResult]
-
-
-class TranscriptionRequest(BaseModel):
-    """Request for audio transcription."""
-
-    language: str | None = None
-
-
-class TranscriptionResponse(BaseModel):
-    """Response from transcription."""
-
-    text: str
-    language: str | None = None
-    duration: float | None = None
-
-
-class TextToSpeechRequest(BaseModel):
-    """Request for text-to-speech using Gemini."""
-
-    text: str
-    voice: str | None = None  # Voice name (Puck, Charon, Kore, Fenrir, Aoede)
-    model: str | None = None  # Optional model override
-
-
-class VisionAnalysisRequest(BaseModel):
-    """Request for image analysis using Gemini."""
-
-    prompt: str
-    model: str | None = None  # Optional model override
-    image_data: str | None = None  # Base64 encoded image
-
-
-class VisionAnalysisResponse(BaseModel):
-    """Response from vision analysis."""
-
-    analysis: str

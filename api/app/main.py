@@ -9,7 +9,7 @@ from app.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.base import close_db, init_db
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.api import conversations, files, health, multimodal, query, tasks
+from app.api import conversations, files, health, query, tasks
 
 # Initialize logging first
 setup_logging(
@@ -107,4 +107,3 @@ app.include_router(query.router, prefix=settings.api_prefix, tags=["query"])
 app.include_router(tasks.router, prefix=settings.api_prefix, tags=["tasks"])
 app.include_router(conversations.router, prefix=settings.api_prefix, tags=["conversations"])
 app.include_router(files.router, prefix=settings.api_prefix, tags=["files"])
-app.include_router(multimodal.router, prefix=settings.api_prefix, tags=["multimodal"])
