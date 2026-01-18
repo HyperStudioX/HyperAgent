@@ -1,17 +1,18 @@
 # Frontend Style Guide
 
-A clean, minimal, and modern design system using the Cursor aesthetic - pure neutrals with vibrant accent colors.
+A radically minimal design system using the Cursor aesthetic - pure neutrals, flat design, and clarity over decoration.
 
 ## Design Philosophy
 
-- **Clean & Minimal** - No unnecessary shadows, borders only where needed
-- **Pure Neutrals** - Clean white light theme, deep black dark theme
-- **Vibrant Accents** - Cyan, amber, rose, and blue for interactive elements
+- **Radically Minimal** - No shadows, borders only where structure is needed
+- **Pure Neutrals Only** - Clean white light theme, deep black dark theme (0° saturation)
+- **No Accent Colors** - Use foreground/background inversion for emphasis
 - **Semantic Tokens** - Use CSS variables for consistency across themes
-- **Flat Design** - No gradients (except brand elements), simple solid colors
-- **Subtle Glow Effects** - Use glow for focus and hover states on key elements
-- **Generous Whitespace** - Let content breathe
-- **Reduced Motion** - Simple fade/opacity transitions only
+- **Ultra-Flat Design** - Borders for structure, no glows or effects
+- **Subtle Interactions** - Minimal hover states, focus on clarity over decoration
+- **Generous Whitespace** - Let content breathe with consistent spacing
+- **No Micro-Interactions** - Avoid scale/transform effects, keep it simple
+- **Reduced Motion** - Respects prefers-reduced-motion for accessibility
 
 ## Semantic Color Tokens
 
@@ -19,28 +20,37 @@ A clean, minimal, and modern design system using the Cursor aesthetic - pure neu
 
 | Token | Light Mode | Dark Mode | Usage |
 |-------|------------|-----------|-------|
-| `bg-background` | Pure white | Deep black | Page backgrounds |
+| `bg-background` | Pure white (100%) | Deep black (4%) | Page backgrounds |
 | `bg-card` | Off-white (98%) | Dark gray (7%) | Cards, elevated surfaces |
 | `bg-secondary` | Light gray (96%) | Dark gray (12%) | Sidebars, subtle backgrounds |
 | `bg-muted` | Light gray (94%) | Dark gray (14%) | Disabled states, read items |
-| `text-foreground` | Near black (9%) | Light gray (89%) | Primary text |
+| `text-foreground` | Near black (9%) | Light gray (92%) | Primary text |
 | `text-muted-foreground` | Gray (45%) | Gray (50%) | Secondary text |
-| `border-border` | Light gray (90%) | Dark gray (18%) | Standard borders |
-| `border-subtle` | 50% opacity | 50% opacity | Card borders, containers |
-| `border-muted` | 30% opacity | 30% opacity | Dividers, separators |
-| `bg-primary` | Near black | Light gray | Primary buttons, accents |
-| `text-primary-foreground` | Off-white | Near black | Text on primary |
-| `bg-destructive` | Red | Red | Error states, delete buttons |
+| `border-border` | Light gray (93%) | Dark gray (16%) | Standard borders |
+| `border-border/50` | 50% opacity | 50% opacity | Card borders, containers |
+| `border-border/30` | 30% opacity | 30% opacity | Dividers, separators |
+| `bg-primary` | Near black (9%) | Light gray (92%) | Primary buttons, inverted states |
+| `text-primary-foreground` | Off-white (98%) | Near black (4%) | Text on primary |
+| `bg-destructive` | Red (0 72% 51%) | Red (0 72% 55%) | Error states, delete buttons |
 | `text-destructive` | Red | Red | Error text, warning icons |
 
-### Accent Colors
+### Interactive States
 
-| Token | HSL Value | Usage |
-|-------|-----------|-------|
-| `--accent-cyan` | 168 60% 68% | Primary accent, glow effects, brand |
-| `--accent-amber` | 30 75% 72% | Warnings, highlights |
-| `--accent-rose` | 310 60% 74% | Special features, notifications |
-| `--accent-blue` | 210 100% 76% | Links, informational |
+All interactive elements use foreground/background inversion rather than accent colors:
+
+| State | Color Treatment |
+|-------|-----------------|
+| Default | `bg-card text-foreground` |
+| Hover | `bg-secondary text-foreground` or `bg-muted` |
+| Active/Selected | `bg-foreground text-background` (inverted) |
+| Focus | `ring-2 ring-foreground/20` (subtle ring only) |
+| Disabled | `opacity-50` |
+
+**No Accent Colors Philosophy:**
+- Use pure grays and foreground/background inversion for all states
+- No colored highlights, glows, or decorative effects
+- Focus on hierarchy through typography weight and spacing
+- Links use subtle underline rather than color
 
 ### Do's and Don'ts
 
@@ -112,7 +122,7 @@ Uses native system fonts for optimal performance and a native feel on each platf
 --secondary: 0 0% 96%;        /* Light gray */
 --muted: 0 0% 94%;
 --muted-foreground: 0 0% 45%;
---border: 0 0% 90%;
+--border: 0 0% 93%;           /* Refined from 90% */
 --card: 0 0% 98%;
 --ring: 0 0% 20%;
 ```
@@ -121,46 +131,45 @@ Uses native system fonts for optimal performance and a native feel on each platf
 
 ```css
 --background: 0 0% 4%;        /* Deep black */
---foreground: 0 0% 89%;       /* Light gray */
---primary: 0 0% 89%;
+--foreground: 0 0% 92%;       /* Light gray (refined from 89%) */
+--primary: 0 0% 92%;
 --primary-foreground: 0 0% 4%;
 --secondary: 0 0% 12%;        /* Dark gray */
 --muted: 0 0% 14%;
 --muted-foreground: 0 0% 50%;
---border: 0 0% 18%;
+--border: 0 0% 16%;           /* Refined from 18% */
 --card: 0 0% 7%;
 --ring: 0 0% 80%;
 ```
 
-### Accent Colors (Both Themes)
+### Status Colors (Both Themes)
+
+Only use color for critical status indicators (errors):
 
 ```css
---accent-cyan: 168 60% 68%;
---accent-amber: 30 75% 72%;
---accent-rose: 310 60% 74%;
---accent-blue: 210 100% 76%;
---accent-vibrant: 168 60% 68%;  /* Alias for primary accent */
+/* Destructive/Error - only colored element */
+--destructive: 0 72% 51%;     /* Light mode - red */
+--destructive: 0 72% 55%;     /* Dark mode - red */
+
+/* Success/Info use neutral foreground */
+/* No accent colors - use foreground/background inversion instead */
 ```
 
 ## Brand Title
 
-### Gradient Brand Title (Dark Mode)
-
-In dark mode, brand titles use a gradient effect:
+Brand titles use simple, clean typography with no gradients or effects:
 
 ```tsx
 <h1 className="brand-title brand-title-lg">HyperAgent</h1>
 ```
 
 ```css
-/* Applied automatically in dark mode */
-.dark .brand-title {
-  background: linear-gradient(135deg,
-    hsl(var(--foreground)) 0%,
-    hsl(var(--accent-cyan)) 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+.brand-title {
+  font-family: var(--font-plus-jakarta-sans), system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: hsl(var(--foreground));
+  /* No gradients or effects */
 }
 ```
 
@@ -174,114 +183,147 @@ In dark mode, brand titles use a gradient effect:
 
 ## Buttons
 
-### Primary Button (Flat)
+All buttons use the Button component with variant props. Standard button includes:
+- No transform effects (no scale, translate, or rotate)
+- Subtle color transitions only: `transition-colors duration-150`
+- Minimum 32px touch target (44px for mobile-critical actions)
+
+### Button Component Usage
 
 ```tsx
-className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+import { Button } from "@/components/ui/button";
+
+// Default button (subtle, secondary style)
+<Button variant="default">Save</Button>
+
+// Primary button (inverted colors for emphasis)
+<Button variant="primary">Continue</Button>
+
+// Secondary button (even more subtle)
+<Button variant="secondary">Cancel</Button>
+
+// Ghost button (minimal, transparent)
+<Button variant="ghost">View More</Button>
+
+// Destructive button (only colored button)
+<Button variant="destructive">Delete</Button>
+
+// Outline button
+<Button variant="outline">Settings</Button>
 ```
 
-**Full example:**
+### Button Variants
+
+#### Default
 ```tsx
-<button className="w-full flex items-center justify-center gap-2 h-10 px-4 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-  <Plus className="w-4 h-4" />
-  <span>Create</span>
+className="bg-secondary text-foreground hover:bg-muted border border-border/50 transition-colors"
+```
+**Usage:** Non-critical actions, form buttons, secondary CTAs
+
+#### Primary (Inverted for Emphasis)
+```tsx
+className="bg-foreground text-background hover:bg-foreground/90 transition-colors"
+```
+**Usage:** Important actions requiring high visibility (Continue, Submit)
+
+#### Secondary
+```tsx
+className="bg-muted text-foreground hover:bg-muted/80 border border-border/30 transition-colors"
+```
+**Usage:** Cancel actions, alternative options
+
+#### Ghost
+```tsx
+className="hover:bg-secondary hover:text-foreground transition-colors"
+```
+**Usage:** Icon buttons, menu items, minimal actions
+
+#### Outline
+```tsx
+className="border border-border bg-transparent hover:bg-secondary hover:text-foreground transition-colors"
+```
+**Usage:** Secondary actions, alternative choices
+
+#### Destructive (Only Colored Button)
+```tsx
+className="bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+```
+**Usage:** Delete, remove, destructive actions
+
+### Button Sizes
+
+```tsx
+size="default"  // h-9 px-4 py-2
+size="sm"       // h-8 px-3 text-xs
+size="lg"       // h-10 px-8
+size="icon"     // h-9 w-9 (square)
+```
+
+### Button Best Practices
+
+**DO:**
+- Use `variant="primary"` for primary CTAs (inverted colors)
+- Keep transitions to `transition-colors` only
+- Use clear typography hierarchy instead of effects
+- Maintain 32px minimum touch targets
+
+**DON'T:**
+- Don't use transform effects (scale, translate, rotate)
+- Don't use shadows except on destructive in rare cases
+- Don't use accent colors - use foreground/background inversion
+- Don't add glow effects or decorative elements
+
+## Focus States
+
+Use subtle rings for focus states, no glow effects:
+
+```tsx
+// Focus ring (for all interactive elements)
+className="focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 focus-visible:outline-none"
+```
+
+**Focus Ring Philosophy:**
+- Use subtle `ring-foreground/20` (20% opacity) for accessibility
+- Never use box-shadow or glow effects
+- Ring offset of 2px for clear separation
+- Remove default outline with `outline-none`
+
+**Examples:**
+
+```tsx
+// Button focus
+<button className="... focus-visible:ring-2 focus-visible:ring-foreground/20">
+  Click me
 </button>
-```
 
-### Accent Button (With Glow)
+// Input focus
+<input className="... focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2" />
 
-```tsx
-className="btn-accent"
-```
-
-```css
-.btn-accent {
-  background-color: hsl(var(--accent-cyan));
-  color: hsl(0 0% 9%);
-}
-
-.btn-accent:hover {
-  background-color: hsl(var(--accent-cyan) / 0.9);
-  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.5);
-}
-```
-
-### Secondary Button
-
-```tsx
-className="bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
-```
-
-### Outline Button
-
-```tsx
-className="border border-border bg-card text-foreground hover:bg-secondary/50 transition-colors"
-```
-
-### Ghost Button
-
-```tsx
-className="text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-```
-
-### Destructive Button
-
-```tsx
-className="bg-destructive text-white hover:bg-destructive/90 transition-colors"
-```
-
-**Avoid:** Gradients (except brand), heavy shadows, scale effects, rotate animations on buttons.
-
-## Glow Effects
-
-Use glow effects sparingly for focus states and key interactive elements:
-
-### Glow Utilities
-
-```tsx
-// Small glow
-className="glow-sm"  // box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.3)
-
-// Medium glow
-className="glow-md"  // box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.4)
-
-// Hover glow
-className="hover-glow"
-
-// Focus glow (for inputs)
-className="focus-glow"
-
-// Interactive element glow
-className="interactive-glow"
-```
-
-### Focus Glow for Inputs
-
-```css
-.focus-glow:focus-visible {
-  box-shadow: 0 0 0 2px hsl(var(--background)),
-              0 0 0 4px hsl(var(--accent-cyan) / 0.5);
-  outline: none;
-}
+// Link focus
+<a className="... focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:rounded">
+  Read more
+</a>
 ```
 
 ## Selection States
 
 ### Pill/Chip Selection
 
+Use foreground/background inversion for selected states:
+
 ```tsx
 // Unselected
-className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-card text-muted-foreground border border-border hover:bg-secondary/50 hover:text-foreground transition-colors"
+className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-card text-muted-foreground border border-border hover:bg-secondary hover:text-foreground transition-colors"
 
-// Selected (with ring and checkmark)
-className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-foreground ring-1 ring-foreground/50"
+// Selected (inverted colors)
+className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-foreground text-background"
 ```
 
 ### Selection with Checkmark Indicator
 
 ```tsx
 {isSelected ? (
-  <span className="flex items-center justify-center w-4 h-4 rounded-full bg-foreground text-background">
+  <span className="flex items-center justify-center w-4 h-4 rounded-full bg-background text-foreground">
     <Check className="w-3 h-3" strokeWidth={3} />
   </span>
 ) : (
@@ -296,13 +338,7 @@ className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-s
 ### Standard Input
 
 ```tsx
-className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30 transition-colors"
-```
-
-### Input with Focus Glow
-
-```tsx
-className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus-glow"
+className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 transition-colors"
 ```
 
 ### Large Textarea (Welcome Screen)
@@ -325,7 +361,7 @@ className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base te
 
 ## Cards & Containers
 
-**Clean, minimal design - borders only, no shadows by default:**
+**Ultra-minimal design - borders only, no shadows:**
 
 ```tsx
 // Standard card
@@ -334,34 +370,59 @@ className="rounded-xl bg-card border border-border"
 // Interactive card
 className="bg-card rounded-xl p-6 border border-border transition-colors hover:bg-secondary/50"
 
-// Interactive card with glow
-className="bg-card rounded-xl p-6 border border-border interactive-glow"
-
 // Container with dividers
 className="divide-y divide-border"
 ```
 
-**Avoid:** Shadow effects on cards, translate/scale hover transforms.
+**Never use:** Shadows, glows, gradients, or transform effects.
 
 ## Shadows
 
-Use sparingly - prefer borders for structure:
+**Do not use shadows.** Use borders for all structure and hierarchy.
 
-| Class | Usage |
-|-------|-------|
-| `shadow-sm` | Subtle elevation (rare use) |
-| `shadow` | Default elevation |
-| `shadow-md` | Dropdowns, floating elements |
-| `shadow-lg` | Modals, important overlays |
+If absolutely necessary for critical overlays (modals), use minimal shadow:
+
+```tsx
+// Only for critical overlays
+className="shadow-sm"  // box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05)
+```
+
+**Never use:** `shadow`, `shadow-md`, `shadow-lg`, `shadow-xl`, or any decorative shadows.
 
 ## Border Radius
 
+Systematic border radius hierarchy for visual consistency:
+
 | Class | Size | Usage |
 |-------|------|-------|
-| `rounded-md` | 6px | Badges, tags, small pills |
-| `rounded-lg` | 8px | Buttons, inputs, icon containers |
-| `rounded-xl` | 12px | Cards, containers, modals |
+| `rounded-sm` | 8px | Small badges, minimal elements |
+| `rounded-md` | 10px | Badges, tags, tool indicators |
+| `rounded-lg` | 12px | Buttons, inputs, icon buttons, pills, chips, agent selection buttons |
+| `rounded-xl` | 16px | Cards, containers, modals, input areas |
+| `rounded-2xl` | 20px | Large containers, hero sections |
 | `rounded-full` | 9999px | Avatars, status dots, circular pills |
+
+**Hierarchy Philosophy:**
+- Large containers (hero sections) = `rounded-2xl` (20px)
+- Standard containers (cards, modals) = `rounded-xl` (16px)
+- Interactive elements (buttons, inputs) = `rounded-lg` (12px)
+- Smaller elements (pills, chips) = `rounded-lg` (12px)
+- Micro elements (badges, tags) = `rounded-md` (10px)
+
+**Note:** Border radius values are calculated from `--radius: 0.75rem` (12px) base:
+- `rounded-sm` = `calc(var(--radius) - 4px)` = 8px
+- `rounded-md` = `calc(var(--radius) - 2px)` = 10px
+- `rounded-lg` = `var(--radius)` = 12px
+- `rounded-xl` = `calc(var(--radius) + 0.25rem)` = 16px
+- `rounded-2xl` = `calc(var(--radius) + 0.5rem)` = 20px
+
+```tsx
+// Example: Chat input container
+<div className="bg-card rounded-xl border border-border">
+  <textarea className="..." />
+  <button className="rounded-lg ...">Send</button>
+</div>
+```
 
 ## Icons
 
@@ -480,13 +541,17 @@ className="w-full max-w-md bg-card rounded-xl border border-border"
 
 ## Transitions
 
-Standard transition for all interactive elements:
+Only use color transitions, no transform effects:
 
 ```tsx
+// Default transition (applied globally)
 className="transition-colors"
+
+// Explicit when needed
+className="transition-colors duration-150"
 ```
 
-**Global transitions are applied automatically:**
+**Global transitions applied automatically:**
 ```css
 * {
   transition-property: background-color, border-color, color, opacity;
@@ -495,7 +560,17 @@ className="transition-colors"
 }
 ```
 
-**Avoid:** `hover:-translate-y`, `hover:scale-*`, `transition-all`, complex animations.
+**Never use:**
+- `transition-all` (use `transition-colors` only)
+- Transform effects (`scale`, `translate`, `rotate`)
+- Shadow transitions
+- Complex multi-property animations
+
+**Minimal interaction philosophy:**
+- Hover: Background color change only
+- Active: No visual feedback needed
+- Focus: Subtle ring (via `ring-foreground/20`)
+- Loading: Simple opacity fade
 
 ## Touch Targets
 
@@ -559,16 +634,43 @@ Custom scrollbar styling (6px width, subtle appearance):
 }
 ```
 
+## Type Hierarchy
+
+Use typography weight and size for all hierarchy, not color:
+
+```tsx
+// Primary heading
+className="text-lg font-semibold text-foreground"
+
+// Secondary heading
+className="text-sm font-medium text-foreground"
+
+// Body text
+className="text-sm text-foreground"
+
+// Secondary text
+className="text-sm text-muted-foreground"
+
+// Emphasized inline
+className="font-medium text-foreground"
+```
+
+**No color coding:** All file types, agent types, and categories use the same neutral colors with typography for distinction.
+
 ## Key Principles
 
-1. **Pure neutrals** - No warm/cool tints, use pure black/white/grays
-2. **Vibrant accents** - Use cyan accent for interactive elements and glow effects
-3. **No scale/translate on hover** - Use background color changes and subtle glow instead
-4. **Minimal shadows** - Borders provide structure, glow for emphasis
-5. **Semantic colors only** - Never hardcode hex/rgb values in components
+1. **Pure neutrals only** - No warm/cool tints, 0° saturation grays, no accent colors
+2. **No decorative effects** - No shadows, glows, gradients, or transforms
+3. **Foreground/background inversion** - Use inverted colors for emphasis, not color
+4. **Borders for structure** - Never use shadows, always use subtle borders
+5. **Semantic tokens only** - Never hardcode hex/rgb values in components
 6. **Consistent spacing** - Use Tailwind's spacing scale (p-4, p-6, gap-3, etc.)
-7. **Accessible** - 32px minimum touch targets, 12px minimum font size
-8. **Simple transitions** - `transition-colors` for most interactions (global auto-applied)
-9. **Ring for selection** - Use `ring-1 ring-foreground/50` for selected states
-10. **Glow for focus** - Use `focus-glow` class for input focus states
-11. **Brand gradient** - Dark mode brand titles use foreground-to-cyan gradient
+7. **Accessible** - 32px minimum touch targets, 12px minimum font size, WCAG AAA contrast
+8. **Color transitions only** - `transition-colors` for all interactions, no transforms
+9. **Ring for focus** - Use `ring-2 ring-foreground/20` for accessibility
+10. **Typography for hierarchy** - Use weight/size for distinction, not color
+11. **Border radius hierarchy** - xl (containers) > lg (buttons) > md (pills)
+12. **Minimal is better** - When in doubt, remove decoration
+13. **No color coding** - All categories use neutral colors
+14. **Flat design** - Strictly 2D, no depth effects
+15. **Clarity over decoration** - Functionality and usability trump visual flourish

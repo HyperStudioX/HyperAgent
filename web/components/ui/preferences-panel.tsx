@@ -63,7 +63,7 @@ export function PreferencesPanel({
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "w-full h-9 px-3 rounded-xl",
+          "w-full h-9 px-3 rounded-lg",
           "flex items-center justify-between",
           "text-sm",
           "text-muted-foreground hover:text-foreground",
@@ -87,7 +87,7 @@ export function PreferencesPanel({
           className={cn(
             "absolute bottom-full left-0 right-0 mb-1 z-50",
             "bg-card border border-border rounded-xl shadow-lg",
-            "overflow-hidden"
+            "overflow-hidden animate-scale-in"
           )}
         >
           {/* Theme */}
@@ -107,11 +107,11 @@ export function PreferencesPanel({
                   key={value}
                   onClick={() => handleThemeChange(value as "light" | "dark" | "auto")}
                   className={cn(
-                    "flex-1 h-8 rounded-xl flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-all duration-200",
+                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-colors",
                     mounted && theme === value
-                      ? "bg-foreground text-background shadow-glow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                   )}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -134,11 +134,11 @@ export function PreferencesPanel({
                   key={loc.code}
                   onClick={() => handleLocaleChange(loc.code)}
                   className={cn(
-                    "flex-1 h-8 rounded-xl flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-all duration-200",
+                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-colors",
                     currentLocale.code === loc.code
-                      ? "bg-foreground text-background shadow-glow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                   )}
                 >
                   <Globe className="w-3.5 h-3.5" />

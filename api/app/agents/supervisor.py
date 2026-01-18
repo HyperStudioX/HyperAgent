@@ -6,160 +6,24 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from app.agents.routing import route_query
-from app.agents.state import AgentType, HandoffInfo, SupervisorState, SharedAgentMemory
+from app.agents.state import AgentType, SupervisorState
 from app.agents.subagents.chat import chat_subgraph
 from app.agents.subagents.code import code_subgraph
 from app.agents.subagents.analytics import data_subgraph
 from app.agents.subagents.research import research_subgraph
 from app.agents.subagents.writing import writing_subgraph
-from app.agents.tools.handoff import HANDOFF_MATRIX
+from app.agents.tools.handoff import (
+    HANDOFF_MATRIX,
+    MAX_HANDOFFS,
+    HandoffInfo,
+    build_query_with_context,
+    can_handoff,
+    update_handoff_history,
+)
 from app.core.logging import get_logger
 from app.models.schemas import ResearchDepth, ResearchScenario
 
 logger = get_logger(__name__)
-
-# Maximum number of handoffs allowed to prevent infinite loops
-MAX_HANDOFFS = 3
-
-# Shared memory context budget configuration
-# Total budget for shared memory context in characters
-SHARED_MEMORY_TOTAL_BUDGET = 8000
-
-# Priority weights for different memory types (higher = more budget allocation)
-SHARED_MEMORY_PRIORITIES = {
-    "research_findings": 3,      # High priority - core research output
-    "research_sources": 2,       # Medium priority - supporting evidence
-    "generated_code": 3,         # High priority - code artifacts
-    "code_language": 1,          # Low priority - just metadata
-    "execution_results": 2,      # Medium priority - results
-    "writing_outline": 2,        # Medium priority
-    "writing_draft": 3,          # High priority - main content
-    "data_analysis_plan": 2,     # Medium priority
-    "data_visualizations": 1,    # Low priority - large binary data
-    "additional_context": 2,     # Medium priority
-}
-
-# Minimum allocation per field (prevents complete truncation)
-SHARED_MEMORY_MIN_CHARS = 200
-
-
-def _truncate_shared_memory(memory: SharedAgentMemory, budget: int = SHARED_MEMORY_TOTAL_BUDGET) -> SharedAgentMemory:
-    """Dynamically truncate shared memory based on priority and budget.
-
-    Uses priority weights to allocate more space to important content
-    while ensuring all fields get at least a minimum allocation.
-
-    Args:
-        memory: The shared memory dict to truncate
-        budget: Total character budget for all memory fields
-
-    Returns:
-        Truncated shared memory dict
-    """
-    if not memory:
-        return {}
-
-    # Calculate current sizes and identify string fields
-    field_sizes: dict[str, int] = {}
-    for key, value in memory.items():
-        if isinstance(value, str):
-            field_sizes[key] = len(value)
-        elif isinstance(value, list):
-            # For lists (sources, visualizations), estimate size
-            field_sizes[key] = len(str(value))
-
-    total_size = sum(field_sizes.values())
-
-    # If within budget, no truncation needed
-    if total_size <= budget:
-        return dict(memory)
-
-    # Calculate budget allocation based on priorities
-    total_priority = sum(
-        SHARED_MEMORY_PRIORITIES.get(key, 1)
-        for key in field_sizes.keys()
-    )
-
-    allocations: dict[str, int] = {}
-    for key in field_sizes.keys():
-        priority = SHARED_MEMORY_PRIORITIES.get(key, 1)
-        # Proportional allocation based on priority
-        allocation = int((priority / total_priority) * budget)
-        # Ensure minimum allocation
-        allocations[key] = max(allocation, SHARED_MEMORY_MIN_CHARS)
-
-    # Truncate each field
-    truncated: SharedAgentMemory = {}
-    for key, value in memory.items():
-        if key not in allocations:
-            truncated[key] = value
-            continue
-
-        max_chars = allocations[key]
-
-        if isinstance(value, str):
-            if len(value) > max_chars:
-                # Smart truncation - try to end at sentence boundary
-                truncated_value = _smart_truncate(value, max_chars)
-                truncated[key] = truncated_value
-                logger.debug(
-                    "shared_memory_truncated",
-                    field=key,
-                    original_len=len(value),
-                    truncated_len=len(truncated_value),
-                    budget=max_chars,
-                )
-            else:
-                truncated[key] = value
-        elif isinstance(value, list):
-            # For lists, truncate number of items
-            truncated[key] = value[:10]  # Keep max 10 items
-        else:
-            truncated[key] = value
-
-    return truncated
-
-
-def _smart_truncate(text: str, max_chars: int) -> str:
-    """Truncate text intelligently at sentence/paragraph boundaries.
-
-    Tries to truncate at:
-    1. Paragraph boundary
-    2. Sentence boundary
-    3. Word boundary
-
-    Args:
-        text: Text to truncate
-        max_chars: Maximum characters
-
-    Returns:
-        Truncated text with ellipsis indicator
-    """
-    if len(text) <= max_chars:
-        return text
-
-    # Reserve space for truncation indicator
-    max_chars -= 20
-
-    # Try to find a paragraph boundary
-    truncated = text[:max_chars]
-    last_para = truncated.rfind("\n\n")
-    if last_para > max_chars * 0.6:  # At least 60% of content
-        return truncated[:last_para] + "\n\n[...truncated]"
-
-    # Try to find a sentence boundary
-    for end_marker in [". ", "! ", "? ", ".\n"]:
-        last_sentence = truncated.rfind(end_marker)
-        if last_sentence > max_chars * 0.5:  # At least 50% of content
-            return truncated[:last_sentence + 1] + " [...truncated]"
-
-    # Fall back to word boundary
-    last_space = truncated.rfind(" ")
-    if last_space > max_chars * 0.4:
-        return truncated[:last_space] + " [...truncated]"
-
-    # Last resort - hard truncate
-    return truncated + "...[truncated]"
 
 # Streaming configuration - declarative mapping of which nodes should stream tokens
 # Note: "generate" is disabled because it produces code that shouldn't be shown to users
@@ -177,6 +41,11 @@ STREAMING_CONFIG = {
     "tools": False,
     "search_agent": False,
     "search_tools": False,
+    # Research subgraph nodes
+    "research_prep": False,
+    "research_post": False,
+    "init_config": False,
+    "collect_sources": False,
 }
 
 
@@ -264,55 +133,75 @@ async def chat_node(state: SupervisorState) -> dict:
     return output
 
 
-async def research_node(state: SupervisorState) -> dict:
-    """Execute the research subagent.
+async def research_prep_node(state: SupervisorState) -> dict:
+    """Prepare state for research subgraph execution.
+
+    Transforms the query with handoff context and ensures all required
+    fields are set before the research subgraph runs.
 
     Args:
         state: Current supervisor state
 
     Returns:
-        Dict with research results, events, and potential handoff
+        Dict with transformed query and research configuration
     """
     depth = state.get("depth", ResearchDepth.FAST)
     scenario = state.get("scenario", ResearchScenario.ACADEMIC)
 
-    # Build input state with handoff context
-    input_state = {
-        "query": _build_query_with_context(state),
+    # Transform query with handoff context
+    transformed_query = _build_query_with_context(state)
+
+    logger.info(
+        "research_prep_started",
+        depth=depth.value if isinstance(depth, ResearchDepth) else depth,
+        scenario=scenario.value if isinstance(scenario, ResearchScenario) else scenario,
+    )
+
+    return {
+        "query": transformed_query,
         "depth": depth,
         "scenario": scenario,
-        "task_id": state.get("task_id"),
-        "user_id": state.get("user_id"),
-        "attachment_ids": state.get("attachment_ids") or [],
-        "provider": state.get("provider"),
-        "model": state.get("model"),
-        "shared_memory": state.get("shared_memory") or {},
     }
 
-    result = await research_subgraph.ainvoke(input_state)
 
-    output = {
-        "response": result.get("response", ""),
-        "events": result.get("events", []),
-    }
+async def research_post_node(state: SupervisorState) -> dict:
+    """Post-process research subgraph results.
+
+    Updates shared memory with research findings and validates handoffs.
+
+    Args:
+        state: Current supervisor state with research results
+
+    Returns:
+        Dict with shared memory updates and validated handoff
+    """
+    output = {}
 
     # Update shared memory with research findings
-    shared_memory = state.get("shared_memory") or {}
-    if result.get("analysis"):
-        shared_memory["research_findings"] = result.get("analysis", "")
-    if result.get("sources"):
+    shared_memory = dict(state.get("shared_memory") or {})
+    if state.get("analysis"):
+        shared_memory["research_findings"] = state.get("analysis", "")
+    if state.get("sources"):
+        sources = state.get("sources", [])
         shared_memory["research_sources"] = [
             {"title": s.title, "url": s.url, "snippet": s.snippet}
-            for s in result.get("sources", [])
+            for s in sources
+            if hasattr(s, "title")  # Check if it's a SearchResult object
         ]
     output["shared_memory"] = shared_memory
 
-    # Check for handoff in result
-    handoff = result.get("pending_handoff")
+    # Validate and propagate handoff
+    handoff = state.get("pending_handoff")
     if handoff and _can_handoff(state, handoff.get("target_agent", "")):
         output["pending_handoff"] = handoff
         output["handoff_count"] = state.get("handoff_count", 0) + 1
         _update_handoff_history(output, state, handoff)
+
+    logger.info(
+        "research_post_completed",
+        has_findings=bool(shared_memory.get("research_findings")),
+        has_handoff=bool(handoff),
+    )
 
     return output
 
@@ -516,8 +405,7 @@ def check_for_handoff(state: SupervisorState) -> Literal["router", "__end__"]:
 def _build_query_with_context(state: SupervisorState) -> str:
     """Build query string with handoff context if present.
 
-    Uses dynamic truncation for shared memory to maximize relevant context
-    while staying within reasonable limits.
+    Thin wrapper that extracts state fields and delegates to handoff module.
 
     Args:
         state: Current supervisor state
@@ -525,62 +413,18 @@ def _build_query_with_context(state: SupervisorState) -> str:
     Returns:
         Query string with optional context
     """
-    query = state.get("query") or ""
-    delegated_task = state.get("delegated_task")
-    handoff_context = state.get("handoff_context")
-
-    if delegated_task:
-        query = delegated_task
-        if handoff_context:
-            query = f"{query}\n\nContext: {handoff_context}"
-
-    # Include shared memory context if available (with dynamic truncation)
-    shared_memory = state.get("shared_memory") or {}
-    if shared_memory:
-        # Apply priority-based truncation
-        truncated_memory = _truncate_shared_memory(shared_memory)
-        context_parts = []
-
-        if truncated_memory.get("research_findings"):
-            context_parts.append(
-                f"Research findings from previous agent:\n{truncated_memory['research_findings']}"
-            )
-        if truncated_memory.get("research_sources"):
-            sources = truncated_memory["research_sources"]
-            if isinstance(sources, list) and sources:
-                sources_text = "\n".join([
-                    f"- [{s.get('title', 'Source')}]({s.get('url', '')}): {s.get('snippet', '')[:200]}"
-                    for s in sources[:5]  # Limit to top 5 sources for context budget
-                ])
-                context_parts.append(f"Research sources:\n{sources_text}")
-        if truncated_memory.get("generated_code"):
-            code_lang = truncated_memory.get("code_language", "python")
-            context_parts.append(
-                f"Code from previous agent:\n```{code_lang}\n{truncated_memory['generated_code']}\n```"
-            )
-        if truncated_memory.get("execution_results"):
-            context_parts.append(
-                f"Execution results:\n{truncated_memory['execution_results']}"
-            )
-        if truncated_memory.get("writing_draft"):
-            context_parts.append(
-                f"Writing draft from previous agent:\n{truncated_memory['writing_draft']}"
-            )
-        if truncated_memory.get("data_analysis_plan"):
-            context_parts.append(
-                f"Data analysis plan:\n{truncated_memory['data_analysis_plan']}"
-            )
-        if truncated_memory.get("additional_context"):
-            context_parts.append(truncated_memory["additional_context"])
-
-        if context_parts:
-            query = f"{query}\n\n---\nShared Context:\n" + "\n\n".join(context_parts)
-
-    return query
+    return build_query_with_context(
+        query=state.get("query") or "",
+        delegated_task=state.get("delegated_task"),
+        handoff_context=state.get("handoff_context"),
+        shared_memory=state.get("shared_memory"),
+    )
 
 
 def _can_handoff(state: SupervisorState, target_agent: str) -> bool:
     """Check if a handoff to the target agent is allowed.
+
+    Thin wrapper that extracts state fields and delegates to handoff module.
 
     Args:
         state: Current supervisor state
@@ -589,22 +433,12 @@ def _can_handoff(state: SupervisorState, target_agent: str) -> bool:
     Returns:
         True if handoff is allowed
     """
-    handoff_count = state.get("handoff_count", 0)
-    if handoff_count >= MAX_HANDOFFS:
-        return False
-
-    current_agent = state.get("active_agent", "chat")
-    allowed_targets = HANDOFF_MATRIX.get(current_agent, [])
-    if target_agent not in allowed_targets:
-        return False
-
-    # Prevent immediate back-and-forth
-    handoff_history = state.get("handoff_history", [])
-    if len(handoff_history) >= 2:
-        if handoff_history[-2].get("target_agent") == target_agent:
-            return False
-
-    return True
+    return can_handoff(
+        current_agent=state.get("active_agent") or "chat",
+        target_agent=target_agent,
+        handoff_count=state.get("handoff_count", 0),
+        handoff_history=state.get("handoff_history"),
+    )
 
 
 def _update_handoff_history(
@@ -614,23 +448,27 @@ def _update_handoff_history(
 ) -> None:
     """Update handoff history in output.
 
+    Thin wrapper that extracts state fields and delegates to handoff module.
+
     Args:
         output: Output dict to update
         state: Current supervisor state
         handoff: Handoff info to add
     """
-    history = list(state.get("handoff_history", []))
-    history.append({
-        "source_agent": state.get("active_agent", "chat"),
-        "target_agent": handoff.get("target_agent", ""),
-        "task_description": handoff.get("task_description", ""),
-        "context": handoff.get("context", ""),
-    })
-    output["handoff_history"] = history
+    output["handoff_history"] = update_handoff_history(
+        history=list(state.get("handoff_history") or []),
+        source_agent=state.get("active_agent") or "chat",
+        handoff=handoff,
+    )
 
 
 def create_supervisor_graph(checkpointer=None):
     """Create the supervisor graph that orchestrates subagents with handoff support.
+
+    The research agent uses a special pattern with prep/subgraph/post nodes
+    to enable real-time event streaming from the research subgraph's internal
+    nodes (init_config, search_agent, search_tools, etc.) to the supervisor's
+    astream_events output. This allows the sidebar to show real-time progress.
 
     Args:
         checkpointer: Optional checkpointer for state persistence
@@ -643,10 +481,15 @@ def create_supervisor_graph(checkpointer=None):
     # Add nodes
     graph.add_node("router", router_node)
     graph.add_node("chat", chat_node)
-    graph.add_node("research", research_node)
     graph.add_node("code", code_node)
     graph.add_node("writing", writing_node)
     graph.add_node("data", data_node)
+
+    # Research agent uses prep -> subgraph -> post pattern for real-time streaming
+    # Adding the subgraph directly (not wrapped) allows internal events to propagate
+    graph.add_node("research_prep", research_prep_node)
+    graph.add_node("research", research_subgraph)  # Subgraph directly as node
+    graph.add_node("research_post", research_post_node)
 
     # Set entry point
     graph.set_entry_point("router")
@@ -657,15 +500,19 @@ def create_supervisor_graph(checkpointer=None):
         select_agent,
         {
             AgentType.CHAT.value: "chat",
-            AgentType.RESEARCH.value: "research",
+            AgentType.RESEARCH.value: "research_prep",  # Route to prep node
             AgentType.CODE.value: "code",
             AgentType.WRITING.value: "writing",
             AgentType.DATA.value: "data",
         },
     )
 
-    # After each agent, check for handoff or end
-    for agent in ["chat", "research", "code", "writing", "data"]:
+    # Research flow: prep -> subgraph -> post
+    graph.add_edge("research_prep", "research")
+    graph.add_edge("research", "research_post")
+
+    # After each agent (or research_post), check for handoff or end
+    for agent in ["chat", "research_post", "code", "writing", "data"]:
         graph.add_conditional_edges(
             agent,
             check_for_handoff,
@@ -808,38 +655,70 @@ class AgentSupervisor:
 
                     # Data analysis stages
                     if node_name == "plan":
-                        event = emit_stage_running("plan", "Planning analysis...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("plan", "Planning analysis...")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "generate":
-                        event = emit_stage_running("generate", "Generating code...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("generate", "Generating code...")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "execute":
-                        event = emit_stage_running("execute", "Executing code...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("execute", "Executing code...")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "summarize":
-                        event = emit_stage_running("summarize", "Summarizing results...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("summarize", "Summarizing results...")
+                        if stage_event:
+                            yield stage_event
                     # Writing agent stages
                     elif node_name == "analyze":
-                        event = emit_stage_running("analyze", "Analyzing task...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("analyze", "Analyzing task...")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "outline":
-                        event = emit_stage_running("outline", "Creating outline...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("outline", "Creating outline...")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "write":
-                        event = emit_stage_running("write", "Writing content...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("write", "Writing content...")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "finalize":
-                        event = emit_stage_running("finalize", "Finalizing response...")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_running("finalize", "Finalizing response...")
+                        if stage_event:
+                            yield stage_event
+                    # Research agent stages (check with endswith for namespaced subgraph nodes)
+                    # When subgraph is added as a node, internal nodes are named like "research:init_config"
+                    elif node_name.endswith("init_config"):
+                        stage_event = emit_stage_running("config", "Initializing research...")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("search_agent"):
+                        stage_event = emit_stage_running("search", "Searching for sources...")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("search_tools"):
+                        stage_event = emit_stage_running("search_tools", "Executing search...")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("collect_sources"):
+                        stage_event = emit_stage_running("collect", "Collecting sources...")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("synthesize"):
+                        stage_event = emit_stage_running("synthesize", "Synthesizing findings...")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("analyze") and any("research" in p for p in node_path):
+                        # Research analyze stage (distinguish from writing analyze)
+                        stage_event = emit_stage_running("analyze", "Analyzing sources...")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("write") and any("research" in p for p in node_path):
+                        # Research write stage
+                        stage_event = emit_stage_running("report", "Writing research report...")
+                        if stage_event:
+                            yield stage_event
 
                 elif event_type == "on_chain_end":
                     # Update node path
@@ -869,41 +748,70 @@ class AgentSupervisor:
 
                     # Data analysis stages
                     if node_name == "plan":
-                        event = emit_stage_completion("plan", "Analysis planned")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("plan", "Analysis planned")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "generate":
-                        event = emit_stage_completion("generate", "Code generated")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("generate", "Code generated")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "execute":
-                        event = emit_stage_completion("execute", "Code executed")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("execute", "Code executed")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "summarize":
-                        event = emit_stage_completion("summarize", "Results summarized")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("summarize", "Results summarized")
+                        if stage_event:
+                            yield stage_event
                     # Writing agent stages
                     elif node_name == "analyze":
-                        event = emit_stage_completion("analyze", "Task analyzed")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("analyze", "Task analyzed")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "outline":
-                        event = emit_stage_completion("outline", "Outline created")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("outline", "Outline created")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "write":
-                        event = emit_stage_completion("write", "Content written")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("write", "Content written")
+                        if stage_event:
+                            yield stage_event
                     elif node_name == "finalize":
-                        event = emit_stage_completion("finalize", "Response finalized")
-                        if event:
-                            yield event
+                        stage_event = emit_stage_completion("finalize", "Response finalized")
+                        if stage_event:
+                            yield stage_event
+                    # Research agent stages (check with endswith for namespaced subgraph nodes)
+                    elif node_name.endswith("init_config"):
+                        stage_event = emit_stage_completion("config", "Research configured")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("search_agent"):
+                        # Don't mark search as complete here - it loops
+                        pass
+                    elif node_name.endswith("search_tools"):
+                        stage_event = emit_stage_completion("search_tools", "Search executed")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("collect_sources"):
+                        stage_event = emit_stage_completion("search", "Sources collected")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("synthesize"):
+                        stage_event = emit_stage_completion("synthesize", "Findings synthesized")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("analyze") and any("research" in p for p in node_path):
+                        stage_event = emit_stage_completion("analyze", "Sources analyzed")
+                        if stage_event:
+                            yield stage_event
+                    elif node_name.endswith("write") and any("research" in p for p in node_path):
+                        stage_event = emit_stage_completion("report", "Research report complete")
+                        if stage_event:
+                            yield stage_event
 
                     # Extract events from output (including routing and handoff events)
-                    output = event.get("data", {}).get("output", {})
+                    event_data = event.get("data") or {}
+                    output = event_data.get("output") or {}
                     if isinstance(output, dict):
                         events_list = output.get("events", [])
                         if isinstance(events_list, list):
@@ -934,9 +842,12 @@ class AgentSupervisor:
                     node_path_str = "/".join(node_path)
 
                     # Emit tool calls immediately if present in the chunk
-                    chunk = event.get("data", {}).get("chunk")
+                    chunk = (event.get("data") or {}).get("chunk")
                     if chunk and getattr(chunk, "tool_calls", None):
                         for tool_call in chunk.tool_calls:
+                            # Skip None or non-dict tool calls
+                            if not tool_call or not isinstance(tool_call, dict):
+                                continue
                             tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
                             # Generate a unique ID if not provided
                             if not tool_id:
@@ -966,7 +877,7 @@ class AgentSupervisor:
                     )
 
                     if should_stream:
-                        chunk = event.get("data", {}).get("chunk")
+                        chunk = (event.get("data") or {}).get("chunk")
                         if chunk and hasattr(chunk, "content") and chunk.content:
                             from app.services.llm import extract_text_from_content
                             content = extract_text_from_content(chunk.content)
@@ -980,7 +891,7 @@ class AgentSupervisor:
                     # Get tool call ID for tracking
                     run_id = event.get("run_id", "")
                     tool_name = event.get("name", "")
-                    tool_input = event.get("data", {}).get("input", {})
+                    tool_input = (event.get("data") or {}).get("input") or {}
 
                     # Generate ID if we don't have one
                     tool_call_id = None
@@ -1009,7 +920,7 @@ class AgentSupervisor:
                 elif event_type == "on_tool_end":
                     run_id = event.get("run_id", "")
                     tool_name = event.get("name", "")
-                    output = event.get("data", {}).get("output", "")
+                    output = (event.get("data") or {}).get("output", "")
 
                     # Find matching tool call by run_id
                     tool_call_id = None
@@ -1036,7 +947,7 @@ class AgentSupervisor:
 
                 # Handle errors from subagents
                 elif event_type == "on_chain_error":
-                    error = event.get("data", {}).get("error")
+                    error = (event.get("data") or {}).get("error")
                     if error:
                         yield {
                             "type": "error",

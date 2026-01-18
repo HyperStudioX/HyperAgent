@@ -5,7 +5,11 @@ from io import BytesIO
 from typing import List, Optional
 
 from app.config import settings
+from app.core.logging import get_logger
 from app.models.schemas import ImageGenerationResult
+from app.services.circuit_breaker import CircuitBreakerOpen, get_gemini_breaker
+
+logger = get_logger(__name__)
 
 
 class ImageGenerationService:
@@ -45,35 +49,52 @@ class ImageGenerationService:
         # Parse size
         width, height = map(int, size.split("x"))
 
+        # Get circuit breaker for Gemini
+        breaker = get_gemini_breaker()
+
         # Generate images
         imagen_model = genai.ImageGenerationModel(model)
         results = []
 
-        for _ in range(n):
-            response = await imagen_model.generate_images_async(
-                prompt=prompt,
-                number_of_images=1,
-                aspect_ratio=f"{width}:{height}" if width == height else "1:1",
-                safety_filter_level=safety_filter,
-            )
-
-            # Convert to base64 PNG
-            if response.images:
-                image = response.images[0]
-                # Save PIL image to PNG format in memory buffer
-                buf = BytesIO()
-                image._pil_image.save(buf, format='PNG')
-                buf.seek(0)
-                b64_data = base64.b64encode(buf.getvalue()).decode()
-                results.append(
-                    ImageGenerationResult(
-                        base64_data=b64_data,
-                        url=None,
-                        revised_prompt=None,
+        try:
+            for _ in range(n):
+                async with breaker.call():
+                    response = await imagen_model.generate_images_async(
+                        prompt=prompt,
+                        number_of_images=1,
+                        aspect_ratio=f"{width}:{height}" if width == height else "1:1",
+                        safety_filter_level=safety_filter,
                     )
-                )
 
-        return results
+                # Convert to base64 PNG
+                if response.images:
+                    image = response.images[0]
+                    # Save PIL image to PNG format in memory buffer
+                    buf = BytesIO()
+                    image._pil_image.save(buf, format='PNG')
+                    buf.seek(0)
+                    b64_data = base64.b64encode(buf.getvalue()).decode()
+                    results.append(
+                        ImageGenerationResult(
+                            base64_data=b64_data,
+                            url=None,
+                            revised_prompt=None,
+                        )
+                    )
+
+            return results
+
+        except CircuitBreakerOpen as e:
+            logger.warning(
+                "image_generation_circuit_open",
+                prompt=prompt[:50],
+                service="gemini",
+                retry_after=e.retry_after,
+            )
+            raise
+        except Exception as e:
+            logger.error("image_generation_failed", prompt=prompt[:50], error=str(e))
+            raise
 
 
 # Global service instance

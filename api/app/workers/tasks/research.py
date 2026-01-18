@@ -1,5 +1,6 @@
 """Research task handler for background worker."""
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -66,6 +67,43 @@ async def run_research_task(
 
     async with async_session_maker() as db:
         try:
+            # Verify task exists in database before proceeding
+            # Use raw SQL to bypass any ORM caching and ensure fresh database state
+            from sqlalchemy import text
+
+            task = None
+            max_retries = 5
+            for attempt in range(max_retries):
+                # Force fresh query - bypass identity map by using raw SQL check first
+                result = await db.execute(
+                    text("SELECT id FROM research_tasks WHERE id = :task_id"),
+                    {"task_id": task_id},
+                )
+                row = result.fetchone()
+
+                if row is not None:
+                    # Task exists in DB, now get the full ORM object
+                    db.expire_all()  # Clear any cached state
+                    task = await storage_service.get_task(db, task_id)
+                    if task is not None:
+                        break
+
+                if attempt < max_retries - 1:
+                    delay = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s, 4s
+                    logger.warning(
+                        "task_not_found_retrying",
+                        task_id=task_id,
+                        attempt=attempt + 1,
+                        delay=delay,
+                    )
+                    await asyncio.sleep(delay)
+
+            if task is None:
+                raise ValueError(
+                    f"Task {task_id} not found in database after {max_retries} attempts. "
+                    "The task may have been deleted or never created."
+                )
+
             # Clear any existing data from previous runs (retry scenario)
             await storage_service.clear_task_steps(db, task_id)
             await storage_service.clear_task_sources(db, task_id)
@@ -90,71 +128,118 @@ async def run_research_task(
                 depth=ResearchDepth(depth),
                 scenario=ResearchScenario(scenario),
             ):
-                if event["type"] == "step":
-                    step_type = event["step_type"]
+                # Handle stage events (supervisor uses "stage", not "step")
+                if event["type"] == "stage":
+                    step_type = event.get("name", "")
+                    status = event.get("status", "running")
 
-                    if event["status"] == "running":
-                        # Create new step in database
-                        step_id = str(uuid.uuid4())
-                        await storage_service.add_step(
-                            db=db,
-                            task_id=task_id,
-                            step_id=step_id,
-                            step_type=step_type,
-                            description=event["description"],
-                            status="running",
-                        )
-                        step_ids[step_type] = step_id
+                    description = event.get("description", step_type)
 
-                        # Emit progress event
-                        await progress.emit_step(
-                            step_type=step_type,
-                            description=event["description"],
-                            status="running",
-                            step_id=step_id,
-                        )
-                    else:
-                        # Update existing step status
-                        if step_type in step_ids:
-                            await storage_service.update_step_status(
-                                db, step_ids[step_type], event["status"]
+                    try:
+                        if status == "running":
+                            # Create new step in database
+                            step_id = str(uuid.uuid4())
+                            await storage_service.add_step(
+                                db=db,
+                                task_id=task_id,
+                                step_id=step_id,
+                                step_type=step_type,
+                                description=description,
+                                status="running",
                             )
+                            step_ids[step_type] = step_id
+
+                            # Emit progress event
                             await progress.emit_step(
                                 step_type=step_type,
-                                description=event["description"],
-                                status=event["status"],
-                                step_id=step_ids[step_type],
+                                description=description,
+                                status="running",
+                                step_id=step_id,
                             )
+                        else:
+                            # Update existing step status
+                            if step_type in step_ids:
+                                await storage_service.update_step_status(
+                                    db, step_ids[step_type], status
+                                )
+                                await progress.emit_step(
+                                    step_type=step_type,
+                                    description=description,
+                                    status=status,
+                                    step_id=step_ids[step_type],
+                                )
 
-                    # Update progress percentage based on step
-                    if step_type in STEP_PROGRESS:
-                        await storage_service.update_task_progress(
-                            db, task_id, STEP_PROGRESS[step_type]
+                        # Update progress percentage based on step
+                        if step_type in STEP_PROGRESS:
+                            await storage_service.update_task_progress(
+                                db, task_id, STEP_PROGRESS[step_type]
+                            )
+                            await progress.emit_progress(STEP_PROGRESS[step_type], step_type)
+
+                        await db.commit()
+                    except Exception as step_error:
+                        # Handle FK violation or other DB errors gracefully
+                        logger.error(
+                            "step_insert_failed",
+                            task_id=task_id,
+                            step_type=step_type,
+                            error=str(step_error),
                         )
-                        await progress.emit_progress(STEP_PROGRESS[step_type], step_type)
-
-                    await db.commit()
+                        await db.rollback()
+                        # Continue processing - emit progress even if DB insert fails
+                        await progress.emit_step(
+                            step_type=step_type,
+                            description=description,
+                            status=status,
+                            step_id=step_ids.get(step_type, str(uuid.uuid4())),
+                        )
 
                 elif event["type"] == "source":
                     # Create source in database
                     source_id = str(uuid.uuid4())
-                    await storage_service.add_source(
-                        db=db,
-                        task_id=task_id,
-                        source_id=source_id,
-                        title=event["title"],
-                        url=event["url"],
-                        snippet=event.get("snippet"),
-                        relevance_score=event.get("relevance_score"),
-                    )
-                    await db.commit()
+                    try:
+                        await storage_service.add_source(
+                            db=db,
+                            task_id=task_id,
+                            source_id=source_id,
+                            title=event["title"],
+                            url=event["url"],
+                            snippet=event.get("snippet"),
+                            relevance_score=event.get("relevance_score"),
+                        )
+                        await db.commit()
+                    except Exception as source_error:
+                        # Handle FK violation or other DB errors gracefully
+                        logger.error(
+                            "source_insert_failed",
+                            task_id=task_id,
+                            source_id=source_id,
+                            error=str(source_error),
+                        )
+                        await db.rollback()
 
-                    # Emit source event
+                    # Emit source event regardless of DB success
                     await progress.emit_source(
                         source_id=source_id,
                         title=event["title"],
                         url=event["url"],
                         snippet=event.get("snippet"),
+                    )
+
+                elif event["type"] == "tool_call":
+                    # Forward tool call events to frontend
+                    await progress.emit_tool_call(
+                        tool=event.get("tool", ""),
+                        args=event.get("args", {}),
+                        tool_id=event.get("id"),
+                    )
+
+                elif event["type"] == "tool_result":
+                    # Forward tool result events to frontend
+                    await progress.emit_tool_result(
+                        tool=event.get("tool", ""),
+                        output=str(event.get("content", "")),
+                        tool_id=event.get("id"),
                     )
 
                 elif event["type"] == "token":

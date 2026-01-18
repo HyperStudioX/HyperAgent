@@ -145,7 +145,8 @@ function formatElapsedMs(startMs: number, endMs?: number): string {
 const KNOWN_STAGES = [
     "handoff", "chat", "analyze", "search", "tool", "write", "synthesize",
     "research", "plan", "generate", "execute", "summarize", "finalize",
-    "outline", "data", "source", "code_result"
+    "outline", "data", "source", "code_result", "config", "search_tools",
+    "collect", "report", "thinking", "routing"
 ];
 
 // Get translated stage description based on stage name and status
@@ -185,7 +186,7 @@ function LiveDuration({ startMs, endMs }: { startMs: number; endMs?: number }) {
 }
 
 // Tool item component with expandable args
-function ToolItem({ tool }: { tool: TimestampedEvent }) {
+function ToolItem({ tool, isStreaming }: { tool: TimestampedEvent; isStreaming: boolean }) {
     const tTools = useTranslations("chat.agent.tools");
     const tProgress = useTranslations("sidebar.progress");
     const [isExpanded, setIsExpanded] = useState(false);
@@ -194,7 +195,9 @@ function ToolItem({ tool }: { tool: TimestampedEvent }) {
     const hasArgs = Object.keys(args).length > 0;
     const isSearch = toolName === "web_search" || toolName === "google_search" || toolName === "web";
     const query = (args as Record<string, unknown>).query as string | undefined;
-    const isRunning = !tool.endTimestamp;
+    // Tool is only running if streaming is active AND no endTimestamp
+    // When streaming ends, all tools show as completed
+    const isRunning = isStreaming && !tool.endTimestamp;
 
     // Get translated tool name, fallback to formatted name
     const defaultToolLabel = tProgress("defaultTool");
@@ -229,7 +232,7 @@ function ToolItem({ tool }: { tool: TimestampedEvent }) {
                 {isRunning ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
                 ) : (
-                    <Check className="w-3.5 h-3.5 text-green-500" />
+                    <Check className="w-3.5 h-3.5 text-[hsl(var(--accent-success))]" />
                 )}
             </div>
 
@@ -260,7 +263,7 @@ function ToolItem({ tool }: { tool: TimestampedEvent }) {
 }
 
 // Stage group component with collapsible tools
-function StageGroupItem({ group, defaultExpanded }: { group: StageGroup; defaultExpanded: boolean }) {
+function StageGroupItem({ group, defaultExpanded, isStreaming }: { group: StageGroup; defaultExpanded: boolean; isStreaming: boolean }) {
     const tProgress = useTranslations("sidebar.progress");
     const tStages = useTranslations("chat.agent.stages");
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
@@ -276,17 +279,21 @@ function StageGroupItem({ group, defaultExpanded }: { group: StageGroup; default
     const allToolsCompleted = hasTools && tools.every(t => t.endTimestamp);
 
     // A stage is running only if:
-    // 1. Stage status is "running" AND (no tools OR some tools still running)
-    const isRunning = !isFailed && stage.status === "running" && (!hasTools || tools.some(t => !t.endTimestamp));
+    // 1. Streaming is still active (task not completed)
+    // 2. Stage status is "running" AND (no tools OR some tools still running)
+    // When streaming ends, no stage should show as "running" anymore
+    const isRunning = isStreaming && !isFailed && stage.status === "running" && (!hasTools || tools.some(t => !t.endTimestamp));
 
     // A stage is completed if:
     // 1. Stage status is "completed", OR
     // 2. Stage has an endTimestamp, OR
-    // 3. Stage has tools and ALL tools have completed
+    // 3. Stage has tools and ALL tools have completed, OR
+    // 4. Streaming has ended (task is complete) - all remaining stages are implicitly complete
     const isCompleted = !isFailed && !isRunning && (
         stage.status === "completed" ||
         stage.endTimestamp !== undefined ||
-        allToolsCompleted
+        allToolsCompleted ||
+        !isStreaming
     );
 
     return (
@@ -303,7 +310,7 @@ function StageGroupItem({ group, defaultExpanded }: { group: StageGroup; default
                 <div className={cn(
                     "w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0",
                     isRunning && "bg-foreground text-background",
-                    isCompleted && "bg-green-500/15",
+                    isCompleted && "bg-[hsl(var(--accent-success))/0.15]",
                     isFailed && "bg-destructive/15"
                 )}>
                     {isRunning ? (
@@ -311,7 +318,7 @@ function StageGroupItem({ group, defaultExpanded }: { group: StageGroup; default
                     ) : isFailed ? (
                         <AlertCircle className="w-3.5 h-3.5 text-destructive" />
                     ) : (
-                        <Check className="w-3.5 h-3.5 text-green-500" />
+                        <Check className="w-3.5 h-3.5 text-[hsl(var(--accent-success))]" />
                     )}
                 </div>
 
@@ -350,7 +357,7 @@ function StageGroupItem({ group, defaultExpanded }: { group: StageGroup; default
             {isExpanded && hasTools && (
                 <div className="pb-2 space-y-0.5">
                     {tools.map((tool, idx) => (
-                        <ToolItem key={`${tool.tool}-${idx}`} tool={tool} />
+                        <ToolItem key={`${tool.tool}-${idx}`} tool={tool} isStreaming={isStreaming} />
                     ))}
                 </div>
             )}
@@ -430,21 +437,29 @@ export function AgentProgressPanel() {
     const progressSummary = useMemo(() => {
         if (!activeProgress) return null;
 
-        // Helper to check if a stage is completed (matches StageGroupItem logic)
-        const isStageCompleted = (g: StageGroup) => {
-            const hasTools = g.tools.length > 0;
-            const allToolsCompleted = hasTools && g.tools.every(t => t.endTimestamp);
-            return g.stage.status === "completed" ||
-                   g.stage.endTimestamp !== undefined ||
-                   allToolsCompleted;
-        };
+        const { isStreaming: streaming } = activeProgress;
 
-        // Helper to check if a stage is running
+        // Helper to check if a stage is running (matches StageGroupItem logic)
         const isStageRunning = (g: StageGroup) => {
             if (g.stage.status === "failed") return false;
             const hasTools = g.tools.length > 0;
-            return g.stage.status === "running" &&
+            // When streaming ends, no stage should show as "running" anymore
+            return streaming && g.stage.status === "running" &&
                    (!hasTools || g.tools.some(t => !t.endTimestamp));
+        };
+
+        // Helper to check if a stage is completed (matches StageGroupItem logic)
+        const isStageCompleted = (g: StageGroup) => {
+            if (g.stage.status === "failed") return false;
+            const hasTools = g.tools.length > 0;
+            const allToolsCompleted = hasTools && g.tools.every(t => t.endTimestamp);
+            const running = isStageRunning(g);
+            return !running && (
+                g.stage.status === "completed" ||
+                g.stage.endTimestamp !== undefined ||
+                allToolsCompleted ||
+                !streaming
+            );
         };
 
         const completedStages = stageGroups.filter(isStageCompleted).length;
@@ -583,7 +598,7 @@ export function AgentProgressPanel() {
                 {!isStreaming && (
                     <div className={cn(
                         "px-4 py-3 border-b border-border/30 flex items-center gap-3",
-                        progressSummary?.hasError ? "bg-destructive/10" : "bg-green-500/10"
+                        progressSummary?.hasError ? "bg-destructive/10" : "bg-[hsl(var(--accent-success))/0.1]"
                     )}>
                         {progressSummary?.hasError ? (
                             <>
@@ -592,8 +607,8 @@ export function AgentProgressPanel() {
                             </>
                         ) : (
                             <>
-                                <Check className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-                                <span className="text-sm font-medium text-green-600 dark:text-green-400">{tChat("completed")}</span>
+                                <Check className="w-4 h-4 text-[hsl(var(--accent-success))] flex-shrink-0" />
+                                <span className="text-sm font-medium text-[hsl(var(--accent-success))]">{tChat("completed")}</span>
                             </>
                         )}
                     </div>
@@ -617,6 +632,7 @@ export function AgentProgressPanel() {
                                     key={`stage-${index}`}
                                     group={group}
                                     defaultExpanded={index === stageGroups.length - 1 || group.stage.status === "running"}
+                                    isStreaming={isStreaming}
                                 />
                             ))}
 
@@ -640,8 +656,9 @@ export function AgentProgressPanel() {
                             {stageGroups.map((group, index) => {
                                 const hasTools = group.tools.length > 0;
                                 const allToolsCompleted = hasTools && group.tools.every(t => t.endTimestamp);
-                                const isStageRunning = group.stage.status === "running" && (!hasTools || group.tools.some(t => !t.endTimestamp));
-                                const isStageCompleted = group.stage.status === "completed" || group.stage.endTimestamp !== undefined || allToolsCompleted;
+                                // When streaming ends, no stage should show as "running" anymore
+                                const isStageRunning = isStreaming && group.stage.status === "running" && (!hasTools || group.tools.some(t => !t.endTimestamp));
+                                const isStageCompleted = !isStageRunning && (group.stage.status === "completed" || group.stage.endTimestamp !== undefined || allToolsCompleted || !isStreaming);
                                 const isStageFailed = group.stage.status === "failed";
 
                                 const stageDescription = getTranslatedStageDescription(group.stage, tStages);
@@ -659,7 +676,7 @@ export function AgentProgressPanel() {
                                         {isStageRunning ? (
                                             <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
                                         ) : isStageCompleted ? (
-                                            <Check className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                                            <Check className="w-3.5 h-3.5 text-[hsl(var(--accent-success))] flex-shrink-0" />
                                         ) : isStageFailed ? (
                                             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                                         ) : (

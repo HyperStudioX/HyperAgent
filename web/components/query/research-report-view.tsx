@@ -87,7 +87,7 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
             <div className="flex-1 min-w-0">
                 <div className="animate-fade-in">
                     {/* Main Container */}
-                    <div className="bg-card border border-border rounded-xl overflow-hidden">
+                    <div className="bg-card border border-border rounded-2xl overflow-hidden">
                         {/* Content Body */}
                         <div className="px-6 py-10 md:px-10 md:py-12">
                             <div className="prose prose-sm md:prose-base max-w-none text-foreground font-sans">

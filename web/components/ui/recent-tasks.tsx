@@ -454,17 +454,19 @@ function RecentItemRow({
       {/* Status indicator for tasks */}
       {getStatusIndicator()}
 
-      {/* Delete button */}
+      {/* Delete button - visible on mobile, hover-reveal on desktop */}
       <button
         className={cn(
-          "flex-shrink-0 p-1 rounded transition-colors",
-          "opacity-0 group-hover:opacity-100",
-          "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          "flex-shrink-0 p-1.5 rounded-md transition-colors",
+          "opacity-60 md:opacity-0 group-hover:opacity-100",
+          "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+          "min-h-[32px] min-w-[32px] flex items-center justify-center"
         )}
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
         }}
+        aria-label="Delete"
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>

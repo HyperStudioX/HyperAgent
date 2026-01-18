@@ -43,8 +43,9 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
     const hasHydrated = chatHydrated && taskHydrated;
     const { theme, setTheme, mounted } = useTheme();
 
-    // Track if we've attempted to load conversations to prevent duplicate calls
+    // Track if we've attempted to load to prevent duplicate calls
     const loadAttempted = useRef(false);
+    const taskLoadAttempted = useRef(false);
 
     // Touch gesture handling for swipe-to-close
     const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -83,6 +84,13 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
         if (status === "loading" || taskHydrated) {
             return;
         }
+
+        // Prevent duplicate calls (React Strict Mode, fast re-renders)
+        if (taskLoadAttempted.current) {
+            return;
+        }
+
+        taskLoadAttempted.current = true;
 
         if (status === "authenticated") {
             loadTasks();
@@ -238,14 +246,14 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
                         <div className="w-8 h-8 flex items-center justify-center relative">
                             <div className="absolute inset-0 bg-accent-cyan/20 rounded-lg blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                             <Image
-                                src="/images/logo-dark.svg"
+                                src="/images/logo-light.svg"
                                 alt="HyperAgent"
                                 width={32}
                                 height={32}
                                 className="dark:hidden transition-transform duration-200 group-hover:scale-110 relative z-10"
                             />
                             <Image
-                                src="/images/logo-light.svg"
+                                src="/images/logo-dark.svg"
                                 alt="HyperAgent"
                                 width={32}
                                 height={32}

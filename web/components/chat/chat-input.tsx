@@ -65,7 +65,7 @@ export const ChatInput = memo(
 
     return (
       <div className={cn("relative", className)}>
-        <div className="relative flex items-end bg-card rounded-xl border border-border focus-within:border-foreground/30 focus-within:shadow-glow-sm transition-all duration-200">
+        <div className="relative flex items-end bg-card rounded-2xl border border-border focus-within:border-foreground/30 focus-within:shadow-glow-sm transition-all duration-200">
           <textarea
             ref={textareaRef}
             value={value}
@@ -90,16 +90,17 @@ export const ChatInput = memo(
                 onClick={handleSubmit}
                 disabled={!canSubmit}
                 className={cn(
-                  "w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200",
+                  "group w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-150",
                   canSubmit
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-glow-sm"
+                    ? "bg-accent-cyan text-foreground dark:text-background hover:bg-accent-cyan/90 hover:-translate-y-0.5 active:scale-[0.98] interactive-glow border border-accent-cyan/20"
                     : "bg-secondary text-muted-foreground"
                 )}
+                aria-label={canSubmit ? t("send") : t("typeMessage")}
               >
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <ArrowUp className="w-4 h-4" />
+                  <ArrowUp className="w-4 h-4 group-hover:-translate-y-0.5 group-hover:scale-110 transition-transform" />
                 )}
               </button>
             )}

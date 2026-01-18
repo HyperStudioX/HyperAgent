@@ -83,6 +83,7 @@
         }
     },
     "research": {
+        "selectScenario": "选择研究类型",
         "academic": {
             "name": "学术研究",
             "description": "文献综述、引用查找、学术资源"
@@ -242,6 +243,26 @@
                     "running": "正在搜索...",
                     "completed": "搜索完成",
                     "failed": "搜索失败"
+                },
+                "config": {
+                    "running": "正在初始化研究...",
+                    "completed": "研究已初始化",
+                    "failed": "初始化失败"
+                },
+                "search_tools": {
+                    "running": "正在执行搜索...",
+                    "completed": "搜索已执行",
+                    "failed": "搜索执行失败"
+                },
+                "collect": {
+                    "running": "正在收集资料...",
+                    "completed": "资料收集完成",
+                    "failed": "收集失败"
+                },
+                "report": {
+                    "running": "正在撰写研究报告...",
+                    "completed": "报告完成",
+                    "failed": "报告失败"
                 },
                 "tool": {
                     "running": "正在执行工具...",

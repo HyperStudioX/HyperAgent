@@ -31,6 +31,7 @@ from app.agents.utils import (
     create_stage_event,
     create_error_event,
     create_tool_call_event,
+    create_tool_result_event,
 )
 from app.agents import events
 from app.core.logging import get_logger
@@ -102,7 +103,7 @@ async def init_config_node(state: ResearchState) -> dict:
         ],
         "sources": [],
         "search_complete": False,
-        "search_count": 0,
+        "tool_iterations": 0,
         "events": [
             events.config(
                 depth=depth.value if isinstance(depth, ResearchDepth) else depth,
@@ -122,9 +123,9 @@ async def search_agent_node(state: ResearchState) -> dict:
     Returns:
         Dict with updated messages, events, and potential handoff
     """
-    lc_messages = state.get("lc_messages", [])
-    depth_config = state.get("depth_config", {})
-    search_count = state.get("search_count", 0)
+    lc_messages = state.get("lc_messages") or []
+    depth_config = state.get("depth_config") or {}
+    tool_iterations = state.get("tool_iterations") or 0
     max_searches = depth_config.get("max_searches", 5)
 
     # Check for deferred handoff from previous iteration
@@ -151,15 +152,15 @@ async def search_agent_node(state: ResearchState) -> dict:
     logger.info(
         "search_agent_processing",
         message_count=len(lc_messages),
-        search_count=search_count,
+        tool_iterations=tool_iterations,
         max_searches=max_searches,
     )
 
     # Enforce iteration limit to prevent infinite loops
-    if search_count >= max_searches:
+    if tool_iterations >= max_searches:
         logger.warning(
             "max_searches_reached",
-            count=search_count,
+            count=tool_iterations,
             max=max_searches,
         )
         return {
@@ -193,7 +194,7 @@ async def search_agent_node(state: ResearchState) -> dict:
 
         # Check if search is complete
         if response.content and "SEARCH_COMPLETE" in response.content:
-            logger.info("search_phase_complete", search_count=search_count)
+            logger.info("search_phase_complete", tool_iterations=tool_iterations)
             return {
                 "lc_messages": lc_messages,
                 "search_complete": True,
@@ -234,7 +235,7 @@ async def search_agent_node(state: ResearchState) -> dict:
                 )
 
                 # Increment search count for non-handoff tool calls only
-                search_count += len(other_tool_calls)
+                tool_iterations += len(other_tool_calls)
                 for tool_call in other_tool_calls:
                     valid_tool_names = [tool.name for tool in all_tools]
                     if tool_call["name"] not in valid_tool_names:
@@ -252,12 +253,12 @@ async def search_agent_node(state: ResearchState) -> dict:
                 logger.info(
                     "search_tool_calls",
                     tools=[tc["name"] for tc in other_tool_calls],
-                    search_count=search_count,
+                    tool_iterations=tool_iterations,
                 )
 
                 return {
                     "lc_messages": lc_messages,
-                    "search_count": search_count,
+                    "tool_iterations": tool_iterations,
                     "events": event_list,
                     "deferred_handoff": deferred_handoff_info,
                 }
@@ -291,7 +292,7 @@ async def search_agent_node(state: ResearchState) -> dict:
                 }
 
             # No handoff - process all tool calls normally
-            search_count += len(response.tool_calls)
+            tool_iterations += len(response.tool_calls)
             for tool_call in response.tool_calls:
                 # Validate tool name
                 valid_tool_names = [tool.name for tool in all_tools]
@@ -310,11 +311,11 @@ async def search_agent_node(state: ResearchState) -> dict:
             logger.info(
                 "search_tool_calls",
                 tools=[tc["name"] for tc in response.tool_calls],
-                search_count=search_count,
+                tool_iterations=tool_iterations,
             )
 
         if not response.tool_calls:
-            logger.info("search_phase_complete_no_tool_calls", search_count=search_count)
+            logger.info("search_phase_complete_no_tool_calls", tool_iterations=tool_iterations)
             return {
                 "lc_messages": lc_messages,
                 "search_complete": True,
@@ -323,12 +324,12 @@ async def search_agent_node(state: ResearchState) -> dict:
 
         return {
             "lc_messages": lc_messages,
-            "search_count": search_count,
+            "tool_iterations": tool_iterations,
             "events": event_list,
         }
 
     except Exception as e:
-        logger.error("search_agent_failed", error=str(e), search_count=search_count)
+        logger.error("search_agent_failed", error=str(e), tool_iterations=tool_iterations)
         return {
             "lc_messages": lc_messages,
             "search_complete": True,
@@ -367,6 +368,9 @@ async def search_tools_node(state: ResearchState) -> dict:
     for msg in tool_results.get("messages", []):
         lc_messages = lc_messages + [msg]
         if isinstance(msg, ToolMessage):
+            # Emit tool result event
+            event_list.append(create_tool_result_event(msg.name, msg.content))
+
             # Handle image generation results
             if msg.name == "generate_image":
                 extract_and_add_image_events(msg.content, event_list)

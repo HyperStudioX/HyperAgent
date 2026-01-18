@@ -19,20 +19,21 @@ interface AttachmentPreviewProps {
 }
 
 function getFileIcon(contentType: string) {
+  // File type color coding: Blue (images), Amber (code), Rose (data), Cyan (docs)
   if (contentType.startsWith("image/")) return null; // Will show image preview
   if (
     contentType.includes("pdf") ||
     contentType.includes("word") ||
     contentType.includes("document")
   ) {
-    return <FileText className="w-6 h-6" />;
+    return <FileText className="w-6 h-6 text-accent-cyan" />;
   }
   if (
     contentType.includes("sheet") ||
     contentType.includes("excel") ||
     contentType === "text/csv"
   ) {
-    return <FileSpreadsheet className="w-6 h-6" />;
+    return <FileSpreadsheet className="w-6 h-6 text-accent-rose" />;
   }
   if (
     contentType.includes("javascript") ||
@@ -40,9 +41,9 @@ function getFileIcon(contentType: string) {
     contentType.includes("json") ||
     contentType.includes("typescript")
   ) {
-    return <FileCode className="w-6 h-6" />;
+    return <FileCode className="w-6 h-6 text-accent-amber" />;
   }
-  return <File className="w-6 h-6" />;
+  return <File className="w-6 h-6 text-muted-foreground" />;
 }
 
 function formatFileSize(bytes: number): string {

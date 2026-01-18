@@ -238,6 +238,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                     mode: "research",
                     scenario: info.scenario,
                     depth: info.depth,
+                    task_id: taskId, // Use frontend taskId so backend uses the same ID
                 }),
             });
 
@@ -266,7 +267,16 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                         try {
                             const event = JSON.parse(jsonStr);
 
-                            if (event.type === "stage") {
+                            if (event.type === "task_started") {
+                                // Backend sends task_started with its own task_id
+                                // We use this to ensure status is "running"
+                                const backendTaskId = event.task_id;
+                                if (backendTaskId) {
+                                    console.log(`[ResearchProgress] Backend task started: ${backendTaskId}`);
+                                }
+                                // Ensure our task is marked as running
+                                updateTaskStatus(taskId, "running");
+                            } else if (event.type === "stage") {
                                 // Backend sends stage events with "name" field for the step type
                                 const stepName = event.name || event.data?.name;
                                 const stepStatus = event.status || event.data?.status;
@@ -282,17 +292,18 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                                     addEvent({
                                         type: "stage",
                                         name: stepName,
-                                        description: stepInfo?.description || stepName,
+                                        description: event.description || stepInfo?.description || stepName,
                                         status: stepStatus,
                                     });
                                 }
                             } else if (event.type === "source") {
-                                const sourceData = event.data as { id: string; title: string; url: string; snippet?: string };
+                                // Source events can have fields directly on the event OR nested in data (worker format)
+                                const sourceData = event.data || event;
                                 const newSource: Source = {
-                                    id: sourceData.id,
-                                    title: sourceData.title,
-                                    url: sourceData.url,
-                                    snippet: sourceData.snippet,
+                                    id: sourceData.id || event.id || `source-${currentSources.length}`,
+                                    title: sourceData.title || event.title || "Source",
+                                    url: sourceData.url || event.url || "",
+                                    snippet: sourceData.snippet || event.snippet,
                                 };
                                 currentSources = [...currentSources, newSource];
                                 updateTaskSources(taskId, currentSources);
@@ -300,20 +311,61 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                                 // Add source event to agent progress store
                                 addEvent({
                                     type: "source",
-                                    name: sourceData.title,
-                                    data: sourceData,
+                                    name: newSource.title,
+                                    data: {
+                                        id: newSource.id,
+                                        title: newSource.title,
+                                        url: newSource.url,
+                                        snippet: newSource.snippet,
+                                    },
+                                });
+                            } else if (event.type === "tool_call") {
+                                // Handle tool call events
+                                const toolName = event.tool || "tool";
+                                const toolArgs = event.args || {};
+                                addEvent({
+                                    type: "tool_call",
+                                    tool: toolName,
+                                    args: toolArgs,
+                                    id: event.id,
+                                });
+                            } else if (event.type === "tool_result") {
+                                // Handle tool result events
+                                addEvent({
+                                    type: "tool_result",
+                                    tool: event.tool,
+                                    id: event.id,
+                                    data: event.output || event.data,
+                                });
+                            } else if (event.type === "routing") {
+                                // Handle routing decision events
+                                addEvent({
+                                    type: "routing",
+                                    name: event.agent || event.selected_agent,
+                                    data: event,
+                                });
+                            } else if (event.type === "handoff") {
+                                // Handle agent handoff events
+                                addEvent({
+                                    type: "handoff",
+                                    name: event.target,
+                                    data: event,
                                 });
                             } else if (event.type === "token") {
-                                const tokenContent = typeof event.data === "string" ? event.data : String(event.data);
-                                fullResult += tokenContent;
-                                setResearchResult(fullResult);
-                                updateTaskResult(taskId, fullResult);
+                                // Token content can be in data or content field
+                                const tokenContent = event.data || event.content || "";
+                                if (tokenContent) {
+                                    fullResult += typeof tokenContent === "string" ? tokenContent : String(tokenContent);
+                                    setResearchResult(fullResult);
+                                    updateTaskResult(taskId, fullResult);
+                                }
                             } else if (event.type === "error") {
-                                setError(event.data);
-                                updateTaskStatus(taskId, "failed", event.data);
+                                const errorMsg = event.data || event.message || "Unknown error";
+                                setError(errorMsg);
+                                updateTaskStatus(taskId, "failed", errorMsg);
                                 addEvent({
                                     type: "error",
-                                    data: event.data,
+                                    data: errorMsg,
                                 });
                             }
                         } catch (e) {

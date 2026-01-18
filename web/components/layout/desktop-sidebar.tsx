@@ -143,7 +143,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                 <div className="flex items-center gap-3">
                     <div className="w-7 h-7 flex items-center justify-center">
                         <Image
-                            src="/images/logo-dark.svg"
+                            src="/images/logo-light.svg"
                             alt="HyperAgent"
                             width={28}
                             height={28}
@@ -151,7 +151,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                             style={{ opacity: 0.92 }}
                         />
                         <Image
-                            src="/images/logo-light.svg"
+                            src="/images/logo-dark.svg"
                             alt="HyperAgent"
                             width={28}
                             height={28}

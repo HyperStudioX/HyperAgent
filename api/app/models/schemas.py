@@ -100,10 +100,14 @@ class ResearchStatus(str, Enum):
 
 class ResearchStepType(str, Enum):
     THINKING = "thinking"
+    CONFIG = "config"
     SEARCH = "search"
+    SEARCH_TOOLS = "search_tools"
+    COLLECT = "collect"
     ANALYZE = "analyze"
     SYNTHESIZE = "synthesize"
     WRITE = "write"
+    REPORT = "report"
 
 
 class ResearchStep(BaseModel):
@@ -155,6 +159,7 @@ class UnifiedQueryRequest(BaseModel):
     scenario: ResearchScenario | None = None
     depth: ResearchDepth = ResearchDepth.FAST
     conversation_id: str | None = None
+    task_id: str | None = None  # Optional task ID for research mode (frontend-generated)
     provider: LLMProvider = LLMProvider.ANTHROPIC
     model: str | None = None
     tier: ModelTier | None = None  # Optional tier override

@@ -174,7 +174,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                     <div className="flex items-center gap-2.5 mb-4">
                         <div className="w-6 h-6 flex items-center justify-center">
                             <Image
-                                src="/images/logo-dark.svg"
+                                src="/images/logo-light.svg"
                                 alt="HyperAgent"
                                 width={24}
                                 height={24}
@@ -182,7 +182,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                 style={{ opacity: 0.88 }}
                             />
                             <Image
-                                src="/images/logo-light.svg"
+                                src="/images/logo-dark.svg"
                                 alt="HyperAgent"
                                 width={24}
                                 height={24}
@@ -496,10 +496,10 @@ function CodeBlock({ language, children }: CodeBlockProps) {
                 // Light mode styles
                 "bg-secondary ring-border",
                 // Dark mode styles (deep black for Cursor aesthetic)
-                "dark:bg-[#0d0d0d] dark:ring-white/[0.08]",
+                "dark:bg-card dark:ring-border/50",
                 // Hover states
                 isHovered && (
-                    "ring-foreground/20 dark:ring-white/[0.15] dark:shadow-glow-sm"
+                    "ring-foreground/20 dark:ring-border dark:shadow-glow-sm"
                 )
             )}
             onMouseEnter={() => setIsHovered(true)}

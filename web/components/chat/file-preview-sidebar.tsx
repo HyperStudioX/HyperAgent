@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { FileText, Download, ExternalLink, Maximize2, Minimize2, FileCode, FileImage, FileJson } from "lucide-react";
+import { FileText, Download, ExternalLink, Maximize2, Minimize2, FileCode, FileImage, FileJson, FileSpreadsheet } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -78,11 +78,14 @@ export function FilePreviewSidebar() {
     };
 
     const getFileIcon = () => {
-        if (isImage) return <FileImage className="w-5 h-5 text-blue-500" />;
-        if (isCode) return <FileCode className="w-5 h-5 text-yellow-500" />;
-        if (file.contentType === "application/json") return <FileJson className="w-5 h-5 text-orange-500" />;
-        if (isMarkdown) return <FileText className="w-5 h-5 text-green-500" />;
-        return <FileText className="w-5 h-5 text-gray-500" />;
+        // File type color coding: Blue (images), Amber (code), Rose (data), Cyan (docs)
+        if (isImage) return <FileImage className="w-5 h-5 text-accent-blue transition-transform group-hover:scale-110" />;
+        if (isCode) return <FileCode className="w-5 h-5 text-accent-amber transition-transform group-hover:scale-110" />;
+        if (file.contentType === "application/json") return <FileJson className="w-5 h-5 text-accent-rose transition-transform group-hover:scale-110" />;
+        if (file.contentType?.includes("csv")) return <FileSpreadsheet className="w-5 h-5 text-accent-rose transition-transform group-hover:scale-110" />;
+        if (isMarkdown) return <FileText className="w-5 h-5 text-accent-cyan transition-transform group-hover:scale-110" />;
+        if (file.contentType?.includes("pdf")) return <FileText className="w-5 h-5 text-accent-rose transition-transform group-hover:scale-110" />;
+        return <FileText className="w-5 h-5 text-muted-foreground transition-transform group-hover:scale-110" />;
     };
 
     return (
@@ -145,7 +148,7 @@ export function FilePreviewSidebar() {
                 </div>
 
                 {/* Action Bar */}
-                <div className="px-4 py-2 border-b border-border/40 bg-muted/30 flex items-center justify-between shrink-0">
+                <div className="px-4 py-2 border-b border-border/30 bg-muted/30 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={handleDownload} className="h-8 gap-2">
                             <Download className="w-3.5 h-3.5" />

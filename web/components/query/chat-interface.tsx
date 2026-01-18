@@ -26,6 +26,7 @@ import { MessageBubble } from "@/components/chat/message-bubble";
 import { FileUploadButton } from "@/components/chat/file-upload-button";
 import { VoiceInputButton } from "@/components/chat/voice-input-button";
 import { AttachmentPreview } from "@/components/chat/attachment-preview";
+import { Button } from "@/components/ui/button";
 import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { useGoogleDrivePicker } from "@/lib/hooks/use-google-drive-picker";
 import type { AgentType, ResearchScenario, ResearchDepth, FileAttachment } from "@/lib/types";
@@ -123,6 +124,8 @@ export function ChatInterface() {
     const [selectedScenario, setSelectedScenario] = useState<ResearchScenario | null>(null);
     const [selectedDepth, setSelectedDepth] = useState<ResearchDepth>("fast");
     const [showResearchSubmenu, setShowResearchSubmenu] = useState(false);
+    const [submenuPosition, setSubmenuPosition] = useState<{ x: 'left' | 'right'; y: 'top' | 'bottom' }>({ x: 'right', y: 'bottom' });
+    const submenuRef = useRef<HTMLDivElement>(null);
     const [streamingContent, setStreamingContent] = useState("");
     const [streamingVisualizations, setStreamingVisualizations] = useState<{ data: string; mimeType: "image/png" | "text/html" }[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -228,6 +231,49 @@ export function ChatInterface() {
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    // Dynamic positioning for research submenu
+    useEffect(() => {
+        if (!showResearchSubmenu || !submenuRef.current || !researchRef.current) return;
+
+        const calculatePosition = () => {
+            const button = researchRef.current!.getBoundingClientRect();
+            const submenu = submenuRef.current!.getBoundingClientRect();
+            const viewport = {
+                width: window.innerWidth,
+                height: window.innerHeight,
+            };
+
+            // Calculate available space in each direction
+            const spaceRight = viewport.width - button.right;
+            const spaceLeft = button.left;
+            const spaceBottom = viewport.height - button.bottom;
+            const spaceTop = button.top;
+
+            // Determine horizontal position (prefer right, fall back to left)
+            const x: 'left' | 'right' = spaceRight >= submenu.width ? 'right' :
+                                        spaceLeft >= submenu.width ? 'left' : 'right';
+
+            // Determine vertical position (prefer bottom, fall back to top)
+            const y: 'top' | 'bottom' = spaceBottom >= submenu.height + 12 ? 'bottom' :
+                                        spaceTop >= submenu.height + 12 ? 'top' : 'bottom';
+
+            setSubmenuPosition({ x, y });
+        };
+
+        // Calculate immediately
+        calculatePosition();
+
+        // Recalculate on scroll/resize
+        const handleReposition = () => calculatePosition();
+        window.addEventListener('scroll', handleReposition, true);
+        window.addEventListener('resize', handleReposition);
+
+        return () => {
+            window.removeEventListener('scroll', handleReposition, true);
+            window.removeEventListener('resize', handleReposition);
+        };
+    }, [showResearchSubmenu]);
 
     // Check for scenario from URL query parameter (from sidebar menu)
     useEffect(() => {
@@ -946,9 +992,9 @@ export function ChatInterface() {
                                 style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
                             >
                                 <div className="relative w-14 h-14 flex items-center justify-center group">
-                                    <div className="absolute inset-0 bg-gradient-to-br from-foreground/12 to-foreground/3 rounded-2xl blur-xl opacity-50 group-hover:opacity-100 transition-opacity duration-500" />
+                                    <div className="absolute inset-0 bg-gradient-to-br from-accent-cyan/30 via-accent-blue/20 to-accent-cyan/10 rounded-2xl blur-xl opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
                                     <Image
-                                        src="/images/logo-dark.svg"
+                                        src="/images/logo-light.svg"
                                         alt="HyperAgent"
                                         width={56}
                                         height={56}
@@ -956,7 +1002,7 @@ export function ChatInterface() {
                                         className="dark:hidden relative z-10 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3"
                                     />
                                     <Image
-                                        src="/images/logo-light.svg"
+                                        src="/images/logo-dark.svg"
                                         alt="HyperAgent"
                                         width={56}
                                         height={56}
@@ -988,7 +1034,7 @@ export function ChatInterface() {
                         style={!hasMessages ? { animationDelay: '0.3s', animationFillMode: 'backwards' } : undefined}
                     >
                         <div className={cn(
-                            "relative flex flex-col bg-card rounded-xl border border-border focus-within:border-foreground/30 focus-within:shadow-glow-sm transition-all duration-200"
+                            "relative flex flex-col bg-card rounded-2xl border border-border focus-within:border-foreground/30 focus-within:shadow-glow-sm transition-all duration-200"
                         )}>
                             {/* Attachment preview */}
                             <AttachmentPreview
@@ -1038,15 +1084,11 @@ export function ChatInterface() {
                                             : tChat("pressEnterToSend")}
                                     </p>
                                 </div>
-                                <button
+                                <Button
                                     onClick={handleSubmit}
                                     disabled={!input.trim() || isProcessing || isUploading}
-                                    className={cn(
-                                        "px-4 py-2 rounded-xl transition-all duration-200 min-h-[44px] flex items-center justify-center gap-2 font-medium text-sm",
-                                        input.trim() && !isProcessing && !isUploading
-                                            ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-glow-sm"
-                                            : "bg-secondary text-muted-foreground"
-                                    )}
+                                    variant={input.trim() && !isProcessing && !isUploading ? "primary" : "default"}
+                                    className="min-h-[44px]"
                                 >
                                     {isProcessing || isUploading ? (
                                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -1056,7 +1098,7 @@ export function ChatInterface() {
                                             <Send className="w-4 h-4" />
                                         </>
                                     )}
-                                </button>
+                                </Button>
                             </div>
                         </div>
                     </div>
@@ -1076,16 +1118,16 @@ export function ChatInterface() {
                                                 onClick={() => handleAgentSelect(agent)}
                                                 onMouseEnter={() => agent === "research" && setShowResearchSubmenu(true)}
                                                 className={cn(
-                                                    "relative flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-200",
-                                                    "text-sm font-medium",
+                                                    "relative flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
+                                                    "text-sm font-medium border",
                                                     isSelected
-                                                        ? "bg-secondary text-foreground ring-1 ring-foreground/50 shadow-glow-sm"
-                                                        : "bg-card text-muted-foreground border border-border hover:bg-secondary/50 hover:text-foreground hover:border-foreground/20"
+                                                        ? "bg-foreground text-background border-foreground"
+                                                        : "bg-card text-muted-foreground border-border hover:bg-secondary hover:text-foreground"
                                                 )}
                                             >
                                                 {/* Selection checkmark */}
                                                 {isSelected && (
-                                                    <span className="flex items-center justify-center w-4 h-4 rounded-full bg-foreground text-background">
+                                                    <span className="flex items-center justify-center w-4 h-4 rounded-full bg-background text-foreground">
                                                         <Check className="w-3 h-3" strokeWidth={3} />
                                                     </span>
                                                 )}
@@ -1096,7 +1138,7 @@ export function ChatInterface() {
                                                 )}
                                                 <span>{tAgents(`${agent}.name`)}</span>
                                                 {agent === "research" && selectedScenario && (
-                                                    <span className="text-xs text-muted-foreground">
+                                                    <span className="text-xs opacity-70">
                                                         · {tResearch(`${selectedScenario}.name`)} · {tResearch(`depth.${selectedDepth}.name`)}
                                                     </span>
                                                 )}
@@ -1104,71 +1146,92 @@ export function ChatInterface() {
 
                                             {/* Research scenarios submenu */}
                                             {agent === "research" && showResearchSubmenu && (
-                                                <div
-                                                    className="absolute left-0 top-full mt-2 z-50 animate-fade-in"
-                                                    onMouseLeave={() => setShowResearchSubmenu(false)}
-                                                >
-                                                    <div className="bg-card border border-border rounded-xl overflow-hidden min-w-[220px] shadow-lg">
-                                                        {SCENARIO_KEYS.map((scenario) => (
-                                                            <button
-                                                                key={scenario}
-                                                                onClick={() => handleScenarioSelect(scenario)}
-                                                                className={cn(
-                                                                    "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
-                                                                    "hover:bg-secondary/50",
-                                                                    selectedScenario === scenario && "bg-secondary"
-                                                                )}
-                                                            >
-                                                                {selectedScenario === scenario ? (
-                                                                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background">
-                                                                        <Check className="w-3 h-3" strokeWidth={3} />
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="text-muted-foreground">
-                                                                        {SCENARIO_ICONS[scenario]}
-                                                                    </span>
-                                                                )}
-                                                                <div className="flex-1 min-w-0">
-                                                                    <div className={cn(
-                                                                        "text-sm font-medium",
-                                                                        selectedScenario === scenario ? "text-foreground" : "text-foreground"
-                                                                    )}>
-                                                                        {tResearch(`${scenario}.name`)}
-                                                                    </div>
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        {tResearch(`${scenario}.description`)}
-                                                                    </div>
-                                                                </div>
-                                                            </button>
-                                                        ))}
-                                                        {/* Depth selector */}
-                                                        <div className="border-t border-border px-3 py-2">
-                                                            <div className="text-xs text-muted-foreground mb-2">
-                                                                {tResearch("depth.label")}
-                                                            </div>
-                                                            <div className="flex gap-2">
-                                                                {DEPTH_KEYS.map((depth) => (
+                                                <>
+                                                    {/* Backdrop for dismissal */}
+                                                    <div className="fixed inset-0 z-40" onClick={() => setShowResearchSubmenu(false)} />
+
+                                                    <div
+                                                        ref={submenuRef}
+                                                        className={cn(
+                                                            "absolute z-50 transition-colors",
+                                                            submenuPosition.x === 'right' ? 'left-0' : 'right-0',
+                                                            submenuPosition.y === 'bottom' ? 'top-full mt-3' : 'bottom-full mb-3'
+                                                        )}
+                                                        onMouseLeave={() => setShowResearchSubmenu(false)}
+                                                    >
+                                                        {/* Arrow pointer */}
+                                                        <div className={cn(
+                                                            "absolute w-3 h-3 rotate-45 bg-card border border-border transition-colors",
+                                                            submenuPosition.y === 'bottom' ? '-top-1.5 border-l border-t' : '-bottom-1.5 border-r border-b',
+                                                            submenuPosition.x === 'right' ? 'left-6' : 'right-6'
+                                                        )} />
+
+                                                        <div className="relative bg-card border border-border rounded-xl overflow-hidden w-[280px]"
+                                                             style={{ maxWidth: 'min(280px, calc(100vw - 2rem))' }}
+                                                        >
+                                                        {/* Scenarios section */}
+                                                        <div className="p-3">
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                {SCENARIO_KEYS.map((scenario) => (
                                                                     <button
-                                                                        key={depth}
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setSelectedDepth(depth);
-                                                                        }}
+                                                                        key={scenario}
+                                                                        onClick={() => handleScenarioSelect(scenario)}
                                                                         className={cn(
-                                                                            "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-medium transition-all duration-200",
-                                                                            selectedDepth === depth
-                                                                                ? "bg-foreground text-background shadow-glow-sm"
-                                                                                : "bg-secondary text-muted-foreground hover:text-foreground"
+                                                                            "flex flex-col items-center gap-2 p-3 rounded-lg transition-colors",
+                                                                            "border border-border",
+                                                                            selectedScenario === scenario
+                                                                                ? "bg-foreground text-background"
+                                                                                : "bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"
                                                                         )}
                                                                     >
-                                                                        {DEPTH_ICONS[depth]}
-                                                                        {tResearch(`depth.${depth}.name`)}
+                                                                        <span className={cn(
+                                                                            "flex items-center justify-center w-9 h-9 rounded-lg transition-colors",
+                                                                            selectedScenario === scenario
+                                                                                ? "bg-background text-foreground"
+                                                                                : "bg-secondary text-muted-foreground"
+                                                                        )}>
+                                                                            {SCENARIO_ICONS[scenario]}
+                                                                        </span>
+                                                                        <span className="text-xs font-medium text-center leading-tight">
+                                                                            {tResearch(`${scenario}.name`)}
+                                                                        </span>
                                                                     </button>
                                                                 ))}
                                                             </div>
                                                         </div>
+
+                                                        {/* Depth selector */}
+                                                        <div className="border-t border-border bg-secondary px-3 py-3">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-xs font-medium text-muted-foreground">
+                                                                    {tResearch("depth.label")}
+                                                                </span>
+                                                                <div className="flex gap-1.5">
+                                                                    {DEPTH_KEYS.map((depth) => (
+                                                                        <button
+                                                                            key={depth}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setSelectedDepth(depth);
+                                                                            }}
+                                                                            className={cn(
+                                                                                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                                                                                "border border-border",
+                                                                                selectedDepth === depth
+                                                                                    ? "bg-foreground text-background"
+                                                                                    : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                                                                            )}
+                                                                        >
+                                                                            {DEPTH_ICONS[depth]}
+                                                                            <span>{tResearch(`depth.${depth}.name`)}</span>
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                    </div>
+                                                </>
                                             )}
                                         </div>
                                     );

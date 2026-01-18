@@ -5,6 +5,7 @@ import { DesktopSidebar } from "./desktop-sidebar";
 import { MobileSidebar } from "./mobile-sidebar";
 import { MenuToggle } from "@/components/ui/menu-toggle";
 import { useSidebarStore } from "@/lib/stores/sidebar-store";
+import { cn } from "@/lib/utils";
 
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
 import { AgentProgressPanel } from "@/components/sidebar/sidebar-agent-progress";
@@ -30,23 +31,30 @@ export function MainLayout({ children }: MainLayoutProps) {
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
                 {/* Mobile header with menu toggle */}
-                <div className="md:hidden h-14 px-4 flex items-center border-b border-border bg-card sticky top-0 z-30">
+                <div className="md:hidden h-14 px-2 flex items-center border-b border-border bg-card sticky top-0 z-30">
                     <MenuToggle
                         isOpen={mobileSidebarOpen}
                         onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
                     />
-                    <span className="ml-3 font-semibold text-foreground tracking-tight">HyperAgent</span>
+                    <span className="ml-1 font-semibold text-foreground tracking-tight">HyperAgent</span>
                 </div>
 
-                {/* Desktop floating toggle - only when sidebar is closed */}
-                {!desktopSidebarOpen && (
-                    <div className="hidden md:flex absolute left-4 top-4 z-40 bg-background/50 backdrop-blur-sm rounded-lg border border-border/50 shadow-sm p-0.5">
-                        <MenuToggle
-                            isOpen={false}
-                            onClick={toggleDesktopSidebar}
-                        />
-                    </div>
-                )}
+                {/* Desktop floating toggle - animated visibility when sidebar is closed */}
+                <div
+                    className={cn(
+                        "hidden md:flex absolute left-4 top-4 z-40",
+                        "glass-card rounded-lg shadow-lg",
+                        "transition-all duration-300 ease-out",
+                        desktopSidebarOpen
+                            ? "opacity-0 -translate-x-2 pointer-events-none"
+                            : "opacity-100 translate-x-0"
+                    )}
+                >
+                    <MenuToggle
+                        isOpen={false}
+                        onClick={toggleDesktopSidebar}
+                    />
+                </div>
 
                 {children}
 

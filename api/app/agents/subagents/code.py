@@ -1,9 +1,7 @@
 """Code execution subagent using E2B sandbox with handoff support."""
 
-import json
 import re
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from langgraph.prebuilt import ToolNode
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
 from app.agents.prompts import CODE_SYSTEM_PROMPT
@@ -13,10 +11,11 @@ from app.agents.tools import (
     generate_image,
     analyze_image,
     get_handoff_tools_for_agent,
+    execute_react_loop,
+    get_react_config,
 )
 from app.agents.tools.code_execution import execute_code_with_context
-from app.agents.tools.react_tool import build_ai_message_from_chunks
-from app.agents.tools.search_gate import should_enable_tools
+from app.agents.tools.tool_gate import should_enable_tools
 from app.agents.utils import (
     append_history,
     extract_and_add_image_events,
@@ -34,11 +33,10 @@ from app.services.llm import llm_service, extract_text_from_content
 logger = get_logger(__name__)
 
 CODING_TOOLS = [web_search, generate_image, analyze_image]
-MAX_TOOL_ITERATIONS = 3
 
 
 async def generate_code_node(state: CodeState) -> dict:
-    """Generate code based on user query.
+    """Generate code based on user query using the canonical ReAct loop.
 
     Args:
         state: Current code state with query
@@ -62,77 +60,55 @@ async def generate_code_node(state: CodeState) -> dict:
     # Get handoff tools for code agent
     handoff_tools = get_handoff_tools_for_agent("code")
 
+    # Get agent-specific ReAct configuration
+    config = get_react_config("code")
+
     try:
-        if should_enable_tools(query, history):
-            all_tools = CODING_TOOLS + handoff_tools
+        enable_tools = should_enable_tools(query, history)
+        all_tools = CODING_TOOLS + handoff_tools if enable_tools else handoff_tools
+
+        if enable_tools and all_tools:
             llm_with_tools = llm.bind_tools(all_tools)
-            tool_iterations = 0
-            pending_handoff = None
 
-            while tool_iterations < MAX_TOOL_ITERATIONS:
-                response_chunks = []
-                async for chunk in llm_with_tools.astream(messages):
-                    response_chunks.append(chunk)
+            # Define callbacks for tool events
+            def on_tool_call(tool_name: str, args: dict):
+                event_list.append(create_tool_call_event(tool_name, args))
 
-                tool_response = build_ai_message_from_chunks(response_chunks, query)
-                if not tool_response.tool_calls:
-                    break
+            def on_tool_result(tool_name: str, result: str):
+                if tool_name == "generate_image":
+                    extract_and_add_image_events(result, event_list)
+                event_list.append(create_tool_result_event(tool_name, result))
 
-                # Check for handoff
-                for tool_call in tool_response.tool_calls:
-                    tool_name = tool_call.get("name") or ""
-                    if tool_name.startswith("handoff_to_"):
-                        target_agent = tool_name.replace("handoff_to_", "")
-                        task_description = tool_call.get("args", {}).get("task_description", "")
-                        context = tool_call.get("args", {}).get("context", "")
+            def on_handoff(source: str, target: str, task: str):
+                event_list.append(events.handoff(source=source, target=target, task=task))
 
-                        pending_handoff = {
-                            "source_agent": "code",
-                            "target_agent": target_agent,
-                            "task_description": task_description,
-                            "context": context,
-                        }
+            # Execute the canonical ReAct loop for tool calling
+            result = await execute_react_loop(
+                llm_with_tools=llm_with_tools,
+                messages=messages,
+                tools=all_tools,
+                query=query,
+                config=config,
+                source_agent="code",
+                on_tool_call=on_tool_call,
+                on_tool_result=on_tool_result,
+                on_handoff=on_handoff,
+            )
 
-                        event_list.append(events.handoff(
-                            source="code",
-                            target=target_agent,
-                            task=task_description,
-                        ))
+            # Add events from the ReAct loop
+            event_list.extend(result.events)
+            messages = result.messages
 
-                        logger.info("code_handoff_detected", target=target_agent)
-                        break
+            # Check for pending handoff
+            if result.pending_handoff:
+                logger.info("code_handoff_detected", target=result.pending_handoff.get("target_agent"))
+                return {
+                    "response": "",
+                    "events": event_list,
+                    "pending_handoff": result.pending_handoff,
+                }
 
-                if pending_handoff:
-                    return {
-                        "response": "",
-                        "events": event_list,
-                        "pending_handoff": pending_handoff,
-                    }
-
-                messages.append(tool_response)
-                tool_iterations += 1
-                for tool_call in tool_response.tool_calls:
-                    tool_name = tool_call.get("name") or tool_call.get("tool") or ""
-                    if not tool_name:
-                        continue
-                    event_list.append(create_tool_call_event(tool_name, tool_call.get("args") or {}))
-
-                tool_results = await ToolNode(all_tools).ainvoke({"messages": [tool_response]})
-                for msg in tool_results.get("messages", []):
-                    messages.append(msg)
-                    if isinstance(msg, ToolMessage):
-                        if msg.name == "generate_image":
-                            extract_and_add_image_events(msg.content, event_list)
-                        event_list.append(create_tool_result_event(msg.name, msg.content))
-
-            if tool_iterations >= MAX_TOOL_ITERATIONS:
-                event_list.append(create_stage_event(
-                    "tool",
-                    "Tool limit reached; continuing without more tool calls.",
-                    "completed",
-                ))
-
-        # Stream the response
+        # Stream the final response for code generation
         response_chunks = []
         async for chunk in llm.astream(messages):
             if chunk.content:

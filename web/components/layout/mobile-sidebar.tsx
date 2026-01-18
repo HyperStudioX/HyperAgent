@@ -222,14 +222,14 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     <div className="flex items-center gap-3">
                         <div className="w-8 h-8 flex items-center justify-center">
                             <Image
-                                src="/images/logo-dark.svg"
+                                src="/images/logo-light.svg"
                                 alt="HyperAgent"
                                 width={32}
                                 height={32}
                                 className="dark:hidden transition-transform duration-200 hover:scale-105"
                             />
                             <Image
-                                src="/images/logo-light.svg"
+                                src="/images/logo-dark.svg"
                                 alt="HyperAgent"
                                 width={32}
                                 height={32}
@@ -243,7 +243,6 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     <MenuToggle
                         isOpen={true}
                         onClick={onClose}
-                        className="p-2 -mr-2"
                     />
                 </div>
 

@@ -1,7 +1,6 @@
 """Writing subagent for long-form content creation with handoff support."""
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from langgraph.prebuilt import ToolNode
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
 from app.agents.prompts import (
@@ -15,9 +14,10 @@ from app.agents.tools import (
     generate_image,
     analyze_image,
     get_handoff_tools_for_agent,
+    execute_react_loop,
+    get_react_config,
 )
-from app.agents.tools.react_tool import build_ai_message_from_chunks
-from app.agents.tools.search_gate import should_enable_tools
+from app.agents.tools.tool_gate import should_enable_tools
 from app.agents.utils import (
     append_history,
     build_image_context_message,
@@ -36,7 +36,6 @@ from app.services.llm import llm_service, extract_text_from_content
 logger = get_logger(__name__)
 
 WRITING_TOOLS = [web_search, generate_image, analyze_image]
-MAX_TOOL_ITERATIONS = 3
 
 
 async def analyze_task_node(state: WritingState) -> dict:
@@ -76,7 +75,7 @@ async def analyze_task_node(state: WritingState) -> dict:
 
 
 async def create_outline_node(state: WritingState) -> dict:
-    """Create an outline for the writing task.
+    """Create an outline for the writing task using the canonical ReAct loop.
 
     Args:
         state: Current writing state
@@ -93,6 +92,9 @@ async def create_outline_node(state: WritingState) -> dict:
 
     # Get handoff tools for writing agent
     handoff_tools = get_handoff_tools_for_agent("writing")
+
+    # Get agent-specific ReAct configuration
+    config = get_react_config("writing")
 
     try:
         outline_prompt = get_outline_prompt(query, writing_type, tone)
@@ -127,71 +129,44 @@ async def create_outline_node(state: WritingState) -> dict:
         if enable_tools:
             all_tools = WRITING_TOOLS + handoff_tools
             llm_with_tools = llm.bind_tools(all_tools)
-            tool_iterations = 0
-            pending_handoff = None
 
-            while tool_iterations < MAX_TOOL_ITERATIONS:
-                response_chunks = []
-                async for chunk in llm_with_tools.astream(messages):
-                    response_chunks.append(chunk)
+            # Define callbacks for tool events
+            def on_tool_call(tool_name: str, args: dict):
+                event_list.append(create_tool_call_event(tool_name, args))
 
-                tool_response = build_ai_message_from_chunks(response_chunks, query)
-                if not tool_response.tool_calls:
-                    break
+            def on_tool_result(tool_name: str, result: str):
+                if tool_name == "generate_image":
+                    extract_and_add_image_events(result, event_list)
+                event_list.append(create_tool_result_event(tool_name, result))
 
-                # Check for handoff
-                for tool_call in tool_response.tool_calls:
-                    tool_name = tool_call.get("name") or ""
-                    if tool_name.startswith("handoff_to_"):
-                        target_agent = tool_name.replace("handoff_to_", "")
-                        task_description = tool_call.get("args", {}).get("task_description", "")
-                        context = tool_call.get("args", {}).get("context", "")
+            def on_handoff(source: str, target: str, task: str):
+                event_list.append(events.handoff(source=source, target=target, task=task))
 
-                        pending_handoff = {
-                            "source_agent": "writing",
-                            "target_agent": target_agent,
-                            "task_description": task_description,
-                            "context": context,
-                        }
+            # Execute the canonical ReAct loop
+            result = await execute_react_loop(
+                llm_with_tools=llm_with_tools,
+                messages=messages,
+                tools=all_tools,
+                query=query,
+                config=config,
+                source_agent="writing",
+                on_tool_call=on_tool_call,
+                on_tool_result=on_tool_result,
+                on_handoff=on_handoff,
+            )
 
-                        event_list.append(events.handoff(
-                            source="writing",
-                            target=target_agent,
-                            task=task_description,
-                        ))
+            # Add events from the ReAct loop
+            event_list.extend(result.events)
+            messages = result.messages
 
-                        logger.info("writing_handoff_detected", target=target_agent)
-                        break
-
-                if pending_handoff:
-                    return {
-                        "outline": "",
-                        "events": event_list,
-                        "pending_handoff": pending_handoff,
-                    }
-
-                messages.append(tool_response)
-                tool_iterations += 1
-                for tool_call in tool_response.tool_calls:
-                    tool_name = tool_call.get("name") or tool_call.get("tool") or ""
-                    if not tool_name:
-                        continue
-                    event_list.append(create_tool_call_event(tool_name, tool_call.get("args") or {}))
-
-                tool_results = await ToolNode(all_tools).ainvoke({"messages": [tool_response]})
-                for msg in tool_results.get("messages", []):
-                    messages.append(msg)
-                    if isinstance(msg, ToolMessage):
-                        if msg.name == "generate_image":
-                            extract_and_add_image_events(msg.content, event_list)
-                        event_list.append(create_tool_result_event(msg.name, msg.content))
-
-            if tool_iterations >= MAX_TOOL_ITERATIONS:
-                event_list.append(create_stage_event(
-                    "tool",
-                    "Tool limit reached; continuing without more tool calls.",
-                    "completed",
-                ))
+            # Check for pending handoff
+            if result.pending_handoff:
+                logger.info("writing_handoff_detected", target=result.pending_handoff.get("target_agent"))
+                return {
+                    "outline": "",
+                    "events": event_list,
+                    "pending_handoff": result.pending_handoff,
+                }
 
         # Stream the outline
         outline_chunks = []
@@ -232,7 +207,7 @@ async def create_outline_node(state: WritingState) -> dict:
 
 
 async def write_content_node(state: WritingState) -> dict:
-    """Write the content based on outline.
+    """Write the content based on outline using the canonical ReAct loop.
 
     Args:
         state: Current writing state with outline
@@ -250,6 +225,9 @@ async def write_content_node(state: WritingState) -> dict:
 
     # Get handoff tools for writing agent
     handoff_tools = get_handoff_tools_for_agent("writing")
+
+    # Get agent-specific ReAct configuration
+    config = get_react_config("writing")
 
     # If no outline, write directly with type/tone context
     if not outline:
@@ -289,71 +267,44 @@ async def write_content_node(state: WritingState) -> dict:
         if enable_tools:
             all_tools = WRITING_TOOLS + handoff_tools
             llm_with_tools = llm.bind_tools(all_tools)
-            tool_iterations = 0
-            pending_handoff = None
 
-            while tool_iterations < MAX_TOOL_ITERATIONS:
-                response_chunks = []
-                async for chunk in llm_with_tools.astream(messages):
-                    response_chunks.append(chunk)
+            # Define callbacks for tool events
+            def on_tool_call(tool_name: str, args: dict):
+                event_list.append(create_tool_call_event(tool_name, args))
 
-                tool_response = build_ai_message_from_chunks(response_chunks, query)
-                if not tool_response.tool_calls:
-                    break
+            def on_tool_result(tool_name: str, result: str):
+                if tool_name == "generate_image":
+                    extract_and_add_image_events(result, event_list)
+                event_list.append(create_tool_result_event(tool_name, result))
 
-                # Check for handoff
-                for tool_call in tool_response.tool_calls:
-                    tool_name = tool_call.get("name") or ""
-                    if tool_name.startswith("handoff_to_"):
-                        target_agent = tool_name.replace("handoff_to_", "")
-                        task_description = tool_call.get("args", {}).get("task_description", "")
-                        context = tool_call.get("args", {}).get("context", "")
+            def on_handoff(source: str, target: str, task: str):
+                event_list.append(events.handoff(source=source, target=target, task=task))
 
-                        pending_handoff = {
-                            "source_agent": "writing",
-                            "target_agent": target_agent,
-                            "task_description": task_description,
-                            "context": context,
-                        }
+            # Execute the canonical ReAct loop
+            result = await execute_react_loop(
+                llm_with_tools=llm_with_tools,
+                messages=messages,
+                tools=all_tools,
+                query=query,
+                config=config,
+                source_agent="writing",
+                on_tool_call=on_tool_call,
+                on_tool_result=on_tool_result,
+                on_handoff=on_handoff,
+            )
 
-                        event_list.append(events.handoff(
-                            source="writing",
-                            target=target_agent,
-                            task=task_description,
-                        ))
+            # Add events from the ReAct loop
+            event_list.extend(result.events)
+            messages = result.messages
 
-                        logger.info("writing_handoff_detected", target=target_agent)
-                        break
-
-                if pending_handoff:
-                    return {
-                        "response": "",
-                        "events": event_list,
-                        "pending_handoff": pending_handoff,
-                    }
-
-                messages.append(tool_response)
-                tool_iterations += 1
-                for tool_call in tool_response.tool_calls:
-                    tool_name = tool_call.get("name") or tool_call.get("tool") or ""
-                    if not tool_name:
-                        continue
-                    event_list.append(create_tool_call_event(tool_name, tool_call.get("args") or {}))
-
-                tool_results = await ToolNode(all_tools).ainvoke({"messages": [tool_response]})
-                for msg in tool_results.get("messages", []):
-                    messages.append(msg)
-                    if isinstance(msg, ToolMessage):
-                        if msg.name == "generate_image":
-                            extract_and_add_image_events(msg.content, event_list)
-                        event_list.append(create_tool_result_event(msg.name, msg.content))
-
-            if tool_iterations >= MAX_TOOL_ITERATIONS:
-                event_list.append(create_stage_event(
-                    "tool",
-                    "Tool limit reached; continuing without more tool calls.",
-                    "completed",
-                ))
+            # Check for pending handoff
+            if result.pending_handoff:
+                logger.info("writing_handoff_detected", target=result.pending_handoff.get("target_agent"))
+                return {
+                    "response": "",
+                    "events": event_list,
+                    "pending_handoff": result.pending_handoff,
+                }
 
         # Stream the content
         content_chunks = []

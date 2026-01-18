@@ -83,6 +83,7 @@
         }
     },
     "research": {
+        "selectScenario": "Select Research Type",
         "academic": {
             "name": "Academic Research",
             "description": "Literature review, citations, scholarly sources"
@@ -242,6 +243,26 @@
                     "running": "Searching...",
                     "completed": "Search complete",
                     "failed": "Search failed"
+                },
+                "config": {
+                    "running": "Initializing research...",
+                    "completed": "Research initialized",
+                    "failed": "Initialization failed"
+                },
+                "search_tools": {
+                    "running": "Executing search...",
+                    "completed": "Search executed",
+                    "failed": "Search execution failed"
+                },
+                "collect": {
+                    "running": "Collecting sources...",
+                    "completed": "Sources collected",
+                    "failed": "Collection failed"
+                },
+                "report": {
+                    "running": "Writing research report...",
+                    "completed": "Report complete",
+                    "failed": "Report failed"
                 },
                 "tool": {
                     "running": "Executing tools...",

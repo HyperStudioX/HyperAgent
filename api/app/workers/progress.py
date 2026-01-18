@@ -129,6 +129,46 @@ class ProgressReporter:
             "message": message,
         })
 
+    async def emit_tool_call(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        tool_id: str | None = None,
+    ) -> None:
+        """
+        Emit a tool call event.
+
+        Args:
+            tool: Tool name
+            args: Tool arguments
+            tool_id: Optional tool call ID
+        """
+        await self.emit("tool_call", {
+            "tool": tool,
+            "args": args,
+            "id": tool_id,
+        })
+
+    async def emit_tool_result(
+        self,
+        tool: str,
+        output: str,
+        tool_id: str | None = None,
+    ) -> None:
+        """
+        Emit a tool result event.
+
+        Args:
+            tool: Tool name
+            output: Tool output
+            tool_id: Optional tool call ID
+        """
+        await self.emit("tool_result", {
+            "tool": tool,
+            "output": output,
+            "id": tool_id,
+        })
+
     async def emit_complete(self) -> None:
         """Emit task completion event."""
         await self.emit("complete", {"task_id": self.task_id})

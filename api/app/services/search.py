@@ -2,14 +2,15 @@
 
 import hashlib
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from tavily import AsyncTavilyClient
 
+from app.agents.scenarios import get_scenario_config
 from app.config import settings
 from app.core.logging import get_logger
 from app.models.schemas import ResearchDepth, ResearchScenario
-from app.agents.scenarios import get_scenario_config
+from app.services.circuit_breaker import CircuitBreakerOpen, get_tavily_breaker
 
 logger = get_logger(__name__)
 
@@ -153,6 +154,7 @@ class SearchService:
                 return cached
 
         client = self._get_client()
+        breaker = get_tavily_breaker()
 
         logger.info(
             "search_raw_started",
@@ -162,12 +164,13 @@ class SearchService:
         )
 
         try:
-            response = await client.search(
-                query=query,
-                max_results=max_results,
-                search_depth=search_depth,
-                include_raw_content=include_raw_content,
-            )
+            async with breaker.call():
+                response = await client.search(
+                    query=query,
+                    max_results=max_results,
+                    search_depth=search_depth,
+                    include_raw_content=include_raw_content,
+                )
 
             results = []
             for item in response.get("results", []):
@@ -192,6 +195,14 @@ class SearchService:
             )
             return results
 
+        except CircuitBreakerOpen as e:
+            logger.warning(
+                "search_raw_circuit_open",
+                query=query,
+                service="tavily",
+                retry_after=e.retry_after,
+            )
+            raise
         except Exception as e:
             logger.error("search_raw_failed", query=query, error=str(e))
             raise
@@ -223,6 +234,8 @@ class SearchService:
             # Add the primary focus term to help target results
             enhanced_query = f"{query} {search_focus[0]}"
 
+        breaker = get_tavily_breaker()
+
         logger.info(
             "search_started",
             query=query,
@@ -233,12 +246,13 @@ class SearchService:
         )
 
         try:
-            response = await client.search(
-                query=enhanced_query,
-                max_results=config["max_results"],
-                search_depth=config["search_depth"],
-                include_raw_content=depth == ResearchDepth.DEEP,
-            )
+            async with breaker.call():
+                response = await client.search(
+                    query=enhanced_query,
+                    max_results=config["max_results"],
+                    search_depth=config["search_depth"],
+                    include_raw_content=depth == ResearchDepth.DEEP,
+                )
 
             results = []
             for item in response.get("results", []):
@@ -259,6 +273,14 @@ class SearchService:
             )
             return results
 
+        except CircuitBreakerOpen as e:
+            logger.warning(
+                "search_circuit_open",
+                query=query,
+                service="tavily",
+                retry_after=e.retry_after,
+            )
+            raise
         except Exception as e:
             logger.error("search_failed", query=query, error=str(e))
             raise

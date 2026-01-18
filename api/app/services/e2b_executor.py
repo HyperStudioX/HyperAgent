@@ -5,13 +5,14 @@ Supports multiple programming languages, file uploads, and visualization capture
 """
 
 import base64
-from typing import Any, Literal
 from io import BytesIO
+from typing import Any, Literal
 
 from e2b import AsyncSandbox
 
 from app.config import settings
 from app.core.logging import get_logger
+from app.services.circuit_breaker import CircuitBreakerOpen, get_e2b_breaker
 
 logger = get_logger(__name__)
 
@@ -54,6 +55,7 @@ class E2BSandboxExecutor:
 
         Raises:
             ValueError: If API key not configured
+            CircuitBreakerOpen: If E2B service is unavailable
         """
         if not self.api_key:
             raise ValueError("E2B API key not configured. Set E2B_API_KEY environment variable.")
@@ -68,10 +70,24 @@ class E2BSandboxExecutor:
             sandbox_kwargs["template"] = self.template_id
             logger.info("using_e2b_template", template_id=self.template_id)
 
-        self.sandbox = await AsyncSandbox.create(**sandbox_kwargs)
-        logger.info("e2b_sandbox_created", sandbox_id=self.sandbox.sandbox_id)
+        breaker = get_e2b_breaker()
 
-        return self.sandbox.sandbox_id
+        try:
+            async with breaker.call():
+                self.sandbox = await AsyncSandbox.create(**sandbox_kwargs)
+            logger.info("e2b_sandbox_created", sandbox_id=self.sandbox.sandbox_id)
+            return self.sandbox.sandbox_id
+
+        except CircuitBreakerOpen as e:
+            logger.warning(
+                "e2b_sandbox_circuit_open",
+                service="e2b",
+                retry_after=e.retry_after,
+            )
+            raise
+        except Exception as e:
+            logger.error("e2b_sandbox_creation_failed", error=str(e))
+            raise
 
     async def upload_file(
         self,

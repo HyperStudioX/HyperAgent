@@ -21,8 +21,8 @@
     --accent-foreground: 0 0% 20%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
+    --border: 0 0% 93%;
+    --input: 0 0% 93%;
     --ring: 0 0% 20%;
     --radius: 0.75rem;
 
@@ -30,40 +30,50 @@
     --accent-cyan: 168 60% 68%;
     --accent-amber: 30 75% 72%;
     --accent-rose: 310 60% 74%;
-    --accent-blue: 210 100% 76%;
+    --accent-blue: 210 75% 76%;
     --accent-vibrant: 168 60% 68%;
     --accent-vibrant-foreground: 0 0% 9%;
+
+    /* Semantic status colors */
+    --accent-success: 142 76% 36%;
+    --accent-warning: 38 92% 50%;
+    --accent-info: 199 89% 48%;
   }
 
   .dark {
     /* Cursor Aesthetic Dark - Deep black with neutral grays */
     --background: 0 0% 4%;
-    --foreground: 0 0% 89%;
+    --foreground: 0 0% 92%;
     --card: 0 0% 7%;
-    --card-foreground: 0 0% 89%;
+    --card-foreground: 0 0% 92%;
     --popover: 0 0% 7%;
-    --popover-foreground: 0 0% 89%;
-    --primary: 0 0% 89%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 0 0% 92%;
     --primary-foreground: 0 0% 4%;
     --secondary: 0 0% 12%;
-    --secondary-foreground: 0 0% 89%;
+    --secondary-foreground: 0 0% 92%;
     --muted: 0 0% 14%;
     --muted-foreground: 0 0% 50%;
     --accent: 0 0% 14%;
-    --accent-foreground: 0 0% 89%;
+    --accent-foreground: 0 0% 92%;
     --destructive: 0 72% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
     --ring: 0 0% 80%;
 
     /* Vibrant accent colors */
     --accent-cyan: 168 60% 68%;
     --accent-amber: 30 75% 72%;
     --accent-rose: 310 60% 74%;
-    --accent-blue: 210 100% 76%;
+    --accent-blue: 210 75% 76%;
     --accent-vibrant: 168 60% 68%;
     --accent-vibrant-foreground: 0 0% 4%;
+
+    /* Semantic status colors */
+    --accent-success: 142 76% 46%;
+    --accent-warning: 38 92% 50%;
+    --accent-info: 199 89% 48%;
   }
 }
 
@@ -186,6 +196,17 @@ code:not(pre code) {
   }
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes bounce-in {
   0% {
     opacity: 0;
@@ -287,18 +308,12 @@ button, a {
   font-family: var(--font-plus-jakarta-sans), system-ui, sans-serif;
   font-weight: 800;
   letter-spacing: -0.04em;
-  color: hsl(var(--foreground));
+  color: #000000;
   position: relative;
 }
 
 .dark .brand-title {
-  background: linear-gradient(135deg,
-    hsl(var(--foreground)) 0%,
-    hsl(var(--accent-cyan)) 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #ffffff;
 }
 
 /* Brand title size variants */
@@ -361,26 +376,6 @@ button, a {
   resize: none;
 }
 
-/* Glow utilities */
-.glow-sm {
-  box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.3);
-}
-
-.glow-md {
-  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.4);
-}
-
-.hover-glow:hover {
-  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.3);
-}
-
-/* Focus glow for inputs */
-.focus-glow:focus-visible {
-  box-shadow: 0 0 0 2px hsl(var(--background)),
-              0 0 0 4px hsl(var(--accent-cyan) / 0.5);
-  outline: none;
-}
-
 /* Interactive element glow */
 .interactive-glow {
   transition: box-shadow 0.2s ease-out;
@@ -394,16 +389,19 @@ button, a {
   box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.35);
 }
 
-/* Accent button variant */
-.btn-accent {
-  background-color: hsl(var(--accent-cyan));
-  color: hsl(0 0% 9%);
-  transition: all 0.2s ease-out;
+/* Static glow effects for emphasis elements */
+.shadow-glow-sm {
+  box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.3);
 }
 
-.btn-accent:hover {
-  background-color: hsl(var(--accent-cyan) / 0.9);
-  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.5);
+.shadow-glow-md {
+  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.4);
+}
+
+/* Focus state glow */
+.focus-glow:focus-visible {
+  box-shadow: 0 0 0 3px hsl(var(--accent-cyan) / 0.2);
+  outline: none;
 }
 
 /* Streaming cursor blink animation - pure CSS, no JS re-renders */
@@ -418,4 +416,74 @@ button, a {
 
 .streaming-cursor {
   animation: cursor-blink 1.06s ease-in-out infinite;
+}
+
+/* Animated gradient backgrounds for hero moments */
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.gradient-cyan-blue {
+  background: linear-gradient(
+    135deg,
+    hsl(var(--accent-cyan)),
+    hsl(var(--accent-blue)),
+    hsl(var(--accent-cyan))
+  );
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
+}
+
+.gradient-amber-rose {
+  background: linear-gradient(
+    135deg,
+    hsl(var(--accent-amber)),
+    hsl(var(--accent-rose)),
+    hsl(var(--accent-amber))
+  );
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
+}
+
+/* Glassmorphism utilities */
+.glass {
+  background: hsl(var(--background) / 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-card {
+  background: hsl(var(--card) / 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.glass-secondary {
+  background: hsl(var(--secondary) / 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Accessibility: Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .gradient-cyan-blue,
+  .gradient-amber-rose {
+    animation: none !important;
+    background-position: 0% 50%;
+  }
 }

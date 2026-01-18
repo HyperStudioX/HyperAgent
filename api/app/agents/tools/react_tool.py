@@ -13,7 +13,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
 
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
 from app.core.logging import get_logger
@@ -587,11 +587,202 @@ class ReActLoopConfig:
         max_retries_per_tool: Maximum retries per tool execution
         retry_base_delay: Base delay for exponential backoff on retries
         enable_streaming: Whether to stream LLM responses
+        truncate_tool_results: Whether to truncate long tool results
+        tool_result_max_chars: Maximum characters for tool results (when truncating)
+        handoff_behavior: How to handle handoff requests ("immediate" or "deferred")
+        max_consecutive_errors: Maximum consecutive tool errors before stopping
+        max_message_tokens: Token budget for message history (approximate)
+        preserve_recent_messages: Number of recent messages to always preserve
     """
     max_iterations: int = 5
     max_retries_per_tool: int = 2
     retry_base_delay: float = 1.0
     enable_streaming: bool = True
+    truncate_tool_results: bool = True
+    tool_result_max_chars: int = 2000
+    handoff_behavior: str = "immediate"  # "immediate" or "deferred"
+    max_consecutive_errors: int = 2
+    max_message_tokens: int = 100000  # Conservative token budget
+    preserve_recent_messages: int = 4  # Keep last N messages when truncating
+
+
+# Agent-specific preset configurations
+AGENT_REACT_CONFIGS: dict[str, ReActLoopConfig] = {
+    "chat": ReActLoopConfig(
+        max_iterations=5,
+        handoff_behavior="immediate",
+        truncate_tool_results=True,
+        tool_result_max_chars=2000,
+    ),
+    "code": ReActLoopConfig(
+        max_iterations=3,
+        handoff_behavior="deferred",
+        truncate_tool_results=True,
+        tool_result_max_chars=1500,
+    ),
+    "analytics": ReActLoopConfig(
+        max_iterations=3,
+        handoff_behavior="deferred",
+        truncate_tool_results=True,
+        tool_result_max_chars=2000,
+    ),
+    "data": ReActLoopConfig(
+        max_iterations=3,
+        handoff_behavior="deferred",
+        truncate_tool_results=True,
+        tool_result_max_chars=2000,
+    ),
+    "writing": ReActLoopConfig(
+        max_iterations=3,
+        handoff_behavior="deferred",
+        truncate_tool_results=True,
+        tool_result_max_chars=1500,
+    ),
+    "research": ReActLoopConfig(
+        max_iterations=5,
+        handoff_behavior="deferred",
+        truncate_tool_results=True,
+        tool_result_max_chars=3000,
+    ),
+}
+
+
+def get_react_config(agent_type: str) -> ReActLoopConfig:
+    """Get the ReAct loop configuration for a specific agent type.
+
+    Args:
+        agent_type: The agent type (chat, code, analytics, writing, research, data)
+
+    Returns:
+        ReActLoopConfig for the specified agent type, or default if not found
+    """
+    return AGENT_REACT_CONFIGS.get(agent_type, ReActLoopConfig())
+
+
+def estimate_message_tokens(message: BaseMessage) -> int:
+    """Estimate token count for a message.
+
+    Uses a simple heuristic: ~4 characters per token on average.
+
+    Args:
+        message: LangChain message to estimate
+
+    Returns:
+        Estimated token count
+    """
+    content = ""
+    if isinstance(message.content, str):
+        content = message.content
+    elif isinstance(message.content, list):
+        # Handle multimodal content
+        for item in message.content:
+            if isinstance(item, str):
+                content += item
+            elif isinstance(item, dict) and item.get("type") == "text":
+                content += item.get("text", "")
+    return len(content) // 4 + 1
+
+
+def truncate_messages_to_budget(
+    messages: list[BaseMessage],
+    max_tokens: int = 100000,
+    preserve_system: bool = True,
+    preserve_recent: int = 4,
+) -> tuple[list[BaseMessage], bool]:
+    """Truncate old messages to stay within token budget.
+
+    Preserves system messages (if preserve_system=True) and the most recent
+    N messages (preserve_recent). Drops oldest non-system messages first.
+
+    Args:
+        messages: List of messages to potentially truncate
+        max_tokens: Maximum token budget
+        preserve_system: Whether to always keep system messages
+        preserve_recent: Number of recent messages to always keep
+
+    Returns:
+        Tuple of (truncated messages, was_truncated)
+    """
+    if not messages:
+        return messages, False
+
+    # Calculate current token estimate
+    total_tokens = sum(estimate_message_tokens(m) for m in messages)
+
+    if total_tokens <= max_tokens:
+        return messages, False
+
+    # Separate messages into categories
+    system_messages = []
+    other_messages = []
+
+    for msg in messages:
+        if preserve_system and isinstance(msg, SystemMessage):
+            system_messages.append(msg)
+        else:
+            other_messages.append(msg)
+
+    # Preserve the most recent messages
+    preserved_recent = other_messages[-preserve_recent:] if len(other_messages) > preserve_recent else other_messages
+    droppable = other_messages[:-preserve_recent] if len(other_messages) > preserve_recent else []
+
+    # Calculate tokens for preserved messages
+    preserved_tokens = sum(estimate_message_tokens(m) for m in system_messages + preserved_recent)
+
+    if preserved_tokens >= max_tokens:
+        # Even preserved messages exceed budget - return them anyway with warning
+        logger.warning(
+            "preserved_messages_exceed_budget",
+            preserved_tokens=preserved_tokens,
+            max_tokens=max_tokens,
+        )
+        return system_messages + preserved_recent, True
+
+    # Add droppable messages from most recent, dropping oldest first
+    remaining_budget = max_tokens - preserved_tokens
+    kept_droppable = []
+
+    for msg in reversed(droppable):
+        msg_tokens = estimate_message_tokens(msg)
+        if remaining_budget >= msg_tokens:
+            kept_droppable.insert(0, msg)
+            remaining_budget -= msg_tokens
+
+    truncated = system_messages + kept_droppable + preserved_recent
+    was_truncated = len(truncated) < len(messages)
+
+    if was_truncated:
+        logger.info(
+            "messages_truncated",
+            original_count=len(messages),
+            truncated_count=len(truncated),
+            dropped_count=len(messages) - len(truncated),
+        )
+
+    return truncated, was_truncated
+
+
+def truncate_tool_result(content: str, max_chars: int = 2000) -> str:
+    """Truncate a tool result to stay within character limit.
+
+    Tries to preserve the beginning and end of the content.
+
+    Args:
+        content: Tool result content to truncate
+        max_chars: Maximum characters allowed
+
+    Returns:
+        Truncated content with indicator if truncated
+    """
+    if len(content) <= max_chars:
+        return content
+
+    # Keep first 60% and last 30% of the budget, with 10% for truncation message
+    head_budget = int(max_chars * 0.6)
+    tail_budget = int(max_chars * 0.3)
+    truncation_msg = f"\n\n... [truncated {len(content) - head_budget - tail_budget} characters] ...\n\n"
+
+    return content[:head_budget] + truncation_msg + content[-tail_budget:]
 
 
 @dataclass
@@ -618,18 +809,22 @@ async def execute_react_loop(
     tools: list[BaseTool],
     query: str,
     config: ReActLoopConfig | None = None,
+    source_agent: str = "unknown",
     on_tool_call: Callable[[str, dict], None] | None = None,
     on_tool_result: Callable[[str, str], None] | None = None,
     on_handoff: Callable[[str, str, str], None] | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> ReActLoopResult:
     """Execute a unified ReAct loop with tool calling and retry support.
 
     This is the canonical ReAct implementation that all agents should use.
     It handles:
-    - Streaming LLM responses
+    - Streaming LLM responses with token callbacks
     - Tool call detection and execution with retry
-    - Handoff detection
+    - Handoff detection (immediate or deferred)
     - Iteration limits
+    - Message truncation to stay within token budget
+    - Tool result truncation
 
     Args:
         llm_with_tools: LLM instance with tools bound
@@ -637,9 +832,11 @@ async def execute_react_loop(
         tools: List of available tools
         query: The user query (used for missing args fallback)
         config: Configuration for the loop
+        source_agent: The name of the agent executing the loop (for handoff tracking)
         on_tool_call: Callback when a tool is called (tool_name, args)
         on_tool_result: Callback when a tool returns (tool_name, result)
         on_handoff: Callback when a handoff is detected (source, target, task)
+        on_token: Callback for each streamed token (token_content)
 
     Returns:
         ReActLoopResult with updated messages and metadata
@@ -650,18 +847,40 @@ async def execute_react_loop(
     messages = list(messages)  # Don't mutate input
     events: list[dict[str, Any]] = []
     tool_iterations = 0
+    consecutive_errors = 0
     pending_handoff = None
+    deferred_handoff = None
 
     # Build tool lookup for execution
     tool_map = {tool.name: tool for tool in tools}
 
     while tool_iterations < config.max_iterations:
+        # Apply message truncation to stay within token budget
+        messages, was_truncated = truncate_messages_to_budget(
+            messages,
+            max_tokens=config.max_message_tokens,
+            preserve_recent=config.preserve_recent_messages,
+        )
+
+        if was_truncated:
+            events.append({
+                "type": "stage",
+                "name": "context",
+                "description": "Message history truncated to fit context window",
+                "status": "completed",
+            })
+
         # Stream LLM response
         response_chunks = []
         try:
             if config.enable_streaming:
                 async for chunk in llm_with_tools.astream(messages):
                     response_chunks.append(chunk)
+                    # Stream tokens to callback if provided
+                    if on_token and hasattr(chunk, "content") and chunk.content:
+                        content = extract_text_from_content(chunk.content)
+                        if content:
+                            on_token(content)
             else:
                 response = await llm_with_tools.ainvoke(messages)
                 response_chunks = [response]
@@ -678,37 +897,59 @@ async def execute_react_loop(
             messages.append(ai_message)
             break
 
-        # Check for handoff tool calls first
+        # Separate handoff and regular tool calls
+        handoff_call = None
+        regular_tool_calls = []
+
         for tool_call in ai_message.tool_calls:
             tool_name = tool_call.get("name") or ""
             if tool_name.startswith("handoff_to_"):
-                target_agent = tool_name.replace("handoff_to_", "")
-                task_description = tool_call.get("args", {}).get("task_description", "")
-                context = tool_call.get("args", {}).get("context", "")
+                handoff_call = tool_call
+            else:
+                regular_tool_calls.append(tool_call)
 
-                pending_handoff = {
-                    "source_agent": "unknown",  # Will be set by caller
-                    "target_agent": target_agent,
-                    "task_description": task_description,
-                    "context": context,
-                }
+        # Handle handoff based on config
+        if handoff_call:
+            target_agent = handoff_call.get("name", "").replace("handoff_to_", "")
+            task_description = handoff_call.get("args", {}).get("task_description", "")
+            context = handoff_call.get("args", {}).get("context", "")
+
+            handoff_info = {
+                "source_agent": source_agent,
+                "target_agent": target_agent,
+                "task_description": task_description,
+                "context": context,
+            }
+
+            if config.handoff_behavior == "immediate" or not regular_tool_calls:
+                # Return immediately with handoff
+                pending_handoff = handoff_info
 
                 if on_handoff:
-                    on_handoff("unknown", target_agent, task_description)
+                    on_handoff(source_agent, target_agent, task_description)
 
                 logger.info(
-                    "react_loop_handoff_detected",
+                    "react_loop_handoff_immediate",
+                    source=source_agent,
                     target=target_agent,
                     iteration=tool_iterations,
                 )
 
-                # Return early with handoff
                 return ReActLoopResult(
                     messages=messages,
                     final_response="",
                     tool_iterations=tool_iterations,
                     events=events,
                     pending_handoff=pending_handoff,
+                )
+            else:
+                # Deferred: execute regular tools first, then handoff
+                deferred_handoff = handoff_info
+                logger.info(
+                    "react_loop_handoff_deferred",
+                    source=source_agent,
+                    target=target_agent,
+                    pending_tools=[tc.get("name") for tc in regular_tool_calls],
                 )
 
         # Add AI message with tool calls to history
@@ -717,8 +958,9 @@ async def execute_react_loop(
 
         # Execute each tool call with retry
         tool_results: list[ToolMessage] = []
+        iteration_errors = 0
 
-        for tool_call in ai_message.tool_calls:
+        for tool_call in regular_tool_calls:
             tool_name = tool_call.get("name", "")
             tool_args = tool_call.get("args", {})
             tool_call_id = tool_call.get("id", "")
@@ -738,6 +980,7 @@ async def execute_react_loop(
                         name=tool_name,
                     )
                 )
+                iteration_errors += 1
                 continue
 
             # Execute with retry
@@ -749,6 +992,10 @@ async def execute_react_loop(
                     base_delay=config.retry_base_delay,
                 )
 
+                # Truncate result if configured
+                if config.truncate_tool_results and result:
+                    result = truncate_tool_result(result, config.tool_result_max_chars)
+
                 if on_tool_result:
                     on_tool_result(tool_name, result[:500] if result else "")
 
@@ -759,6 +1006,7 @@ async def execute_react_loop(
                         name=tool_name,
                     )
                 )
+                consecutive_errors = 0  # Reset on success
 
             except Exception as e:
                 error_msg = f"Error invoking tool {tool_name}: {e}"
@@ -772,6 +1020,29 @@ async def execute_react_loop(
                         name=tool_name,
                     )
                 )
+                iteration_errors += 1
+
+        # Update consecutive errors
+        if iteration_errors == len(regular_tool_calls) and regular_tool_calls:
+            consecutive_errors += 1
+        else:
+            consecutive_errors = 0
+
+        # Check for too many consecutive errors
+        if consecutive_errors >= config.max_consecutive_errors:
+            logger.warning(
+                "react_loop_max_consecutive_errors",
+                consecutive_errors=consecutive_errors,
+                max=config.max_consecutive_errors,
+            )
+            events.append({
+                "type": "stage",
+                "name": "tool",
+                "description": f"Too many consecutive tool errors ({consecutive_errors}); stopping.",
+                "status": "completed",
+            })
+            messages.extend(tool_results)
+            break
 
         # Add tool results to messages
         messages.extend(tool_results)
@@ -780,7 +1051,33 @@ async def execute_react_loop(
             "react_loop_iteration_completed",
             iteration=tool_iterations,
             tool_count=len(tool_results),
+            error_count=iteration_errors,
         )
+
+        # If we have a deferred handoff and just finished tools, return it
+        if deferred_handoff and tool_iterations >= 1:
+            pending_handoff = deferred_handoff
+
+            if on_handoff:
+                on_handoff(
+                    deferred_handoff["source_agent"],
+                    deferred_handoff["target_agent"],
+                    deferred_handoff["task_description"],
+                )
+
+            logger.info(
+                "react_loop_deferred_handoff_executed",
+                source=deferred_handoff["source_agent"],
+                target=deferred_handoff["target_agent"],
+            )
+
+            return ReActLoopResult(
+                messages=messages,
+                final_response="",
+                tool_iterations=tool_iterations,
+                events=events,
+                pending_handoff=pending_handoff,
+            )
 
     # Check if we hit the iteration limit
     if tool_iterations >= config.max_iterations:
@@ -811,5 +1108,5 @@ async def execute_react_loop(
         final_response=final_response,
         tool_iterations=tool_iterations,
         events=events,
-        pending_handoff=None,
+        pending_handoff=pending_handoff,
     )

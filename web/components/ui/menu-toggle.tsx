@@ -14,13 +14,12 @@ export function MenuToggle({ isOpen, onClick, className }: MenuToggleProps) {
         <button
             onClick={onClick}
             className={cn(
-                "relative p-2 -ml-2",
+                "relative flex items-center justify-center",
+                "min-h-[44px] min-w-[44px] p-2.5",
                 "text-muted-foreground hover:text-foreground",
                 "rounded-lg hover:bg-secondary",
                 "transition-colors duration-200",
-                "group",
                 "touch-manipulation",
-                "active:scale-95",
                 className
             )}
             aria-label={isOpen ? "Close sidebar" : "Open sidebar"}
@@ -32,7 +31,7 @@ export function MenuToggle({ isOpen, onClick, className }: MenuToggleProps) {
                 viewBox="0 0 20 20"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
-                className="transition-transform duration-200 group-hover:scale-110"
+                className="transition-transform duration-200"
             >
                 {/* Outer frame */}
                 <rect

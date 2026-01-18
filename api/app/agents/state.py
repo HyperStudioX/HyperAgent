@@ -22,41 +22,9 @@ class AgentType(str, Enum):
     DATA = "data"
 
 
-class HandoffInfo(TypedDict, total=False):
-    """Information about a handoff request."""
-
-    source_agent: str  # Agent that initiated the handoff
-    target_agent: str  # Agent to transfer control to
-    task_description: str  # What the target agent should do
-    context: str  # Additional context for the handoff
-
-
-class SharedAgentMemory(TypedDict, total=False):
-    """Shared memory accessible across agents during handoffs.
-
-    This allows agents to share findings, intermediate results, and context
-    when delegating tasks to other agents.
-    """
-
-    # Research findings from research agent
-    research_findings: str
-    research_sources: list[dict[str, Any]]
-
-    # Code artifacts from code agent
-    generated_code: str
-    code_language: str
-    execution_results: str
-
-    # Writing artifacts from writing agent
-    writing_outline: str
-    writing_draft: str
-
-    # Data analysis artifacts from data agent
-    data_analysis_plan: str
-    data_visualizations: list[dict[str, str]]
-
-    # General context that any agent can add
-    additional_context: str
+# Re-export HandoffInfo and SharedAgentMemory from handoff module for backward compatibility
+# These types are now consolidated in the handoff module
+from app.agents.tools.handoff import HandoffInfo, SharedAgentMemory
 
 
 class SupervisorState(TypedDict, total=False):
@@ -124,7 +92,7 @@ class ResearchState(SupervisorState, total=False):
     # Tool calling support
     lc_messages: list[BaseMessage]  # LangChain messages for ReAct loop
     search_complete: bool  # Flag to exit search loop
-    search_count: int  # Track number of search iterations
+    # Note: tool_iterations (inherited from SupervisorState) tracks search iterations
 
     # Handoff tracking
     deferred_handoff: HandoffInfo | None  # Handoff deferred until search tools complete

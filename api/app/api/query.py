@@ -12,24 +12,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from app.agents import agent_supervisor
 from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
-from app.db.models import Conversation, ConversationMessage, File as FileModel
+from app.db.models import Conversation, ConversationMessage
+from app.db.models import File as FileModel
 from app.models.schemas import (
-    QueryMode,
-    UnifiedQueryRequest,
-    UnifiedQueryResponse,
     LLMProvider,
+    QueryMode,
     ResearchStatus,
     ResearchStep,
     ResearchStepType,
     Source,
+    UnifiedQueryRequest,
+    UnifiedQueryResponse,
 )
-from app.services.llm import llm_service
-from app.services.storage import storage_service
 from app.services.file_storage import file_storage_service
-from app.agents import agent_supervisor
+from app.services.storage import storage_service
+from app.services.task_queue import task_queue
 
 logger = get_logger(__name__)
 
@@ -464,14 +465,15 @@ async def stream_query(
         )
 
     else:
-        # Stream research response
+        # Stream research response via worker queue
         if request.scenario is None:
             raise HTTPException(
                 status_code=400,
                 detail="Scenario is required for research mode. Choose from: academic, market, technical, news",
             )
 
-        task_id = str(uuid.uuid4())
+        # Use frontend-provided task_id if available, otherwise generate new one
+        task_id = request.task_id or str(uuid.uuid4())
 
         # Create task in database
         task = await storage_service.create_task(
@@ -482,214 +484,186 @@ async def stream_query(
             scenario=request.scenario.value,
             user_id=current_user.id,
         )
+
+        # Update status to queued before enqueueing
+        await storage_service.update_task_status(db, task_id, "queued")
+        await db.commit()
+
+        # Enqueue to worker for background processing
+        job_id = await task_queue.enqueue_research_task(
+            task_id=task_id,
+            query=request.message,
+            depth=request.depth.value,
+            scenario=request.scenario.value,
+            user_id=current_user.id,
+        )
+
+        # Update task with worker job ID
+        await storage_service.update_task_worker_info(db, task_id, job_id, "api-enqueue")
         await db.commit()
 
         logger.info(
-            "research_stream_started",
+            "research_stream_enqueued",
             task_id=task_id,
+            job_id=job_id,
             query=request.message[:50],
             depth=request.depth.value if request.depth else None,
             scenario=request.scenario.value if request.scenario else None,
         )
 
-        async def research_generator() -> AsyncGenerator[dict, None]:
-            # Track state for database updates
-            report_content = []
-            step_ids = {}
+        async def research_stream_from_worker() -> AsyncGenerator[dict, None]:
+            """Stream research progress from worker via Redis pub/sub."""
+            from redis.asyncio import Redis
 
-            # Batching configuration - reduces DB sessions from ~10 per task to ~3
-            BATCH_FLUSH_INTERVAL = 0.5  # seconds
-            pending_steps: list[dict] = []
-            pending_sources: list[dict] = []
-            pending_step_updates: list[dict] = []
-            import time
-            last_flush_time = time.time()
+            from app.config import settings
 
-            async def flush_pending_writes():
-                """Flush all pending database writes in a single transaction."""
-                nonlocal pending_steps, pending_sources, pending_step_updates, last_flush_time
-
-                if not pending_steps and not pending_sources and not pending_step_updates:
-                    return
-
-                async with (await get_db_session()) as session:
-                    # Add new steps
-                    for step_data in pending_steps:
-                        await storage_service.add_step(
-                            db=session,
-                            task_id=task_id,
-                            step_id=step_data["step_id"],
-                            step_type=step_data["step_type"],
-                            description=step_data["description"],
-                            status=step_data["status"],
-                        )
-
-                    # Update step statuses
-                    for update_data in pending_step_updates:
-                        await storage_service.update_step_status(
-                            db=session,
-                            step_id=update_data["step_id"],
-                            status=update_data["status"],
-                        )
-
-                    # Add sources
-                    for source_data in pending_sources:
-                        await storage_service.add_source(
-                            db=session,
-                            task_id=task_id,
-                            source_id=source_data["source_id"],
-                            title=source_data["title"],
-                            url=source_data["url"],
-                            snippet=source_data.get("snippet"),
-                            relevance_score=source_data.get("relevance_score"),
-                        )
-
-                    await session.commit()
-
-                # Clear buffers
-                pending_steps = []
-                pending_sources = []
-                pending_step_updates = []
-                last_flush_time = time.time()
-
-            async def maybe_flush():
-                """Flush if enough time has passed since last flush."""
-                if time.time() - last_flush_time >= BATCH_FLUSH_INTERVAL:
-                    await flush_pending_writes()
-
-            # Update task status to running
-            async with (await get_db_session()) as session:
-                await storage_service.update_task_status(session, task_id, "running")
-                await session.commit()
-
-            # Send initial event with task_id
+            # Send initial event with task_id for backward compatibility
             yield {
                 "event": "message",
                 "data": json.dumps({"type": "task_started", "task_id": task_id}),
             }
 
+            # Subscribe to worker progress channel
+            redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            pubsub = redis.pubsub()
+            channel = f"hyperagent:progress:{task_id}"
+
             try:
-                async for event in agent_supervisor.run(
-                    query=request.message,
-                    mode="research",
-                    depth=request.depth,
-                    scenario=request.scenario,
-                ):
-                    if event["type"] == "stage":
-                        step_id = str(uuid.uuid4())
-                        step_type = event["name"]
+                await pubsub.subscribe(channel)
 
-                        # Track step IDs for updates
-                        if event["status"] == "running":
-                            step_ids[step_type] = step_id
-                            # Queue step for batched insert
-                            pending_steps.append({
-                                "step_id": step_id,
-                                "step_type": step_type,
-                                "description": event["description"],
-                                "status": event["status"],
-                            })
-                        else:
-                            # Queue step status update
-                            if step_type in step_ids:
-                                pending_step_updates.append({
-                                    "step_id": step_ids[step_type],
-                                    "status": event["status"],
-                                })
-                                step_id = step_ids[step_type]
+                async for message in pubsub.listen():
+                    if message["type"] == "message":
+                        event_data = json.loads(message["data"])
+                        event_type = event_data.get("type")
+                        data = event_data.get("data", {})
 
-                        # Maybe flush pending writes
-                        await maybe_flush()
+                        # Transform worker events to match frontend expected format
+                        if event_type == "step":
+                            # Map step events to stage format for frontend compatibility
+                            step_type = data.get("step_type", "")
+                            try:
+                                step_type_enum = ResearchStepType(step_type)
+                            except ValueError:
+                                # Unknown step type - pass through as-is
+                                logger.warning("unknown_step_type", step_type=step_type)
+                                stage_data = {
+                                    "type": "stage",
+                                    "name": step_type,
+                                    "description": data.get("description", step_type),
+                                    "status": data.get("status", "running"),
+                                    "id": data.get("step_id", str(uuid.uuid4())),
+                                }
+                                yield {
+                                    "event": "message",
+                                    "data": json.dumps(stage_data),
+                                }
+                                continue
 
-                        step = ResearchStep(
-                            id=step_id,
-                            type=ResearchStepType(step_type),
-                            description=event["description"],
-                            status=ResearchStatus(event["status"]),
-                        )
-                        stage_data = step.model_dump()
-                        # Rename 'type' to 'name' to avoid collision with event type
-                        stage_data["name"] = stage_data.pop("type")
-                        stage_data["type"] = "stage"
-                        yield {
-                            "event": "message",
-                            "data": json.dumps(stage_data),
-                        }
-
-                    elif event["type"] == "source":
-                        source_id = str(uuid.uuid4())
-
-                        # Queue source for batched insert
-                        pending_sources.append({
-                            "source_id": source_id,
-                            "title": event["title"],
-                            "url": event["url"],
-                            "snippet": event.get("snippet"),
-                            "relevance_score": event.get("relevance_score"),
-                        })
-
-                        # Maybe flush pending writes
-                        await maybe_flush()
-
-                        source = Source(
-                            id=source_id,
-                            title=event["title"],
-                            url=event["url"],
-                            snippet=event.get("snippet"),
-                        )
-                        yield {
-                            "event": "message",
-                            "data": json.dumps({"type": "source", "data": source.model_dump()}),
-                        }
-
-                    elif event["type"] == "token":
-                        from app.services.llm import extract_text_from_content
-                        content = extract_text_from_content(event["content"])
-                        if content:  # Only append non-empty content
-                            report_content.append(content)
+                            step = ResearchStep(
+                                id=data.get("step_id", str(uuid.uuid4())),
+                                type=step_type_enum,
+                                description=data["description"],
+                                status=ResearchStatus(data["status"]),
+                            )
+                            stage_data = step.model_dump()
+                            stage_data["name"] = stage_data.pop("type")
+                            stage_data["type"] = "stage"
                             yield {
                                 "event": "message",
-                                "data": json.dumps({"type": "token", "data": content}),
+                                "data": json.dumps(stage_data),
                             }
 
-                # Flush any remaining pending writes
-                await flush_pending_writes()
+                        elif event_type == "source":
+                            source = Source(
+                                id=data.get("source_id", str(uuid.uuid4())),
+                                title=data["title"],
+                                url=data["url"],
+                                snippet=data.get("snippet"),
+                            )
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"type": "source", "data": source.model_dump()}),
+                            }
 
-                # Update task as completed with report
-                async with (await get_db_session()) as session:
-                    await storage_service.update_task_report(
-                        db=session,
-                        task_id=task_id,
-                        report="".join(report_content),
-                    )
-                    await storage_service.update_task_status(session, task_id, "completed")
-                    await session.commit()
+                        elif event_type == "token":
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"type": "token", "data": data.get("content", "")}),
+                            }
 
-                logger.info("research_stream_completed", task_id=task_id)
-                yield {
-                    "event": "message",
-                    "data": json.dumps({"type": "complete", "data": ""}),
-                }
+                        elif event_type == "token_batch":
+                            # Token batch is just multiple tokens at once
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"type": "token", "data": data.get("content", "")}),
+                            }
+
+                        elif event_type == "tool_call":
+                            # Forward tool call events
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({
+                                    "type": "tool_call",
+                                    "tool": data.get("tool", ""),
+                                    "args": data.get("args", {}),
+                                    "id": data.get("id"),
+                                }),
+                            }
+
+                        elif event_type == "tool_result":
+                            # Forward tool result events
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({
+                                    "type": "tool_result",
+                                    "tool": data.get("tool", ""),
+                                    "output": data.get("output", ""),
+                                    "id": data.get("id"),
+                                }),
+                            }
+
+                        elif event_type == "progress":
+                            # Forward progress percentage events
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({
+                                    "type": "progress",
+                                    "percentage": data.get("percentage", 0),
+                                    "message": data.get("message", ""),
+                                }),
+                            }
+
+                        elif event_type == "complete":
+                            logger.info("research_stream_completed", task_id=task_id)
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"type": "complete", "data": ""}),
+                            }
+                            break
+
+                        elif event_type == "error":
+                            logger.error(
+                                "research_stream_error",
+                                task_id=task_id,
+                                error=data.get("error", "Unknown error"),
+                            )
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"type": "error", "data": data.get("error", "Unknown error")}),
+                            }
+                            break
 
             except Exception as e:
-                logger.error("research_stream_error", task_id=task_id, error=str(e))
-                # Flush any pending writes before error handling
-                try:
-                    await flush_pending_writes()
-                except Exception:
-                    pass  # Don't mask the original error
-
-                async with (await get_db_session()) as session:
-                    await storage_service.update_task_status(
-                        session, task_id, "failed", error=str(e)
-                    )
-                    await session.commit()
+                logger.error("research_stream_subscription_error", task_id=task_id, error=str(e))
                 yield {
                     "event": "message",
                     "data": json.dumps({"type": "error", "data": str(e)}),
                 }
+            finally:
+                await pubsub.unsubscribe(channel)
+                await redis.aclose()
 
-        return EventSourceResponse(research_generator())
+        return EventSourceResponse(research_stream_from_worker())
 
 
 async def get_db_session() -> AsyncSession:
