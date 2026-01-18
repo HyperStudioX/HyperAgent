@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
-import { useShallow } from "zustand/shallow";
+import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { FileUploadButton } from "@/components/chat/file-upload-button";
 import { VoiceInputButton } from "@/components/chat/voice-input-button";
@@ -60,8 +60,6 @@ interface MessageListProps {
     messages: any[];
     streamingContent: string;
     isLoading: boolean;
-    agentStatus: string | null;
-    streamingEvents: any[];
     streamingVisualizations: any[];
     streamingStartTime: Date;
     onRegenerate: (messageId: string) => void;
@@ -72,8 +70,6 @@ const MessageList = memo(function MessageList({
     messages,
     streamingContent,
     isLoading,
-    agentStatus,
-    streamingEvents,
     streamingVisualizations,
     streamingStartTime,
     onRegenerate,
@@ -105,8 +101,6 @@ const MessageList = memo(function MessageList({
                             createdAt: streamingStartTime,
                         }}
                         isStreaming={true}
-                        status={agentStatus}
-                        agentEvents={streamingEvents}
                         visualizations={streamingVisualizations}
                     />
                 </div>
@@ -130,8 +124,6 @@ export function ChatInterface() {
     const [selectedDepth, setSelectedDepth] = useState<ResearchDepth>("fast");
     const [showResearchSubmenu, setShowResearchSubmenu] = useState(false);
     const [streamingContent, setStreamingContent] = useState("");
-    const [agentStatus, setAgentStatus] = useState<string | null>(null);
-    const [streamingEvents, setStreamingEvents] = useState<any[]>([]);
     const [streamingVisualizations, setStreamingVisualizations] = useState<{ data: string; mimeType: "image/png" | "text/html" }[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -171,10 +163,6 @@ export function ChatInterface() {
     const tokenBatchRef = useRef<string[]>([]);
     const batchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const BATCH_INTERVAL_MS = 50; // Batch tokens every 50ms for smooth rendering
-
-    // Event batching for smoother AgentProgress updates
-    const eventBatchRef = useRef<any[]>([]);
-    const eventUpdateScheduledRef = useRef(false);
 
     // Throttled streaming content update using requestAnimationFrame with batching
     const updateStreamingContent = useCallback((content: string) => {
@@ -230,43 +218,6 @@ export function ChatInterface() {
         }
     }, [updateStreamingContent]);
 
-    // Batched event update to reduce AgentProgress re-renders
-    const batchEventUpdate = useCallback((event: any) => {
-        eventBatchRef.current.push(event);
-        if (!eventUpdateScheduledRef.current) {
-            eventUpdateScheduledRef.current = true;
-            requestAnimationFrame(() => {
-                const batch = eventBatchRef.current;
-                eventBatchRef.current = [];
-                eventUpdateScheduledRef.current = false;
-                if (batch.length > 0) {
-                    setStreamingEvents(prev => [...prev, ...batch]);
-                }
-            });
-        }
-    }, []);
-
-    // Reset streaming events (for starting a new stream)
-    const resetStreamingEvents = useCallback((initialEvents: any[] = []) => {
-        eventBatchRef.current = [];
-        eventUpdateScheduledRef.current = false;
-        setStreamingEvents(initialEvents);
-    }, []);
-
-    // Throttled agent status update
-    const agentStatusRef = useRef<string | null>(null);
-    const statusUpdateScheduledRef = useRef(false);
-    const throttledSetAgentStatus = useCallback((status: string | null) => {
-        agentStatusRef.current = status;
-        if (!statusUpdateScheduledRef.current) {
-            statusUpdateScheduledRef.current = true;
-            requestAnimationFrame(() => {
-                setAgentStatus(agentStatusRef.current);
-                statusUpdateScheduledRef.current = false;
-            });
-        }
-    }, []);
-
     // Close research submenu when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -289,34 +240,25 @@ export function ChatInterface() {
         }
     }, [searchParams, router]);
 
-    // Consolidate store selectors into a single subscription for better performance
+    const activeConversationId = useChatStore((state) => state.activeConversationId);
+    const isLoading = useChatStore((state) => state.isLoading);
+    const hasHydrated = useChatStore((state) => state.hasHydrated);
+    const setLoading = useChatStore((state) => state.setLoading);
+    const setStreaming = useChatStore((state) => state.setStreaming);
+    const addMessage = useChatStore((state) => state.addMessage);
+    const removeMessage = useChatStore((state) => state.removeMessage);
+    const createConversation = useChatStore((state) => state.createConversation);
+    const getActiveConversation = useChatStore((state) => state.getActiveConversation);
+    const loadConversation = useChatStore((state) => state.loadConversation);
+    const conversations = useChatStore((state) => state.conversations);
+
+    // Agent progress store for sidebar visibility
     const {
-        activeConversationId,
-        isLoading,
-        hasHydrated,
-        setLoading,
-        setStreaming,
-        addMessage,
-        removeMessage,
-        createConversation,
-        getActiveConversation,
-        loadConversation,
-        conversations,
-    } = useChatStore(
-        useShallow((state) => ({
-            activeConversationId: state.activeConversationId,
-            isLoading: state.isLoading,
-            hasHydrated: state.hasHydrated,
-            setLoading: state.setLoading,
-            setStreaming: state.setStreaming,
-            addMessage: state.addMessage,
-            removeMessage: state.removeMessage,
-            createConversation: state.createConversation,
-            getActiveConversation: state.getActiveConversation,
-            loadConversation: state.loadConversation,
-            conversations: state.conversations,
-        }))
-    );
+        startProgress: startAgentProgress,
+        addEvent: addAgentEvent,
+        updateStage: updateAgentStage,
+        endProgress: endAgentProgress,
+    } = useAgentProgressStore();
 
     const activeConversation = hasHydrated ? getActiveConversation() : undefined;
     const messages = activeConversation?.messages || [];
@@ -426,8 +368,8 @@ export function ChatInterface() {
         setStreamingContent("");
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
-        setAgentStatus(null);
-        resetStreamingEvents();
+        // Status shown in sidebar
+        // Events managed in sidebar panel
         setStreamingVisualizations([]);
 
         let conversationId = activeConversationId;
@@ -462,6 +404,9 @@ export function ChatInterface() {
         setStreaming(true);
         streamingStartTimeRef.current = new Date();
 
+        // Start agent progress for sidebar visibility
+        startAgentProgress(conversationId, "chat");
+
         // Add initial thinking event immediately for instant feedback
         const thinkingEvent = {
             type: "stage",
@@ -469,7 +414,8 @@ export function ChatInterface() {
             description: tChat("agent.thinking"),
             status: "running",
         };
-        resetStreamingEvents([thinkingEvent]);
+        // Events managed in sidebar panel
+        addAgentEvent(thinkingEvent as any);
 
         let fullContent = "";
         const collectedEvents: any[] = [thinkingEvent];
@@ -517,59 +463,79 @@ export function ChatInterface() {
                         try {
                             const event = JSON.parse(jsonStr);
 
-                            if (event.type === "token" && event.data) {
-                                fullContent += event.data;
+                            if (event.type === "token" && (event.data || event.content)) {
+                                fullContent += event.data || event.content;
                                 // Simply update streaming content - search queries come via tool_call events
                                 updateStreamingContent(fullContent);
-                                throttledSetAgentStatus(null);
+                                // Status now shown in sidebar panel
                             } else if (event.type === "stage") {
                                 // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
                                 const stageDescription = event.description || event.data?.description;
-                                throttledSetAgentStatus(stageDescription);
+                                // Stage status shown in sidebar
+                                updateAgentStage(stageDescription);
                                 collectedEvents.push(event);
-                                setStreamingEvents(prev => [...prev.filter(e => e.type !== 'stage' || (e.status || e.data?.status) !== 'pending'), event]);
+                                addAgentEvent(event);
+                                // Stage events managed in sidebar panel
                             } else if (event.type === "tool_call") {
                                 // Handle both flat structure and legacy data wrapper
                                 const toolName = event.tool || event.data?.tool || "web";
                                 const args = event.args || event.data?.args || {};
                                 if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
-                                    throttledSetAgentStatus(tChat("agent.searching", { query: args.query || "web" }));
+                                    // Search status shown in sidebar
+                                    updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
                                 } else {
-                                    throttledSetAgentStatus(tChat("agent.executing", { tool: toolName }));
+                                    // Tool execution status shown in sidebar
+                                    updateAgentStage(tChat("agent.executing", { tool: toolName }));
                                 }
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "tool_result") {
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "routing") {
                                 // Handle routing decision events
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "handoff") {
                                 // Handle agent handoff events
                                 const target = event.target || "";
-                                throttledSetAgentStatus(tChat("agent.handoffTo", { target }));
+                                // Handoff status shown in sidebar
+                                updateAgentStage(tChat("agent.handoffTo", { target }));
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "source") {
                                 // Handle source events from search
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "code_result") {
                                 // Handle code execution results
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
-                            } else if (event.type === "visualization" && event.data && event.mime_type) {
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
+                            } else if (event.type === "visualization") {
                                 // Handle visualization event from data analytics agent
-                                const visualization = {
-                                    data: event.data as string,
-                                    mimeType: event.mime_type as "image/png" | "text/html",
-                                };
-                                collectedVisualizations.push(visualization);
-                                setStreamingVisualizations(prev => [...prev, visualization]);
-                                collectedEvents.push(event);
+                                console.log("[Visualization Event]", {
+                                    hasData: !!event.data,
+                                    dataLength: event.data?.length || 0,
+                                    mimeType: event.mime_type
+                                });
+                                if (event.data && event.mime_type) {
+                                    const visualization = {
+                                        data: event.data as string,
+                                        mimeType: event.mime_type as "image/png" | "text/html",
+                                    };
+                                    collectedVisualizations.push(visualization);
+                                    setStreamingVisualizations(prev => [...prev, visualization]);
+                                    collectedEvents.push(event);
+                                } else {
+                                    console.warn("[Visualization Event] Missing data or mime_type, skipping");
+                                }
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
@@ -589,12 +555,14 @@ export function ChatInterface() {
 
             if (fullContent) {
                 const sanitizedContent = fullContent;
+                if (collectedVisualizations.length > 0) {
+                    console.log("[Message Save] Saving message with visualizations:", collectedVisualizations.length);
+                }
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: (collectedEvents.length || collectedVisualizations.length) ? {
-                        agentEvents: collectedEvents.length ? collectedEvents : undefined,
-                        visualizations: collectedVisualizations.length ? collectedVisualizations : undefined,
+                    metadata: collectedVisualizations.length ? {
+                        visualizations: collectedVisualizations,
                     } : undefined,
                 });
             }
@@ -605,11 +573,12 @@ export function ChatInterface() {
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
-            setAgentStatus(null);
-            resetStreamingEvents();
+            // Status shown in sidebar
+            // Events managed in sidebar panel
             setStreamingVisualizations([]);
             setLoading(false);
             setStreaming(false);
+            endAgentProgress();
         }
     };
 
@@ -622,8 +591,8 @@ export function ChatInterface() {
         setStreamingContent("");
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
-        setAgentStatus(null);
-        resetStreamingEvents();
+        // Status shown in sidebar
+        // Events managed in sidebar panel
         setStreamingVisualizations([]);
 
         // Determine the conversation type based on agent
@@ -671,6 +640,9 @@ export function ChatInterface() {
         setStreaming(true);
         streamingStartTimeRef.current = new Date();
 
+        // Start agent progress for sidebar visibility
+        startAgentProgress(conversationId, agentType);
+
         // Add initial thinking event immediately for instant feedback
         const thinkingEvent = {
             type: "stage",
@@ -678,7 +650,8 @@ export function ChatInterface() {
             description: tChat("agent.thinking"),
             status: "running",
         };
-        resetStreamingEvents([thinkingEvent]);
+        // Events managed in sidebar panel
+        addAgentEvent(thinkingEvent as any);
 
         let fullContent = "";
         const collectedEvents: any[] = [thinkingEvent];
@@ -726,62 +699,83 @@ export function ChatInterface() {
                         try {
                             const event = JSON.parse(jsonStr);
 
-                            if (event.type === "token" && event.data) {
-                                fullContent += event.data;
+                            if (event.type === "token" && (event.data || event.content)) {
+                                fullContent += event.data || event.content;
                                 // Simply update streaming content - search queries come via tool_call events
                                 updateStreamingContent(fullContent);
-                                throttledSetAgentStatus(null);
+                                // Status now shown in sidebar panel
                             } else if (event.type === "stage") {
                                 // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
                                 const stageDescription = event.description || event.data?.description;
-                                throttledSetAgentStatus(stageDescription);
+                                // Stage status shown in sidebar
+                                updateAgentStage(stageDescription);
                                 collectedEvents.push(event);
-                                setStreamingEvents(prev => [...prev.filter(e => e.type !== 'stage' || (e.status || e.data?.status) !== 'pending'), event]);
+                                addAgentEvent(event);
+                                // Stage events managed in sidebar panel
                             } else if (event.type === "tool_call") {
                                 // Handle both flat structure and legacy data wrapper
                                 const toolName = event.tool || event.data?.tool || "tool";
                                 const args = event.args || event.data?.args || {};
                                 if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
-                                    throttledSetAgentStatus(tChat("agent.searching", { query: args.query || "web" }));
+                                    // Search status shown in sidebar
+                                    updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
                                 } else {
-                                    throttledSetAgentStatus(tChat("agent.executing", { tool: toolName }));
+                                    // Tool execution status shown in sidebar
+                                    updateAgentStage(tChat("agent.executing", { tool: toolName }));
                                 }
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "tool_result") {
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "routing") {
                                 // Handle routing decision events
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "handoff") {
                                 // Handle agent handoff events
                                 const target = event.target || "";
-                                throttledSetAgentStatus(tChat("agent.handoffTo", { target }));
+                                // Handoff status shown in sidebar
+                                updateAgentStage(tChat("agent.handoffTo", { target }));
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "source") {
                                 // Handle source events from search
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
                             } else if (event.type === "code_result") {
                                 // Handle code execution results
                                 collectedEvents.push(event);
-                                batchEventUpdate(event);
-                            } else if (event.type === "visualization" && event.data && event.mime_type) {
+                                addAgentEvent(event);
+                                // Events batched in sidebar panel
+                            } else if (event.type === "visualization") {
                                 // Handle visualization event from data analytics agent
-                                const visualization = {
-                                    data: event.data as string,
-                                    mimeType: event.mime_type as "image/png" | "text/html",
-                                };
-                                collectedVisualizations.push(visualization);
-                                setStreamingVisualizations(prev => [...prev, visualization]);
-                                collectedEvents.push(event);
+                                console.log("[Visualization Event]", {
+                                    hasData: !!event.data,
+                                    dataLength: event.data?.length || 0,
+                                    mimeType: event.mime_type
+                                });
+                                if (event.data && event.mime_type) {
+                                    const visualization = {
+                                        data: event.data as string,
+                                        mimeType: event.mime_type as "image/png" | "text/html",
+                                    };
+                                    collectedVisualizations.push(visualization);
+                                    setStreamingVisualizations(prev => [...prev, visualization]);
+                                    collectedEvents.push(event);
+                                } else {
+                                    console.warn("[Visualization Event] Missing data or mime_type, skipping");
+                                }
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
+                                addAgentEvent(event);
                             } else if (event.type === "complete") {
                                 // Stream complete, break out of loop
                                 break;
@@ -801,9 +795,8 @@ export function ChatInterface() {
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: (collectedEvents.length || collectedVisualizations.length) ? {
-                        agentEvents: collectedEvents.length ? collectedEvents : undefined,
-                        visualizations: collectedVisualizations.length ? collectedVisualizations : undefined,
+                    metadata: collectedVisualizations.length ? {
+                        visualizations: collectedVisualizations,
                     } : undefined,
                 });
             }
@@ -814,11 +807,12 @@ export function ChatInterface() {
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
-            setAgentStatus(null);
-            resetStreamingEvents();
+            // Status shown in sidebar
+            // Events managed in sidebar panel
             setStreamingVisualizations([]);
             setLoading(false);
             setStreaming(false);
+            endAgentProgress();
         }
     };
 
@@ -921,8 +915,6 @@ export function ChatInterface() {
                             messages={messages}
                             streamingContent={streamingContent}
                             isLoading={isLoading}
-                            agentStatus={agentStatus}
-                            streamingEvents={streamingEvents}
                             streamingVisualizations={streamingVisualizations}
                             streamingStartTime={streamingStartTimeRef.current}
                             onRegenerate={handleRegenerate}

@@ -404,6 +404,8 @@ Common imports you should include when needed:
 ```python
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Required for headless environments
 import matplotlib.pyplot as plt
 import seaborn as sns
 ```
@@ -440,6 +442,8 @@ YOUR CODE MUST FOLLOW THIS EXACT STRUCTURE:
 # Step 1: Import libraries
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Required for headless environments
 import matplotlib.pyplot as plt
 
 # Step 2: Load the data file (REQUIRED - use exact path from above)
@@ -450,6 +454,7 @@ df = pd.read_excel('/home/user/EXACT_PATH_FROM_ABOVE.xlsx')  # or pd.read_csv() 
 
 # Step 4: Save visualizations (if any)
 plt.savefig('/tmp/output.png', dpi=150, bbox_inches='tight')
+plt.close()  # Close figure to free memory
 ```
 
 CRITICAL RULES:

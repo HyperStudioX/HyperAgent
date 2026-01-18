@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslations } from "next-intl";
@@ -10,9 +10,7 @@ import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/pris
 import { Copy, Check, Terminal, RotateCcw, FileText, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
-import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
 import { usePreviewStore } from "@/lib/stores/preview-store";
-import { AgentProgress } from "@/components/chat/agent-progress";
 import { Visualization } from "@/components/chat/visualization";
 import type { Message, FileAttachment } from "@/lib/types";
 
@@ -74,8 +72,6 @@ interface MessageBubbleProps {
     message: Message;
     onRegenerate?: () => void;
     isStreaming?: boolean;
-    status?: string | null;
-    agentEvents?: any[]; // For detailed search/thinking stages
     visualizations?: { data: string; mimeType: "image/png" | "text/html" }[]; // For data analytics visualizations
 }
 
@@ -123,17 +119,12 @@ function MessageAttachments({
     );
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, onRegenerate, isStreaming = false, status, agentEvents, visualizations }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, onRegenerate, isStreaming = false, visualizations }: MessageBubbleProps) {
     const isUser = message.role === "user";
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
     const t = useTranslations("chat");
-    const effectiveAgentEvents = agentEvents || (message.metadata as any)?.agentEvents;
     const effectiveVisualizations = visualizations || message.metadata?.visualizations;
-
-    // Only show progress during streaming - hide for completed messages loaded from storage
-    const hasEvents = effectiveAgentEvents && effectiveAgentEvents.length > 0;
-    const showProgress = isStreaming && hasEvents;
 
     const handleCopyMessage = async () => {
         await navigator.clipboard.writeText(message.content);
@@ -202,16 +193,8 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                         <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                     </div>
 
-                    {showProgress && (
-                        <AgentProgress
-                            isStreaming={isStreaming}
-                            status={status}
-                            agentEvents={effectiveAgentEvents}
-                        />
-                    )}
-
-                    {/* Show typing indicator immediately when no content yet */}
-                    {!message.content && !hasEvents && (
+                    {/* Show typing indicator when no content yet */}
+                    {!message.content && isStreaming && (
                         <TypingIndicator />
                     )}
 

@@ -7,6 +7,7 @@ import { MenuToggle } from "@/components/ui/menu-toggle";
 import { useSidebarStore } from "@/lib/stores/sidebar-store";
 
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
+import { AgentProgressPanel } from "@/components/sidebar/sidebar-agent-progress";
 
 interface MainLayoutProps {
     children: React.ReactNode;
@@ -51,6 +52,9 @@ export function MainLayout({ children }: MainLayoutProps) {
 
                 {/* File Preview Sidebar */}
                 <FilePreviewSidebar />
+
+                {/* Agent Progress Panel - Right side panel for agent activity */}
+                <AgentProgressPanel />
             </main>
         </div>
     );

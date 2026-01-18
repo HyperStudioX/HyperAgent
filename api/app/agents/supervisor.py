@@ -162,15 +162,17 @@ def _smart_truncate(text: str, max_chars: int) -> str:
     return truncated + "...[truncated]"
 
 # Streaming configuration - declarative mapping of which nodes should stream tokens
+# Note: "generate" is disabled because it produces code that shouldn't be shown to users
+# The code is still executed, and results are shown via "summarize" stage
 STREAMING_CONFIG = {
     "write": True,
     "finalize": True,
     "summarize": True,
     "agent": True,
-    "generate": True,
-    "outline": True,
+    "generate": False,  # Code generation - internal step, don't stream to chat
+    "outline": False,   # Outline generation - internal step for writing agent
     "synthesize": True,
-    "analyze": True,
+    "analyze": False,   # Analysis step - internal, only show final summary
     "router": False,
     "tools": False,
     "search_agent": False,
@@ -769,6 +771,8 @@ class AgentSupervisor:
         emitted_tool_call_ids = set()
         emitted_stage_keys = set()
         streamed_tokens = False
+        # Track tool calls by ID for matching with results
+        pending_tool_calls: dict[str, dict] = {}
 
         try:
             # Stream events from the graph
@@ -793,15 +797,49 @@ class AgentSupervisor:
                     if any(node in node_name for node in content_nodes if STREAMING_CONFIG.get(node)):
                         current_content_node = node_name
 
-                    # Provide immediate feedback for data analysis steps
+                    # Provide immediate feedback for agent steps
+                    # Helper to emit running stage only once
+                    def emit_stage_running(name: str, description: str):
+                        stage_key = f"{name}:running"
+                        if stage_key not in emitted_stage_keys:
+                            emitted_stage_keys.add(stage_key)
+                            return {"type": "stage", "name": name, "description": description, "status": "running"}
+                        return None
+
+                    # Data analysis stages
                     if node_name == "plan":
-                        yield {"type": "stage", "name": "plan", "description": "Planning analysis...", "status": "running"}
+                        event = emit_stage_running("plan", "Planning analysis...")
+                        if event:
+                            yield event
                     elif node_name == "generate":
-                        yield {"type": "stage", "name": "generate", "description": "Generating analysis code...", "status": "running"}
+                        event = emit_stage_running("generate", "Generating code...")
+                        if event:
+                            yield event
                     elif node_name == "execute":
-                        yield {"type": "stage", "name": "execute", "description": "Executing analysis code...", "status": "running"}
+                        event = emit_stage_running("execute", "Executing code...")
+                        if event:
+                            yield event
                     elif node_name == "summarize":
-                        yield {"type": "stage", "name": "summarize", "description": "Summarizing results...", "status": "running"}
+                        event = emit_stage_running("summarize", "Summarizing results...")
+                        if event:
+                            yield event
+                    # Writing agent stages
+                    elif node_name == "analyze":
+                        event = emit_stage_running("analyze", "Analyzing task...")
+                        if event:
+                            yield event
+                    elif node_name == "outline":
+                        event = emit_stage_running("outline", "Creating outline...")
+                        if event:
+                            yield event
+                    elif node_name == "write":
+                        event = emit_stage_running("write", "Writing content...")
+                        if event:
+                            yield event
+                    elif node_name == "finalize":
+                        event = emit_stage_running("finalize", "Finalizing response...")
+                        if event:
+                            yield event
 
                 elif event_type == "on_chain_end":
                     # Update node path
@@ -820,12 +858,56 @@ class AgentSupervisor:
                             "status": "completed",
                         }
 
+                    # Emit completion events for agent stages
+                    # Helper to emit stage completion if not already emitted
+                    def emit_stage_completion(name: str, description: str):
+                        stage_key = f"{name}:completed"
+                        if stage_key not in emitted_stage_keys:
+                            emitted_stage_keys.add(stage_key)
+                            return {"type": "stage", "name": name, "description": description, "status": "completed"}
+                        return None
+
+                    # Data analysis stages
+                    if node_name == "plan":
+                        event = emit_stage_completion("plan", "Analysis planned")
+                        if event:
+                            yield event
+                    elif node_name == "generate":
+                        event = emit_stage_completion("generate", "Code generated")
+                        if event:
+                            yield event
+                    elif node_name == "execute":
+                        event = emit_stage_completion("execute", "Code executed")
+                        if event:
+                            yield event
+                    elif node_name == "summarize":
+                        event = emit_stage_completion("summarize", "Results summarized")
+                        if event:
+                            yield event
+                    # Writing agent stages
+                    elif node_name == "analyze":
+                        event = emit_stage_completion("analyze", "Task analyzed")
+                        if event:
+                            yield event
+                    elif node_name == "outline":
+                        event = emit_stage_completion("outline", "Outline created")
+                        if event:
+                            yield event
+                    elif node_name == "write":
+                        event = emit_stage_completion("write", "Content written")
+                        if event:
+                            yield event
+                    elif node_name == "finalize":
+                        event = emit_stage_completion("finalize", "Response finalized")
+                        if event:
+                            yield event
+
                     # Extract events from output (including routing and handoff events)
                     output = event.get("data", {}).get("output", {})
                     if isinstance(output, dict):
-                        events = output.get("events", [])
-                        if isinstance(events, list):
-                            for e in events:
+                        events_list = output.get("events", [])
+                        if isinstance(events_list, list):
+                            for e in events_list:
                                 if isinstance(e, dict):
                                     # Skip token events if we already streamed them in real-time
                                     if e.get("type") == "token" and streamed_tokens:
@@ -836,6 +918,14 @@ class AgentSupervisor:
                                         if stage_key in emitted_stage_keys:
                                             continue
                                         emitted_stage_keys.add(stage_key)
+                                    # Log visualization events for debugging
+                                    if e.get("type") == "visualization":
+                                        logger.info(
+                                            "yielding_visualization_event",
+                                            node_name=node_name,
+                                            has_data=bool(e.get("data")),
+                                            data_length=len(e.get("data", "")) if e.get("data") else 0,
+                                        )
                                     yield e
 
                 # Handle streaming tokens from LLM in real-time
@@ -848,14 +938,24 @@ class AgentSupervisor:
                     if chunk and getattr(chunk, "tool_calls", None):
                         for tool_call in chunk.tool_calls:
                             tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
-                            if tool_id and tool_id in emitted_tool_call_ids:
+                            # Generate a unique ID if not provided
+                            if not tool_id:
+                                tool_id = str(uuid.uuid4())
+                            if tool_id in emitted_tool_call_ids:
                                 continue
-                            if tool_id:
-                                emitted_tool_call_ids.add(tool_id)
+                            emitted_tool_call_ids.add(tool_id)
+                            tool_name = tool_call.get("name") or tool_call.get("tool")
+                            tool_args = tool_call.get("args") or {}
+                            # Track pending tool call for matching with result
+                            pending_tool_calls[tool_id] = {
+                                "tool": tool_name,
+                                "args": tool_args,
+                            }
                             yield {
                                 "type": "tool_call",
-                                "tool": tool_call.get("name") or tool_call.get("tool"),
-                                "args": tool_call.get("args") or {},
+                                "tool": tool_name,
+                                "args": tool_args,
+                                "id": tool_id,
                             }
 
                     # Use declarative config to determine streaming
@@ -873,6 +973,66 @@ class AgentSupervisor:
                             if content:
                                 streamed_tokens = True
                                 yield {"type": "token", "content": content}
+
+                # Handle tool execution start
+                elif event_type == "on_tool_start":
+                    # Tool is starting execution - we already emitted tool_call
+                    # Get tool call ID for tracking
+                    run_id = event.get("run_id", "")
+                    tool_name = event.get("name", "")
+                    tool_input = event.get("data", {}).get("input", {})
+
+                    # Generate ID if we don't have one
+                    tool_call_id = None
+                    if isinstance(tool_input, dict):
+                        tool_call_id = tool_input.get("tool_call_id")
+
+                    # Track the run_id to tool_call_id mapping for result matching
+                    if run_id and not tool_call_id:
+                        # Use run_id as fallback ID
+                        tool_call_id = str(run_id)
+
+                    if tool_name and tool_call_id and tool_call_id not in emitted_tool_call_ids:
+                        emitted_tool_call_ids.add(tool_call_id)
+                        pending_tool_calls[tool_call_id] = {
+                            "tool": tool_name,
+                            "run_id": run_id,
+                        }
+                        yield {
+                            "type": "tool_call",
+                            "tool": tool_name,
+                            "args": tool_input if isinstance(tool_input, dict) else {},
+                            "id": tool_call_id,
+                        }
+
+                # Handle tool execution end - emit tool_result event
+                elif event_type == "on_tool_end":
+                    run_id = event.get("run_id", "")
+                    tool_name = event.get("name", "")
+                    output = event.get("data", {}).get("output", "")
+
+                    # Find matching tool call by run_id
+                    tool_call_id = None
+                    for tid, info in pending_tool_calls.items():
+                        if info.get("run_id") == run_id or info.get("tool") == tool_name:
+                            tool_call_id = tid
+                            break
+
+                    # If no match found, use run_id as the ID
+                    if not tool_call_id:
+                        tool_call_id = str(run_id) if run_id else str(uuid.uuid4())
+
+                    # Emit tool_result event
+                    content = str(output)[:500] if output else ""
+                    yield {
+                        "type": "tool_result",
+                        "tool": tool_name,
+                        "content": content,
+                        "id": tool_call_id,
+                    }
+
+                    # Remove from pending
+                    pending_tool_calls.pop(tool_call_id, None)
 
                 # Handle errors from subagents
                 elif event_type == "on_chain_error":

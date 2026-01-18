@@ -9,20 +9,15 @@ import {
     TrendingUp,
     Code2,
     Newspaper,
-    Globe,
-    ExternalLink,
-    CheckCircle2,
-    Circle,
     Check,
     Copy,
     Share2,
     ArrowLeft,
     AlertCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { ResearchResultView } from "@/components/query/research-report-view";
 import { useTaskStore } from "@/lib/stores/task-store";
-import { MenuToggle } from "@/components/ui/menu-toggle";
+import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import type { ResearchStep, Source, ResearchScenario } from "@/lib/types";
 
 const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
@@ -68,18 +63,15 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         setActiveTask,
     } = useTaskStore();
 
+    // Agent progress store for unified progress display
+    const { startProgress, addEvent, endProgress } = useAgentProgressStore();
+
     const [taskInfo, setTaskInfo] = useState<TaskInfo | null>(null);
     const [isResearching, setIsResearching] = useState(false);
-    const [steps, setSteps] = useState<ResearchStep[]>([]);
-    const [sources, setSources] = useState<Source[]>([]);
-    const [researchResult, setResearchResult] = useState<string | any[]>("");
+    const [researchResult, setResearchResult] = useState<string | unknown[]>("");
     const [error, setError] = useState<string | null>(null);
     const [hasStarted, setHasStarted] = useState(false);
     const [isExistingTask, setIsExistingTask] = useState(false);
-    const [progressPanelOpen, setProgressPanelOpen] = useState(false);
-    // Start expanded when running, will collapse when report is ready
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-    const [hasAutoCollapsed, setHasAutoCollapsed] = useState(false);
     const [copied, setCopied] = useState(false);
 
     const handleCopyReport = async () => {
@@ -87,7 +79,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         const resultString = typeof researchResult === "string"
             ? researchResult
             : Array.isArray(researchResult)
-                ? (researchResult as any[]).map((item: any) => typeof item === "string" ? item : String(item)).join("")
+                ? researchResult.map((item) => typeof item === "string" ? item : String(item)).join("")
                 : String(researchResult);
 
         const textToCopy = `# ${taskInfo.query}\n\n${resultString}`;
@@ -123,7 +115,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
             // 2. Fallback to Task Store if hydrated
             if (hasHydrated) {
-                const existingTask = tasks.find((t) => t.id === taskId);
+                const existingTask = tasks.find((task) => task.id === taskId);
                 if (existingTask) {
                     console.log(`[ResearchProgress] Loading existing task ${taskId} from store`);
                     setTaskInfo({
@@ -131,8 +123,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                         scenario: existingTask.scenario,
                         depth: existingTask.depth,
                     });
-                    setSteps(existingTask.steps);
-                    setSources(existingTask.sources);
                     setResearchResult(existingTask.result);
                     setError(existingTask.error || null);
                     setIsExistingTask(true);
@@ -163,15 +153,16 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
                     // Map steps and sources from backend format to frontend format
                     if (data.steps) {
-                        const mappedSteps = data.steps.map((s: any) => ({
+                        interface StepData { id: string; type: string; description: string; status: string; }
+                        const mappedSteps = (data.steps as StepData[]).map((s) => ({
                             id: s.id,
                             type: s.type,
                             description: s.description,
                             status: s.status,
                         }));
                         // Deduplicate steps
-                        const uniqueSteps = mappedSteps.reduce((acc: any[], step: any) => {
-                            const existingIndex = acc.findIndex((s: any) => s.type === step.type);
+                        const uniqueSteps = mappedSteps.reduce((acc: StepData[], step) => {
+                            const existingIndex = acc.findIndex((s) => s.type === step.type);
                             if (existingIndex >= 0) {
                                 acc[existingIndex] = step;
                             } else {
@@ -179,18 +170,17 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                             }
                             return acc;
                         }, []);
-                        setSteps(uniqueSteps);
-                        updateTaskSteps(taskId, uniqueSteps);
+                        updateTaskSteps(taskId, uniqueSteps as ResearchStep[]);
                     }
 
                     if (data.sources) {
-                        const mappedSources = data.sources.map((s: any) => ({
+                        interface SourceData { id: string; title: string; url: string; snippet?: string; }
+                        const mappedSources = (data.sources as SourceData[]).map((s) => ({
                             id: s.id,
                             title: s.title,
                             url: s.url,
                             snippet: s.snippet,
                         }));
-                        setSources(mappedSources);
                         updateTaskSources(taskId, mappedSources);
                     }
 
@@ -221,18 +211,20 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         };
 
         fetchTask();
-    }, [taskId, hasHydrated, createTask, setActiveTask, updateTaskSteps, updateTaskSources, updateTaskResult, t]);
+    }, [taskId, hasHydrated, tasks, createTask, setActiveTask, updateTaskSteps, updateTaskSources, updateTaskResult, t]);
 
     // Memoize startResearch to avoid recreation
     const startResearch = useCallback(async (info: TaskInfo) => {
         setIsResearching(true);
-        // Initialize all steps as pending
-        setSteps([...INITIAL_STEPS]);
-        setSources([]);
         setResearchResult("");
         setError(null);
 
+        // Initialize steps in task store
+        updateTaskSteps(taskId, [...INITIAL_STEPS]);
         updateTaskStatus(taskId, "running");
+
+        // Start agent progress tracking
+        startProgress(taskId, "research");
 
         let currentSteps: ResearchStep[] = [...INITIAL_STEPS];
         let currentSources: Source[] = [];
@@ -283,20 +275,34 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                                     currentSteps = currentSteps.map((s) =>
                                         s.type === stepName ? { ...s, status: stepStatus } : s
                                     );
-                                    setSteps([...currentSteps]);
                                     updateTaskSteps(taskId, currentSteps);
+
+                                    // Add to agent progress store
+                                    const stepInfo = INITIAL_STEPS.find(s => s.type === stepName);
+                                    addEvent({
+                                        type: "stage",
+                                        name: stepName,
+                                        description: stepInfo?.description || stepName,
+                                        status: stepStatus,
+                                    });
                                 }
                             } else if (event.type === "source") {
-                                const sourceData = event.data;
-                                const newSource = {
+                                const sourceData = event.data as { id: string; title: string; url: string; snippet?: string };
+                                const newSource: Source = {
                                     id: sourceData.id,
                                     title: sourceData.title,
                                     url: sourceData.url,
                                     snippet: sourceData.snippet,
                                 };
                                 currentSources = [...currentSources, newSource];
-                                setSources([...currentSources]);
                                 updateTaskSources(taskId, currentSources);
+
+                                // Add source event to agent progress store
+                                addEvent({
+                                    type: "source",
+                                    name: sourceData.title,
+                                    data: sourceData,
+                                });
                             } else if (event.type === "token") {
                                 const tokenContent = typeof event.data === "string" ? event.data : String(event.data);
                                 fullResult += tokenContent;
@@ -305,6 +311,10 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                             } else if (event.type === "error") {
                                 setError(event.data);
                                 updateTaskStatus(taskId, "failed", event.data);
+                                addEvent({
+                                    type: "error",
+                                    data: event.data,
+                                });
                             }
                         } catch (e) {
                             console.error("Parse error:", e);
@@ -318,18 +328,23 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
             // Mark all steps as completed
             const completedSteps = currentSteps.map(s => ({ ...s, status: "completed" as const }));
-            setSteps(completedSteps);
             updateTaskSteps(taskId, completedSteps);
 
             updateTaskStatus(taskId, "completed");
+            endProgress();
         } catch (err) {
             console.error("Research error:", err);
             setError(tChat("connectionError"));
             updateTaskStatus(taskId, "failed", tChat("connectionError"));
+            addEvent({
+                type: "error",
+                data: tChat("connectionError"),
+            });
+            endProgress();
         } finally {
             setIsResearching(false);
         }
-    }, [taskId, updateTaskStatus, updateTaskSteps, updateTaskSources, updateTaskResult, tChat]);
+    }, [taskId, updateTaskStatus, updateTaskSteps, updateTaskSources, updateTaskResult, tChat, startProgress, addEvent, endProgress]);
 
     // Start research when task info is loaded
     useEffect(() => {
@@ -339,26 +354,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         }
     }, [taskInfo, hasStarted, isExistingTask, startResearch]);
 
-    // Auto-collapse sidebar when report is ready (task completed)
-    useEffect(() => {
-        // If researching, ensure sidebar is expanded
-        if (isResearching) {
-            setIsSidebarCollapsed(false);
-            setHasAutoCollapsed(false);
-            return;
-        }
-
-        // Auto-collapse when report is generated (only once)
-        const hasReport = typeof researchResult === "string"
-            ? researchResult.length > 0
-            : Array.isArray(researchResult) && researchResult.length > 0;
-
-        if (hasReport && !hasAutoCollapsed && !error) {
-            setIsSidebarCollapsed(true);
-            setHasAutoCollapsed(true);
-        }
-    }, [isResearching, researchResult, hasAutoCollapsed, error]);
-
     const handleBack = () => {
         router.push("/");
     };
@@ -367,8 +362,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         if (taskInfo) {
             setHasStarted(true);
             setIsExistingTask(false);
-            setHasAutoCollapsed(false); // Reset so sidebar stays expanded during retry
-            setIsSidebarCollapsed(false); // Expand sidebar for retry
             startResearch(taskInfo);
         }
     };
@@ -434,35 +427,25 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            {/* Action Buttons */}
-                            {!isResearching && researchResult && (
-                                <div className="hidden md:flex items-center gap-2 mr-2 animate-in fade-in duration-300">
-                                    <button
-                                        onClick={handleCopyReport}
-                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors text-sm font-medium"
-                                    >
-                                        {copied ? (
-                                            <Check className="w-3.5 h-3.5" strokeWidth={3} />
-                                        ) : (
-                                            <Copy className="w-3.5 h-3.5" />
-                                        )}
-                                        <span>{copied ? "Copied" : "Copy"}</span>
-                                    </button>
-                                    <button className="p-2 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
-                                        <Share2 className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* Mobile toggle for progress panel */}
-                            <button
-                                onClick={() => setProgressPanelOpen(!progressPanelOpen)}
-                                className="md:hidden px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-secondary hover:bg-secondary/80 rounded-lg transition-colors"
-                            >
-                                {t("progress")} ({steps.length})
-                            </button>
-                        </div>
+                        {/* Action Buttons */}
+                        {!isResearching && researchResult && (
+                            <div className="flex items-center gap-2 animate-in fade-in duration-300">
+                                <button
+                                    onClick={handleCopyReport}
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors text-sm font-medium"
+                                >
+                                    {copied ? (
+                                        <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                                    ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>{copied ? "Copied" : "Copy"}</span>
+                                </button>
+                                <button className="p-2 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
+                                    <Share2 className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -486,7 +469,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                                 content={typeof researchResult === "string"
                                     ? researchResult
                                     : Array.isArray(researchResult)
-                                        ? (researchResult as any[]).map((item: any) => typeof item === "string" ? item : String(item)).join("")
+                                        ? researchResult.map((item) => typeof item === "string" ? item : String(item)).join("")
                                         : String(researchResult)}
                                 isStreaming={isResearching}
                                 title={taskInfo.query}
@@ -501,126 +484,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                         )}
                     </div>
                 </div>
-            </div>
-
-            {/* Mobile backdrop */}
-            {progressPanelOpen && (
-                <div
-                    className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden transition-opacity"
-                    onClick={() => setProgressPanelOpen(false)}
-                />
-            )}
-
-            {/* Progress sidebar */}
-            <div
-                className={cn(
-                    "flex flex-col bg-card border-l border-border",
-                    // Desktop: sidebar
-                    "md:relative transition-all duration-300 ease-in-out",
-                    isSidebarCollapsed ? "md:w-[60px]" : "md:w-80",
-                    // Mobile: bottom sheet
-                    "fixed bottom-0 left-0 right-0 z-50",
-                    "md:translate-y-0", // Always visible on desktop
-                    "max-h-[70vh] md:max-h-none",
-                    "rounded-t-xl md:rounded-none",
-                    "md:shadow-none",
-                    "border-t border-border md:border-t-0",
-                    "transition-transform duration-300 ease-out",
-                    progressPanelOpen ? "translate-y-0" : "translate-y-full md:translate-y-0"
-                )}
-            >
-                <div className={cn(
-                    "px-4 py-3 border-b border-border flex items-center h-14",
-                    isSidebarCollapsed ? "justify-center" : "justify-between"
-                )}>
-                    {!isSidebarCollapsed && (
-                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t("progress")}</h3>
-                    )}
-
-                    {/* Desktop toggle button */}
-                    <div className="hidden md:block">
-                        <MenuToggle
-                            isOpen={!isSidebarCollapsed}
-                            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                        />
-                    </div>
-
-                    {/* Mobile close button */}
-                    <div className="md:hidden">
-                        <MenuToggle
-                            isOpen={true}
-                            onClick={() => setProgressPanelOpen(false)}
-                            className="p-2 -mr-2"
-                        />
-                    </div>
-                </div>
-
-                {!isSidebarCollapsed && (
-                    <div className="flex-1 overflow-y-auto animate-in fade-in duration-300">
-                        <div className="p-4 space-y-6">
-                            {/* Steps */}
-                            <div className="space-y-3">
-                                {steps.map((step) => (
-                                    <div key={step.id} className="flex items-center gap-3">
-                                        <div className="relative">
-                                            {step.status === "completed" ? (
-                                                <CheckCircle2 className="w-5 h-5 text-foreground animate-bounce-in" />
-                                            ) : step.status === "running" ? (
-                                                <Loader2 className="w-5 h-5 text-foreground animate-spin" />
-                                            ) : step.status === "failed" ? (
-                                                <AlertCircle className="w-5 h-5 text-destructive animate-scale-in" />
-                                            ) : (
-                                                <Circle className="w-5 h-5 text-muted-foreground/40" />
-                                            )}
-                                        </div>
-                                        <span className={cn(
-                                            "text-sm",
-                                            step.status === "completed" && "text-foreground",
-                                            step.status === "running" && "text-foreground font-medium",
-                                            step.status === "failed" && "text-destructive",
-                                            step.status === "pending" && "text-muted-foreground/60"
-                                        )}>
-                                            {t(`steps.${step.type}.${step.status}`, { defaultValue: step.description })}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Sources */}
-                            {sources.length > 0 && (
-                                <div className="pt-4 border-t border-border">
-                                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                                        {t("sources")} ({sources.length})
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {sources.map((source) => (
-                                            <a
-                                                key={source.id}
-                                                href={source.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="group flex items-start gap-2 p-2 rounded-lg hover:bg-secondary/50 transition-colors"
-                                            >
-                                                <Globe className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-sm text-foreground truncate group-hover:text-muted-foreground transition-colors">
-                                                        {source.title}
-                                                    </div>
-                                                    {source.snippet && (
-                                                        <div className="text-xs text-muted-foreground/60 line-clamp-2 mt-0.5">
-                                                            {source.snippet}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <ExternalLink className="w-3 h-3 text-muted-foreground/40 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            </a>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     );

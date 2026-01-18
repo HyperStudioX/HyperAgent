@@ -35,7 +35,19 @@
         "data": "Data",
         "noResults": "No items found",
         "chatDescription": "Quick questions & conversations",
-        "researchDescription": "In-depth analysis & reports"
+        "researchDescription": "In-depth analysis & reports",
+        "progress": {
+            "processing": "Processing",
+            "toolCount": "{count, plural, =1 {1 tool} other {# tools}}",
+            "stageCount": "{count, plural, =1 {1 stage} other {# stages}}",
+            "stagesProgress": "{completed} of {total} stages",
+            "toolsProgress": "{completed}/{total} tools",
+            "running": "{count, plural, =1 {1 running} other {# running}}",
+            "expand": "Expand",
+            "collapse": "Collapse",
+            "defaultTool": "Tool",
+            "sourcesCount": "{count, plural, =1 {1 source} other {# sources}}"
+        }
     },
     "home": {
         "welcomeTitle": "What can I help you with?",

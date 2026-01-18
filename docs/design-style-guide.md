@@ -1,14 +1,15 @@
 # Frontend Style Guide
 
-A clean, minimal, and modern design system using warm stone (light) and refined ink (dark) themes with semantic color tokens.
+A clean, minimal, and modern design system using the Cursor aesthetic - pure neutrals with vibrant accent colors.
 
 ## Design Philosophy
 
 - **Clean & Minimal** - No unnecessary shadows, borders only where needed
-- **Warm Neutrals** - Warm stone light theme, refined ink dark theme
+- **Pure Neutrals** - Clean white light theme, deep black dark theme
+- **Vibrant Accents** - Cyan, amber, rose, and blue for interactive elements
 - **Semantic Tokens** - Use CSS variables for consistency across themes
-- **Flat Design** - No gradients, simple solid colors
-- **Subtle Interactions** - Simple background color changes, no translate/scale effects
+- **Flat Design** - No gradients (except brand elements), simple solid colors
+- **Subtle Glow Effects** - Use glow for focus and hover states on key elements
 - **Generous Whitespace** - Let content breathe
 - **Reduced Motion** - Simple fade/opacity transitions only
 
@@ -18,19 +19,28 @@ A clean, minimal, and modern design system using warm stone (light) and refined 
 
 | Token | Light Mode | Dark Mode | Usage |
 |-------|------------|-----------|-------|
-| `bg-background` | Warm cream | Deep blue-gray | Page backgrounds |
-| `bg-card` | Off-white | Dark blue-gray | Cards, elevated surfaces |
-| `bg-secondary` | Light stone | Muted ink | Sidebars, subtle backgrounds |
-| `bg-muted` | Light stone | Muted ink | Disabled states, read items |
-| `text-foreground` | Near black | Off-white | Primary text |
-| `text-muted-foreground` | Warm gray | Cool gray | Secondary text |
-| `border-border` | Light border | Dark border | Standard borders |
+| `bg-background` | Pure white | Deep black | Page backgrounds |
+| `bg-card` | Off-white (98%) | Dark gray (7%) | Cards, elevated surfaces |
+| `bg-secondary` | Light gray (96%) | Dark gray (12%) | Sidebars, subtle backgrounds |
+| `bg-muted` | Light gray (94%) | Dark gray (14%) | Disabled states, read items |
+| `text-foreground` | Near black (9%) | Light gray (89%) | Primary text |
+| `text-muted-foreground` | Gray (45%) | Gray (50%) | Secondary text |
+| `border-border` | Light gray (90%) | Dark gray (18%) | Standard borders |
 | `border-subtle` | 50% opacity | 50% opacity | Card borders, containers |
 | `border-muted` | 30% opacity | 30% opacity | Dividers, separators |
-| `bg-primary` | Near black | Off-white | Primary buttons, accents |
-| `text-primary-foreground` | White | Near black | Text on primary |
+| `bg-primary` | Near black | Light gray | Primary buttons, accents |
+| `text-primary-foreground` | Off-white | Near black | Text on primary |
 | `bg-destructive` | Red | Red | Error states, delete buttons |
 | `text-destructive` | Red | Red | Error text, warning icons |
+
+### Accent Colors
+
+| Token | HSL Value | Usage |
+|-------|-----------|-------|
+| `--accent-cyan` | 168 60% 68% | Primary accent, glow effects, brand |
+| `--accent-amber` | 30 75% 72% | Warnings, highlights |
+| `--accent-rose` | 310 60% 74% | Special features, notifications |
+| `--accent-blue` | 210 100% 76% | Links, informational |
 
 ### Do's and Don'ts
 
@@ -58,8 +68,10 @@ Uses native system fonts for optimal performance and a native feel on each platf
 | `font-sans` | system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif | SF Pro (Mac), Segoe UI (Win), Roboto (Android) |
 | `font-mono` | ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace | SF Mono (Mac), Consolas (Win) |
 
+**Brand Title Font:** Plus Jakarta Sans (loaded via next/font) - used for `.brand-title` class.
+
 **Benefits:**
-- No external font loading (faster page loads)
+- No external font loading for body text (faster page loads)
 - Native look and feel on every platform
 - Excellent CJK support built into system fonts
 
@@ -86,66 +98,79 @@ Uses native system fonts for optimal performance and a native feel on each platf
 | `font-medium` | 500 | Labels, buttons, primary status |
 | `font-semibold` | 600 | Headings, important CTAs |
 | `font-bold` | 700 | Page titles, strong emphasis |
+| `font-extrabold` | 800 | Brand titles (`.brand-title`) |
 
 ## Color Palette
 
-### CSS Variables (Light Mode - Warm Stone)
+### CSS Variables (Light Mode - Clean White)
 
 ```css
---background: 40 25% 96%;      /* Warm cream */
---foreground: 30 10% 15%;      /* Near black */
---primary: 30 15% 15%;         /* Dark warm */
---primary-foreground: 40 20% 97%;
---secondary: 35 15% 93%;       /* Light stone */
---muted: 35 12% 91%;
---muted-foreground: 30 8% 45%;
---border: 35 12% 88%;
---card: 40 25% 99%;
+--background: 0 0% 100%;      /* Pure white */
+--foreground: 0 0% 9%;        /* Near black */
+--primary: 0 0% 9%;           /* Near black */
+--primary-foreground: 0 0% 98%;
+--secondary: 0 0% 96%;        /* Light gray */
+--muted: 0 0% 94%;
+--muted-foreground: 0 0% 45%;
+--border: 0 0% 90%;
+--card: 0 0% 98%;
+--ring: 0 0% 20%;
 ```
 
-### CSS Variables (Dark Mode - Refined Ink)
+### CSS Variables (Dark Mode - Deep Black)
 
 ```css
---background: 220 18% 12%;     /* Deep blue-gray */
---foreground: 40 15% 92%;      /* Off-white */
---primary: 40 15% 92%;
---primary-foreground: 220 15% 13%;
---secondary: 220 12% 22%;      /* Muted ink */
---muted: 220 10% 20%;
---muted-foreground: 220 8% 58%;
---border: 220 10% 25%;
---card: 220 14% 16%;
+--background: 0 0% 4%;        /* Deep black */
+--foreground: 0 0% 89%;       /* Light gray */
+--primary: 0 0% 89%;
+--primary-foreground: 0 0% 4%;
+--secondary: 0 0% 12%;        /* Dark gray */
+--muted: 0 0% 14%;
+--muted-foreground: 0 0% 50%;
+--border: 0 0% 18%;
+--card: 0 0% 7%;
+--ring: 0 0% 80%;
 ```
 
-## Logo
+### Accent Colors (Both Themes)
 
-### Theme-Adaptive Logo
+```css
+--accent-cyan: 168 60% 68%;
+--accent-amber: 30 75% 72%;
+--accent-rose: 310 60% 74%;
+--accent-blue: 210 100% 76%;
+--accent-vibrant: 168 60% 68%;  /* Alias for primary accent */
+```
 
-Use a single SVG logo with `currentColor` that adapts to themes:
+## Brand Title
+
+### Gradient Brand Title (Dark Mode)
+
+In dark mode, brand titles use a gradient effect:
 
 ```tsx
-// Logo in inverted container (recommended)
-<div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
-  <Image
-    src="/images/logo.svg"
-    alt="Logo"
-    width={20}
-    height={20}
-    className="invert dark:invert-0"
-  />
-</div>
-
-// Larger variant for welcome screens
-<div className="w-11 h-11 rounded-xl bg-foreground flex items-center justify-center">
-  <Image
-    src="/images/logo.svg"
-    alt="Logo"
-    width={26}
-    height={26}
-    className="invert dark:invert-0"
-  />
-</div>
+<h1 className="brand-title brand-title-lg">HyperAgent</h1>
 ```
+
+```css
+/* Applied automatically in dark mode */
+.dark .brand-title {
+  background: linear-gradient(135deg,
+    hsl(var(--foreground)) 0%,
+    hsl(var(--accent-cyan)) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+```
+
+### Brand Title Sizes
+
+| Class | Size | Responsive |
+|-------|------|------------|
+| `.brand-title-sm` | 17px | Fixed |
+| `.brand-title-md` | 32px | Fixed |
+| `.brand-title-lg` | 40px | 48px on md+ |
 
 ## Buttons
 
@@ -161,6 +186,24 @@ className="bg-primary text-primary-foreground hover:bg-primary/90 transition-col
   <Plus className="w-4 h-4" />
   <span>Create</span>
 </button>
+```
+
+### Accent Button (With Glow)
+
+```tsx
+className="btn-accent"
+```
+
+```css
+.btn-accent {
+  background-color: hsl(var(--accent-cyan));
+  color: hsl(0 0% 9%);
+}
+
+.btn-accent:hover {
+  background-color: hsl(var(--accent-cyan) / 0.9);
+  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.5);
+}
 ```
 
 ### Secondary Button
@@ -187,7 +230,40 @@ className="text-muted-foreground hover:bg-secondary hover:text-foreground transi
 className="bg-destructive text-white hover:bg-destructive/90 transition-colors"
 ```
 
-**Avoid:** Gradients, shadows, scale effects, rotate animations on buttons.
+**Avoid:** Gradients (except brand), heavy shadows, scale effects, rotate animations on buttons.
+
+## Glow Effects
+
+Use glow effects sparingly for focus states and key interactive elements:
+
+### Glow Utilities
+
+```tsx
+// Small glow
+className="glow-sm"  // box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.3)
+
+// Medium glow
+className="glow-md"  // box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.4)
+
+// Hover glow
+className="hover-glow"
+
+// Focus glow (for inputs)
+className="focus-glow"
+
+// Interactive element glow
+className="interactive-glow"
+```
+
+### Focus Glow for Inputs
+
+```css
+.focus-glow:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--background)),
+              0 0 0 4px hsl(var(--accent-cyan) / 0.5);
+  outline: none;
+}
+```
 
 ## Selection States
 
@@ -223,6 +299,12 @@ className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-s
 className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30 transition-colors"
 ```
 
+### Input with Focus Glow
+
+```tsx
+className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus-glow"
+```
+
 ### Large Textarea (Welcome Screen)
 
 ```tsx
@@ -251,6 +333,9 @@ className="rounded-xl bg-card border border-border"
 
 // Interactive card
 className="bg-card rounded-xl p-6 border border-border transition-colors hover:bg-secondary/50"
+
+// Interactive card with glow
+className="bg-card rounded-xl p-6 border border-border interactive-glow"
 
 // Container with dividers
 className="divide-y divide-border"
@@ -299,6 +384,11 @@ Use `lucide-react` for all icons:
 // Inverted (for logos)
 <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
   <Icon className="w-4 h-4 text-background" />
+</div>
+
+// Accent glow
+<div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center glow-sm">
+  <Icon className="w-5 h-5 text-foreground" />
 </div>
 ```
 
@@ -364,6 +454,30 @@ className="w-full max-w-md bg-card rounded-xl border border-border"
 </div>
 ```
 
+## Loading States
+
+### Shimmer Effect
+
+```tsx
+<div className="shimmer h-4 w-32 rounded" />
+```
+
+### Typing Indicator
+
+```tsx
+<div className="flex gap-1">
+  <span className="w-2 h-2 rounded-full bg-muted-foreground typing-dot" style={{ animationDelay: '0ms' }} />
+  <span className="w-2 h-2 rounded-full bg-muted-foreground typing-dot" style={{ animationDelay: '150ms' }} />
+  <span className="w-2 h-2 rounded-full bg-muted-foreground typing-dot" style={{ animationDelay: '300ms' }} />
+</div>
+```
+
+### Streaming Cursor
+
+```tsx
+<span className="streaming-cursor">|</span>
+```
+
 ## Transitions
 
 Standard transition for all interactive elements:
@@ -372,12 +486,26 @@ Standard transition for all interactive elements:
 className="transition-colors"
 ```
 
+**Global transitions are applied automatically:**
+```css
+* {
+  transition-property: background-color, border-color, color, opacity;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+```
+
 **Avoid:** `hover:-translate-y`, `hover:scale-*`, `transition-all`, complex animations.
 
 ## Touch Targets
 
-Minimum 44px for mobile accessibility:
+Minimum 32px for interactive elements:
 
+```tsx
+className="min-h-[32px] min-w-[32px]"
+```
+
+For mobile-critical elements, use 44px:
 ```tsx
 className="min-h-[44px] min-w-[44px]"
 ```
@@ -394,18 +522,53 @@ style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
 // Slide up
 className="animate-slide-up"
 style={{ animationDelay: '0.2s', animationFillMode: 'backwards' }}
+
+// Scale in
+className="animate-scale-in"
+
+// Slide in from left
+className="animate-slide-in-left"
+
+// Bounce in (for emphasis)
+className="animate-bounce-in"
 ```
 
 **Stagger pattern:** 0.1s, 0.2s, 0.3s, 0.4s for sequential elements.
 
+## Scrollbars
+
+Custom scrollbar styling (6px width, subtle appearance):
+
+```css
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
+```
+
 ## Key Principles
 
-1. **Flat design** - No gradients, use solid colors
-2. **No scale/translate on hover** - Use background color changes instead
-3. **Minimal shadows** - Borders provide structure, shadows are optional
-4. **Semantic colors only** - Never hardcode hex/rgb values in components
-5. **Consistent spacing** - Use Tailwind's spacing scale (p-4, p-6, gap-3, etc.)
-6. **Accessible** - 44px touch targets, 12px minimum font size
-7. **Simple transitions** - `transition-colors` for most interactions
-8. **Ring for selection** - Use `ring-1 ring-foreground/50` for selected states
-9. **Checkmark indicators** - Show selection with circular checkmark badges
+1. **Pure neutrals** - No warm/cool tints, use pure black/white/grays
+2. **Vibrant accents** - Use cyan accent for interactive elements and glow effects
+3. **No scale/translate on hover** - Use background color changes and subtle glow instead
+4. **Minimal shadows** - Borders provide structure, glow for emphasis
+5. **Semantic colors only** - Never hardcode hex/rgb values in components
+6. **Consistent spacing** - Use Tailwind's spacing scale (p-4, p-6, gap-3, etc.)
+7. **Accessible** - 32px minimum touch targets, 12px minimum font size
+8. **Simple transitions** - `transition-colors` for most interactions (global auto-applied)
+9. **Ring for selection** - Use `ring-1 ring-foreground/50` for selected states
+10. **Glow for focus** - Use `focus-glow` class for input focus states
+11. **Brand gradient** - Dark mode brand titles use foreground-to-cyan gradient

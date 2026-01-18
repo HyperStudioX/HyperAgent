@@ -104,6 +104,8 @@ class E2BSandboxExecutor:
         This helps prevent NameError when the LLM generates code that uses
         common libraries (plt, pd, np, sns) without importing them.
 
+        Also ensures matplotlib uses non-interactive backend for headless environments.
+
         Args:
             code: Original Python code
 
@@ -118,22 +120,38 @@ class E2BSandboxExecutor:
             "np.": "import numpy as np",
             "np,": "import numpy as np",
             "numpy.": "import numpy as np",
-            "plt.": "import matplotlib.pyplot as plt",
-            "matplotlib.": "import matplotlib.pyplot as plt",
+            "plt.": "import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt",
+            "matplotlib.": "import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt",
             "sns.": "import seaborn as sns",
             "seaborn.": "import seaborn as sns",
         }
 
         missing_imports = []
+        needs_matplotlib_backend = False
 
         for usage, import_statement in import_mappings.items():
             # Check if the usage exists in code but import is missing
             if usage in code and import_statement not in code:
-                # Also check for variations like "import pandas" without alias
-                base_module = import_statement.split()[1]
-                if f"import {base_module}" not in code and f"from {base_module}" not in code:
-                    if import_statement not in missing_imports:
-                        missing_imports.append(import_statement)
+                # Check if this is matplotlib-related
+                if "matplotlib" in import_statement:
+                    # Check if matplotlib backend is already configured
+                    if "matplotlib.use" not in code and "matplotlib\nmatplotlib.use" not in "\n".join(missing_imports):
+                        needs_matplotlib_backend = True
+                        if import_statement not in missing_imports:
+                            missing_imports.append(import_statement)
+                else:
+                    # For non-matplotlib imports, check variations
+                    base_module = import_statement.split()[1]
+                    if f"import {base_module}" not in code and f"from {base_module}" not in code:
+                        if import_statement not in missing_imports:
+                            missing_imports.append(import_statement)
+
+        # If code already has matplotlib import but not backend, inject backend before it
+        if ("import matplotlib" in code or "from matplotlib" in code) and "matplotlib.use" not in code:
+            # Prepend backend setting
+            backend_setup = "import matplotlib\nmatplotlib.use('Agg')\n\n"
+            logger.info("injected_matplotlib_backend")
+            code = backend_setup + code
 
         if missing_imports:
             imports_block = "\n".join(missing_imports) + "\n\n"
@@ -222,15 +240,15 @@ class E2BSandboxExecutor:
             script_path = "/home/user/script.py"
             # Inject common imports if not present for Python data analysis
             code = self._inject_python_imports(code)
-            await self.sandbox.files.write(script_path, code)
+            await self.sandbox.files.write(script_path, code.encode("utf-8"))
             cmd = f"python3 {script_path}"
         elif language in ("javascript", "js"):
             script_path = "/home/user/script.js"
-            await self.sandbox.files.write(script_path, code)
+            await self.sandbox.files.write(script_path, code.encode("utf-8"))
             cmd = f"node {script_path}"
         elif language in ("typescript", "ts"):
             script_path = "/home/user/script.ts"
-            await self.sandbox.files.write(script_path, code)
+            await self.sandbox.files.write(script_path, code.encode("utf-8"))
             # Install ts-node if needed
             await self.sandbox.commands.run(
                 "npm install -g ts-node typescript 2>/dev/null || true",
@@ -239,7 +257,7 @@ class E2BSandboxExecutor:
             cmd = f"ts-node {script_path}"
         elif language in ("bash", "sh", "shell"):
             script_path = "/home/user/script.sh"
-            await self.sandbox.files.write(script_path, code)
+            await self.sandbox.files.write(script_path, code.encode("utf-8"))
             await self.sandbox.commands.run("chmod +x /home/user/script.sh")
             cmd = script_path
         else:
@@ -294,48 +312,83 @@ class E2BSandboxExecutor:
 
         visualizations = []
 
-        # Try to capture PNG outputs
-        png_files = ["/tmp/output.png"] + [f"/tmp/output_{i}.png" for i in range(max_files)]
-        for png_path in png_files:
-            try:
-                png_content = await self.sandbox.files.read(png_path)
-                if png_content:
-                    visualization_data = base64.b64encode(png_content).decode("utf-8")
-                    visualizations.append({
-                        "data": visualization_data,
-                        "type": "image/png",
-                        "path": png_path,
-                    })
-                    logger.info("visualization_captured", type="png", path=png_path, size=len(png_content))
-            except Exception as e:
-                # Only log for primary output file
-                if png_path == "/tmp/output.png":
-                    logger.debug("visualization_file_not_found", path=png_path, error=str(e))
-                break  # Stop after first missing numbered file
+        # List files in /tmp for debugging
+        try:
+            list_result = await self.sandbox.commands.run("ls -la /tmp/output* 2>/dev/null || echo 'No output files found'", timeout=10)
+            logger.info("tmp_output_files", stdout=list_result.stdout, stderr=list_result.stderr)
+        except Exception as e:
+            logger.debug("failed_to_list_tmp_files", error=str(e))
 
-        # Try to capture HTML outputs
-        html_files = ["/tmp/output.html"] + [f"/tmp/output_{i}.html" for i in range(max_files)]
-        for html_path in html_files:
+        # Helper function to try reading a file as bytes
+        async def try_read_file(path: str, as_bytes: bool = True) -> bytes | str | None:
             try:
-                html_content = await self.sandbox.files.read(html_path)
-                if html_content:
-                    visualization_data = html_content.decode("utf-8") if isinstance(html_content, bytes) else html_content
-                    visualizations.append({
-                        "data": visualization_data,
-                        "type": "text/html",
-                        "path": html_path,
-                    })
-                    logger.info("visualization_captured", type="html", path=html_path, size=len(html_content))
+                if as_bytes:
+                    # Read as bytes for binary files (PNG)
+                    content = await self.sandbox.files.read(path, format="bytes")
+                else:
+                    # Read as text for HTML files
+                    content = await self.sandbox.files.read(path, format="text")
+                return content if content else None
             except Exception as e:
-                # Only log for primary output file
-                if html_path == "/tmp/output.html":
-                    logger.debug("visualization_file_not_found", path=html_path, error=str(e))
-                break  # Stop after first missing numbered file
+                logger.debug("visualization_file_not_found", path=path, error=str(e))
+                return None
+
+        # Try to capture PNG outputs
+        # First check primary output file
+        primary_png = await try_read_file("/tmp/output.png")
+        if primary_png:
+            visualization_data = base64.b64encode(primary_png).decode("utf-8")
+            visualizations.append({
+                "data": visualization_data,
+                "type": "image/png",
+                "path": "/tmp/output.png",
+            })
+            logger.info("visualization_captured", type="png", path="/tmp/output.png", size=len(primary_png))
+
+        # Then check numbered files (stop on first missing for efficiency)
+        for i in range(max_files):
+            png_path = f"/tmp/output_{i}.png"
+            png_content = await try_read_file(png_path)
+            if png_content:
+                visualization_data = base64.b64encode(png_content).decode("utf-8")
+                visualizations.append({
+                    "data": visualization_data,
+                    "type": "image/png",
+                    "path": png_path,
+                })
+                logger.info("visualization_captured", type="png", path=png_path, size=len(png_content))
+            else:
+                break  # Stop on first missing numbered file
+
+        # Try to capture HTML outputs (read as text)
+        # First check primary output file
+        primary_html = await try_read_file("/tmp/output.html", as_bytes=False)
+        if primary_html:
+            visualizations.append({
+                "data": primary_html,
+                "type": "text/html",
+                "path": "/tmp/output.html",
+            })
+            logger.info("visualization_captured", type="html", path="/tmp/output.html", size=len(primary_html))
+
+        # Then check numbered files (stop on first missing for efficiency)
+        for i in range(max_files):
+            html_path = f"/tmp/output_{i}.html"
+            html_content = await try_read_file(html_path, as_bytes=False)
+            if html_content:
+                visualizations.append({
+                    "data": html_content,
+                    "type": "text/html",
+                    "path": html_path,
+                })
+                logger.info("visualization_captured", type="html", path=html_path, size=len(html_content))
+            else:
+                break  # Stop on first missing numbered file
 
         if visualizations:
             logger.info("total_visualizations_captured", count=len(visualizations))
         else:
-            logger.debug("no_visualizations_found")
+            logger.info("no_visualizations_found_in_sandbox")
 
         return visualizations
 

@@ -528,12 +528,17 @@ async def execute_code_node(state: DataAnalysisState) -> dict:
 
         execution_result = "\n\n".join(result_parts) if result_parts else "Code executed successfully (no output)"
 
-        # Add visualization events
+        # Add visualization events (only if data is non-empty)
         for viz in visualizations:
-            event_list.append(events.visualization(
-                data=viz.get("data", ""),
-                mime_type=viz.get("type", "image/png"),
-            ))
+            viz_data = viz.get("data", "")
+            if viz_data:  # Only emit visualization event if data is present
+                event_list.append(events.visualization(
+                    data=viz_data,
+                    mime_type=viz.get("type", "image/png"),
+                ))
+                logger.info("visualization_event_created", mime_type=viz.get("type", "image/png"), data_length=len(viz_data))
+            else:
+                logger.warning("visualization_skipped_empty_data", path=viz.get("path", "unknown"))
 
         event_list.append(events.code_result(
             execution_result,

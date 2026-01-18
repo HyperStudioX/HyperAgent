@@ -161,7 +161,8 @@ async def execute_code(
         return json.dumps(result)
 
     except Exception as e:
-        logger.error("code_execution_error", error=str(e))
+        import traceback
+        logger.error("code_execution_error", error=str(e), traceback=traceback.format_exc())
         return json.dumps({
             "success": False,
             "stdout": "",

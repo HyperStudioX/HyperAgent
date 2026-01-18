@@ -434,12 +434,17 @@ async def stream_query(
                         yield f"data: {data}\n\n"
                     elif event["type"] == "visualization":
                         # Stream visualization events (generated images, charts, etc.)
-                        data = json.dumps({
-                            "type": "visualization",
-                            "data": event.get("data"),
-                            "mime_type": event.get("mime_type", "image/png"),
-                        })
-                        yield f"data: {data}\n\n"
+                        viz_data = event.get("data")
+                        if viz_data:  # Only send if data is present
+                            data = json.dumps({
+                                "type": "visualization",
+                                "data": viz_data,
+                                "mime_type": event.get("mime_type", "image/png"),
+                            })
+                            logger.info("streaming_visualization_event", mime_type=event.get("mime_type", "image/png"), data_length=len(viz_data) if viz_data else 0)
+                            yield f"data: {data}\n\n"
+                        else:
+                            logger.warning("skipping_empty_visualization_event")
                     elif event["type"] == "complete":
                         yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
                     elif event["type"] == "error":

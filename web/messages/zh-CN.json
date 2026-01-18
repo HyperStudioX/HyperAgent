@@ -35,7 +35,19 @@
         "data": "数据",
         "noResults": "没有找到项目",
         "chatDescription": "快速提问与对话",
-        "researchDescription": "深度分析与报告"
+        "researchDescription": "深度分析与报告",
+        "progress": {
+            "processing": "处理中",
+            "toolCount": "{count, plural, =1 {1 个工具} other {# 个工具}}",
+            "stageCount": "{count, plural, =1 {1 个阶段} other {# 个阶段}}",
+            "stagesProgress": "{completed} / {total} 个阶段",
+            "toolsProgress": "{completed}/{total} 个工具",
+            "running": "{count, plural, =1 {1 个运行中} other {# 个运行中}}",
+            "expand": "展开",
+            "collapse": "收起",
+            "defaultTool": "工具",
+            "sourcesCount": "{count, plural, =1 {1 个来源} other {# 个来源}}"
+        }
     },
     "home": {
         "welcomeTitle": "有什么我可以帮助您的？",
