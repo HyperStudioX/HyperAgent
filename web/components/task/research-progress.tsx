@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
@@ -18,7 +18,143 @@ import {
 import { ResearchResultView } from "@/components/query/research-report-view";
 import { useTaskStore } from "@/lib/stores/task-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
-import type { ResearchStep, Source, ResearchScenario } from "@/lib/types";
+import type { ResearchStep, Source, ResearchScenario, AgentEvent } from "@/lib/types";
+import type { ResearchTask } from "@/lib/stores/task-store";
+
+// Status types for type safety
+type TaskStatus = ResearchTask["status"];
+type StepStatus = ResearchStep["status"];
+
+// Event handler type for dispatch table
+type EventHandler = (event: Record<string, unknown>, context: EventHandlerContext) => void;
+
+interface EventHandlerContext {
+    taskId: string;
+    currentSteps: React.MutableRefObject<ResearchStep[]>;
+    currentSources: React.MutableRefObject<Source[]>;
+    fullResult: React.MutableRefObject<string>;
+    updateTaskStatus: (id: string, status: TaskStatus, error?: string) => void;
+    updateTaskSteps: (id: string, steps: ResearchStep[]) => void;
+    updateTaskSources: (id: string, sources: Source[]) => void;
+    updateTaskResult: (id: string, result: string) => void;
+    setResearchResult: (result: string) => void;
+    setError: (error: string | null) => void;
+    addEvent: (event: AgentEvent) => void;
+}
+
+// Event dispatch table for O(1) lookup instead of if/else chain
+const createEventHandlers = (): Map<string, EventHandler> => {
+    const handlers = new Map<string, EventHandler>();
+
+    handlers.set("task_started", (event, ctx) => {
+        const backendTaskId = event.task_id;
+        if (backendTaskId) {
+            console.log(`[ResearchProgress] Backend task started: ${backendTaskId}`);
+        }
+        ctx.updateTaskStatus(ctx.taskId, "running");
+    });
+
+    handlers.set("stage", (event, ctx) => {
+        const stepName = (event.name || (event.data as Record<string, unknown>)?.name) as string;
+        const stepStatus = (event.status || (event.data as Record<string, unknown>)?.status) as StepStatus;
+        if (stepName && stepStatus) {
+            ctx.currentSteps.current = ctx.currentSteps.current.map((s) =>
+                s.type === stepName ? { ...s, status: stepStatus } : s
+            );
+            ctx.updateTaskSteps(ctx.taskId, ctx.currentSteps.current);
+
+            const stepInfo = INITIAL_STEPS.find(s => s.type === stepName);
+            ctx.addEvent({
+                type: "stage",
+                name: stepName,
+                description: (event.description || stepInfo?.description || stepName) as string,
+                status: stepStatus,
+            });
+        }
+    });
+
+    handlers.set("source", (event, ctx) => {
+        const sourceData = (event.data || event) as Record<string, unknown>;
+        const newSource: Source = {
+            id: (sourceData.id || event.id || `source-${ctx.currentSources.current.length}`) as string,
+            title: (sourceData.title || event.title || "Source") as string,
+            url: (sourceData.url || event.url || "") as string,
+            snippet: (sourceData.snippet || event.snippet) as string | undefined,
+        };
+        ctx.currentSources.current = [...ctx.currentSources.current, newSource];
+        ctx.updateTaskSources(ctx.taskId, ctx.currentSources.current);
+
+        ctx.addEvent({
+            type: "source",
+            name: newSource.title,
+            data: {
+                id: newSource.id,
+                title: newSource.title,
+                url: newSource.url,
+                snippet: newSource.snippet,
+            },
+        } as AgentEvent);
+    });
+
+    handlers.set("tool_call", (event, ctx) => {
+        ctx.addEvent({
+            type: "tool_call",
+            tool: (event.tool || "tool") as string,
+            args: (event.args || {}) as Record<string, unknown>,
+            id: event.id as string,
+        } as AgentEvent);
+    });
+
+    handlers.set("tool_result", (event, ctx) => {
+        ctx.addEvent({
+            type: "tool_result",
+            tool: event.tool as string,
+            id: event.id as string,
+            data: event.output || event.data,
+        } as AgentEvent);
+    });
+
+    handlers.set("routing", (event, ctx) => {
+        ctx.addEvent({
+            type: "routing",
+            name: (event.agent || event.selected_agent) as string,
+            data: event,
+        } as AgentEvent);
+    });
+
+    handlers.set("handoff", (event, ctx) => {
+        ctx.addEvent({
+            type: "handoff",
+            name: event.target as string,
+            target: event.target as string,
+            data: event,
+        } as AgentEvent);
+    });
+
+    handlers.set("token", (event, ctx) => {
+        const tokenContent = event.data || event.content || "";
+        if (tokenContent) {
+            ctx.fullResult.current += typeof tokenContent === "string" ? tokenContent : String(tokenContent);
+            ctx.setResearchResult(ctx.fullResult.current);
+            ctx.updateTaskResult(ctx.taskId, ctx.fullResult.current);
+        }
+    });
+
+    handlers.set("error", (event, ctx) => {
+        const errorMsg = (event.data || event.message || "Unknown error") as string;
+        ctx.setError(errorMsg);
+        ctx.updateTaskStatus(ctx.taskId, "failed", errorMsg);
+        ctx.addEvent({
+            type: "error",
+            data: errorMsg,
+        } as AgentEvent);
+    });
+
+    return handlers;
+};
+
+// Create handlers once at module level
+const EVENT_HANDLERS = createEventHandlers();
 
 const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
     academic: <GraduationCap className="w-4 h-4" />,
@@ -52,19 +188,26 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
     const tResearch = useTranslations("research");
     const tChat = useTranslations("chat");
 
-    const {
-        tasks,
-        hasHydrated,
-        createTask,
-        updateTaskStatus,
-        updateTaskSteps,
-        updateTaskSources,
-        updateTaskResult,
-        setActiveTask,
-    } = useTaskStore();
+    // Use selective store subscriptions to avoid unnecessary re-renders
+    const hasHydrated = useTaskStore((state) => state.hasHydrated);
+    const createTask = useTaskStore((state) => state.createTask);
+    const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
+    const updateTaskSteps = useTaskStore((state) => state.updateTaskSteps);
+    const updateTaskSources = useTaskStore((state) => state.updateTaskSources);
+    const updateTaskResult = useTaskStore((state) => state.updateTaskResult);
+    const setActiveTask = useTaskStore((state) => state.setActiveTask);
+
+    // Get task by ID selector - only re-renders when this specific task changes
+    const existingTask = useTaskStore(
+        useCallback((state) => state.tasks.find((task) => task.id === taskId), [taskId])
+    );
 
     // Agent progress store for unified progress display
     const { startProgress, addEvent, endProgress } = useAgentProgressStore();
+
+    // Refs for stable references in callbacks
+    const taskLoadedRef = useRef(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const [taskInfo, setTaskInfo] = useState<TaskInfo | null>(null);
     const [isResearching, setIsResearching] = useState(false);
@@ -88,8 +231,11 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    // Load task from store or API
+    // Load task from store or API - optimized with reduced dependencies
     useEffect(() => {
+        // Prevent duplicate loads
+        if (taskLoadedRef.current) return;
+
         const fetchTask = async () => {
             // 1. Check localStorage for NEW task first (just submitted from Home)
             const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
@@ -98,8 +244,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                 try {
                     const info = JSON.parse(storedTaskInfo) as TaskInfo;
                     setTaskInfo(info);
-                    // Don't remove from localStorage yet, startResearch will handle final cleanup
-                    // Note: startResearch is triggered by the taskInfo being set
+                    taskLoadedRef.current = true;
 
                     // Also initialize in task store if hydrated
                     if (hasHydrated) {
@@ -113,37 +258,37 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                 }
             }
 
-            // 2. Fallback to Task Store if hydrated
-            if (hasHydrated) {
-                const existingTask = tasks.find((task) => task.id === taskId);
-                if (existingTask) {
-                    console.log(`[ResearchProgress] Loading existing task ${taskId} from store`);
-                    setTaskInfo({
-                        query: existingTask.query,
-                        scenario: existingTask.scenario,
-                        depth: existingTask.depth,
-                    });
-                    setResearchResult(existingTask.result);
-                    setError(existingTask.error || null);
-                    setIsExistingTask(true);
-                    setActiveTask(taskId);
+            // 2. Fallback to Task Store if hydrated - use the selector result
+            if (hasHydrated && existingTask) {
+                console.log(`[ResearchProgress] Loading existing task ${taskId} from store`);
+                setTaskInfo({
+                    query: existingTask.query,
+                    scenario: existingTask.scenario,
+                    depth: existingTask.depth,
+                });
+                setResearchResult(existingTask.result);
+                setError(existingTask.error || null);
+                setIsExistingTask(true);
+                setActiveTask(taskId);
+                taskLoadedRef.current = true;
 
-                    if (existingTask.status !== "running" && existingTask.status !== "pending") {
-                        setHasStarted(true);
-                        setIsResearching(false);
-                    }
-                    return;
+                if (existingTask.status !== "running" && existingTask.status !== "pending") {
+                    setHasStarted(true);
+                    setIsResearching(false);
                 }
+                return;
             }
 
             // 3. Otherwise fetch from API (existing task from history)
+            if (!hasHydrated) return; // Wait for hydration before API fetch
+
             console.log(`[ResearchProgress] Fetching task ${taskId} from API...`);
             try {
-                // Use /result endpoint to get full task data including report, steps, and sources
                 const response = await fetch(`/api/v1/tasks/${taskId}/result`);
                 if (response.ok) {
                     const data = await response.json();
                     console.log(`[ResearchProgress] Task data received from API:`, data);
+                    taskLoadedRef.current = true;
 
                     setTaskInfo({
                         query: data.query,
@@ -160,17 +305,10 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                             description: s.description,
                             status: s.status,
                         }));
-                        // Deduplicate steps
-                        const uniqueSteps = mappedSteps.reduce((acc: StepData[], step) => {
-                            const existingIndex = acc.findIndex((s) => s.type === step.type);
-                            if (existingIndex >= 0) {
-                                acc[existingIndex] = step;
-                            } else {
-                                acc.push(step);
-                            }
-                            return acc;
-                        }, []);
-                        updateTaskSteps(taskId, uniqueSteps as ResearchStep[]);
+                        // Deduplicate steps using Map for O(1) lookup
+                        const stepMap = new Map<string, StepData>();
+                        mappedSteps.forEach(step => stepMap.set(step.type, step));
+                        updateTaskSteps(taskId, Array.from(stepMap.values()) as ResearchStep[]);
                     }
 
                     if (data.sources) {
@@ -211,13 +349,29 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         };
 
         fetchTask();
-    }, [taskId, hasHydrated, tasks, createTask, setActiveTask, updateTaskSteps, updateTaskSources, updateTaskResult, t]);
+    }, [taskId, hasHydrated, existingTask, createTask, setActiveTask, updateTaskSteps, updateTaskSources, updateTaskResult, t]);
 
-    // Memoize startResearch to avoid recreation
+    // Refs for streaming state - avoids recreating arrays on each event
+    const currentStepsRef = useRef<ResearchStep[]>([...INITIAL_STEPS]);
+    const currentSourcesRef = useRef<Source[]>([]);
+    const fullResultRef = useRef<string>("");
+
+    // Memoize startResearch with minimal dependencies using refs
     const startResearch = useCallback(async (info: TaskInfo) => {
+        // Abort any existing request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+
         setIsResearching(true);
         setResearchResult("");
         setError(null);
+
+        // Reset refs
+        currentStepsRef.current = [...INITIAL_STEPS];
+        currentSourcesRef.current = [];
+        fullResultRef.current = "";
 
         // Initialize steps in task store
         updateTaskSteps(taskId, [...INITIAL_STEPS]);
@@ -226,8 +380,20 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         // Start agent progress tracking
         startProgress(taskId, "research");
 
-        let currentSteps: ResearchStep[] = [...INITIAL_STEPS];
-        let currentSources: Source[] = [];
+        // Create event handler context
+        const context: EventHandlerContext = {
+            taskId,
+            currentSteps: currentStepsRef,
+            currentSources: currentSourcesRef,
+            fullResult: fullResultRef,
+            updateTaskStatus,
+            updateTaskSteps,
+            updateTaskSources,
+            updateTaskResult,
+            setResearchResult,
+            setError,
+            addEvent,
+        };
 
         try {
             const response = await fetch("/api/v1/query/stream", {
@@ -238,8 +404,9 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                     mode: "research",
                     scenario: info.scenario,
                     depth: info.depth,
-                    task_id: taskId, // Use frontend taskId so backend uses the same ID
+                    task_id: taskId,
                 }),
+                signal: abortControllerRef.current.signal,
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -249,7 +416,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
             const decoder = new TextDecoder();
             let buffer = "";
-            let fullResult = "";
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -266,107 +432,12 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
                         try {
                             const event = JSON.parse(jsonStr);
+                            const eventType = event.type as string;
 
-                            if (event.type === "task_started") {
-                                // Backend sends task_started with its own task_id
-                                // We use this to ensure status is "running"
-                                const backendTaskId = event.task_id;
-                                if (backendTaskId) {
-                                    console.log(`[ResearchProgress] Backend task started: ${backendTaskId}`);
-                                }
-                                // Ensure our task is marked as running
-                                updateTaskStatus(taskId, "running");
-                            } else if (event.type === "stage") {
-                                // Backend sends stage events with "name" field for the step type
-                                const stepName = event.name || event.data?.name;
-                                const stepStatus = event.status || event.data?.status;
-                                if (stepName && stepStatus) {
-                                    // Update the status of the matching step type
-                                    currentSteps = currentSteps.map((s) =>
-                                        s.type === stepName ? { ...s, status: stepStatus } : s
-                                    );
-                                    updateTaskSteps(taskId, currentSteps);
-
-                                    // Add to agent progress store
-                                    const stepInfo = INITIAL_STEPS.find(s => s.type === stepName);
-                                    addEvent({
-                                        type: "stage",
-                                        name: stepName,
-                                        description: event.description || stepInfo?.description || stepName,
-                                        status: stepStatus,
-                                    });
-                                }
-                            } else if (event.type === "source") {
-                                // Source events can have fields directly on the event OR nested in data (worker format)
-                                const sourceData = event.data || event;
-                                const newSource: Source = {
-                                    id: sourceData.id || event.id || `source-${currentSources.length}`,
-                                    title: sourceData.title || event.title || "Source",
-                                    url: sourceData.url || event.url || "",
-                                    snippet: sourceData.snippet || event.snippet,
-                                };
-                                currentSources = [...currentSources, newSource];
-                                updateTaskSources(taskId, currentSources);
-
-                                // Add source event to agent progress store
-                                addEvent({
-                                    type: "source",
-                                    name: newSource.title,
-                                    data: {
-                                        id: newSource.id,
-                                        title: newSource.title,
-                                        url: newSource.url,
-                                        snippet: newSource.snippet,
-                                    },
-                                });
-                            } else if (event.type === "tool_call") {
-                                // Handle tool call events
-                                const toolName = event.tool || "tool";
-                                const toolArgs = event.args || {};
-                                addEvent({
-                                    type: "tool_call",
-                                    tool: toolName,
-                                    args: toolArgs,
-                                    id: event.id,
-                                });
-                            } else if (event.type === "tool_result") {
-                                // Handle tool result events
-                                addEvent({
-                                    type: "tool_result",
-                                    tool: event.tool,
-                                    id: event.id,
-                                    data: event.output || event.data,
-                                });
-                            } else if (event.type === "routing") {
-                                // Handle routing decision events
-                                addEvent({
-                                    type: "routing",
-                                    name: event.agent || event.selected_agent,
-                                    data: event,
-                                });
-                            } else if (event.type === "handoff") {
-                                // Handle agent handoff events
-                                addEvent({
-                                    type: "handoff",
-                                    name: event.target,
-                                    data: event,
-                                });
-                            } else if (event.type === "token") {
-                                // Token content can be in data or content field
-                                const tokenContent = event.data || event.content || "";
-                                if (tokenContent) {
-                                    fullResult += typeof tokenContent === "string" ? tokenContent : String(tokenContent);
-                                    setResearchResult(fullResult);
-                                    updateTaskResult(taskId, fullResult);
-                                }
-                            } else if (event.type === "error") {
-                                const errorMsg = event.data || event.message || "Unknown error";
-                                setError(errorMsg);
-                                updateTaskStatus(taskId, "failed", errorMsg);
-                                addEvent({
-                                    type: "error",
-                                    data: errorMsg,
-                                });
+                            // O(1) lookup using dispatch table
+                            const handler = EVENT_HANDLERS.get(eventType);
+                            if (handler) {
+                                handler(event, context);
                             }
                         } catch (e) {
                             console.error("Parse error:", e);
@@ -379,24 +450,46 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
             localStorage.removeItem(`task-${taskId}`);
 
             // Mark all steps as completed
-            const completedSteps = currentSteps.map(s => ({ ...s, status: "completed" as const }));
+            const completedSteps = currentStepsRef.current.map(s => ({ ...s, status: "completed" as const }));
             updateTaskSteps(taskId, completedSteps);
 
             updateTaskStatus(taskId, "completed");
             endProgress();
         } catch (err) {
+            // Don't report abort errors
+            if (err instanceof Error && err.name === "AbortError") {
+                console.log("[ResearchProgress] Request aborted");
+                return;
+            }
             console.error("Research error:", err);
-            setError(tChat("connectionError"));
-            updateTaskStatus(taskId, "failed", tChat("connectionError"));
+            const errorMsg = tChat("connectionError");
+            setError(errorMsg);
+            updateTaskStatus(taskId, "failed", errorMsg);
             addEvent({
                 type: "error",
-                data: tChat("connectionError"),
+                data: errorMsg,
             });
             endProgress();
         } finally {
             setIsResearching(false);
+            abortControllerRef.current = null;
         }
     }, [taskId, updateTaskStatus, updateTaskSteps, updateTaskSources, updateTaskResult, tChat, startProgress, addEvent, endProgress]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+            // Clean up localStorage if task wasn't completed
+            const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
+            if (storedTaskInfo) {
+                // Don't remove - let user retry later
+                console.log("[ResearchProgress] Component unmounting with pending task");
+            }
+        };
+    }, [taskId]);
 
     // Start research when task info is loaded
     useEffect(() => {

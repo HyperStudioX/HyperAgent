@@ -7,9 +7,6 @@ import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useTaskStore } from "@/lib/stores/task-store";
-import { useTheme } from "@/lib/hooks/use-theme";
-import { UserMenu } from "@/components/auth/user-menu";
-import { PreferencesPanel } from "@/components/ui/preferences-panel";
 import { RecentTasks, type RecentItem } from "@/components/ui/recent-tasks";
 import { CreateMenu } from "@/components/ui/create-menu";
 import { MenuToggle } from "@/components/ui/menu-toggle";
@@ -41,7 +38,6 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
     } = useTaskStore();
 
     const hasHydrated = chatHydrated && taskHydrated;
-    const { theme, setTheme, mounted } = useTheme();
 
     // Track if we've attempted to load conversations to prevent duplicate calls
     const loadAttempted = useRef(false);
@@ -159,7 +155,6 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                             style={{ opacity: 0.95 }}
                         />
                     </div>
-                    <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                 </div>
                 <MenuToggle
                     isOpen={true}
@@ -190,16 +185,6 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                     className="flex-1 min-h-0"
                 />
             )}
-
-            {/* Footer */}
-            <div className="px-3 py-3 border-t border-border space-y-2">
-                <PreferencesPanel
-                    theme={theme}
-                    mounted={mounted}
-                    onThemeChange={setTheme}
-                />
-                <UserMenu />
-            </div>
         </aside>
     );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Copy, Check, BookOpen, FileText, List, ChevronRight } from "lucide-react";
@@ -20,21 +20,62 @@ interface TocItem {
     level: number;
 }
 
-export function ResearchResultView({ content, isStreaming = false, title = "Analysis Report" }: ResearchResultViewProps) {
-    const [toc, setToc] = useState<TocItem[]>([]);
-    const [isTocCollapsed, setIsTocCollapsed] = useState(false);
+// Memoized heading extraction function
+const extractHeadings = (content: string): TocItem[] => {
+    const headings = content.match(/^#{1,3}\s+.+$/gm) || [];
+    return headings.map((h) => {
+        const level = (h.match(/^#+/) || [""])[0].length;
+        const text = h.replace(/^#+\s+/, "");
+        const id = text.toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
+        return { id, text, level };
+    });
+};
 
-    // Extract headings for Table of Contents
+export function ResearchResultView({ content, isStreaming = false, title = "Analysis Report" }: ResearchResultViewProps) {
+    const [isTocCollapsed, setIsTocCollapsed] = useState(false);
+    const [debouncedToc, setDebouncedToc] = useState<TocItem[]>([]);
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const lastTocLengthRef = useRef(0);
+
+    // Extract headings with useMemo for non-streaming content
+    // During streaming, we debounce updates to prevent excessive re-renders
+    const extractedToc = useMemo(() => extractHeadings(content), [content]);
+
+    // Debounced TOC update during streaming
     useEffect(() => {
-        const headings = content.match(/^#{1,3}\s+.+$/gm) || [];
-        const tocItems = headings.map((h) => {
-            const level = (h.match(/^#+/) || [""])[0].length;
-            const text = h.replace(/^#+\s+/, "");
-            const id = text.toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
-            return { id, text, level };
-        });
-        setToc(tocItems);
-    }, [content]);
+        // If not streaming, update immediately
+        if (!isStreaming) {
+            setDebouncedToc(extractedToc);
+            lastTocLengthRef.current = extractedToc.length;
+            return;
+        }
+
+        // During streaming, only update if new headings were added
+        // This avoids expensive updates on every token
+        if (extractedToc.length === lastTocLengthRef.current) {
+            return;
+        }
+
+        // Clear existing timer
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        // Debounce TOC updates during streaming (200ms)
+        debounceTimerRef.current = setTimeout(() => {
+            setDebouncedToc(extractedToc);
+            lastTocLengthRef.current = extractedToc.length;
+        }, 200);
+
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
+    }, [extractedToc, isStreaming]);
+
+    // Use debounced TOC for rendering
+    const toc = debouncedToc;
 
     return (
         <div className="flex flex-col lg:flex-row gap-8 relative w-full px-4 md:px-0">

@@ -985,36 +985,7 @@ export function ChatInterface() {
                 >
                     {/* Welcome section - bigger and more impactful */}
                     {!hasMessages && (
-                        <div className="text-center mb-12">
-                            {/* Logo + Product name */}
-                            <div
-                                className="flex items-center justify-center gap-4 mb-8 animate-slide-up"
-                                style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}
-                            >
-                                <div className="relative w-14 h-14 flex items-center justify-center group">
-                                    <div className="absolute inset-0 bg-gradient-to-br from-accent-cyan/30 via-accent-blue/20 to-accent-cyan/10 rounded-2xl blur-xl opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
-                                    <Image
-                                        src="/images/logo-light.svg"
-                                        alt="HyperAgent"
-                                        width={56}
-                                        height={56}
-                                        priority
-                                        className="dark:hidden relative z-10 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3"
-                                    />
-                                    <Image
-                                        src="/images/logo-dark.svg"
-                                        alt="HyperAgent"
-                                        width={56}
-                                        height={56}
-                                        priority
-                                        className="hidden dark:block relative z-10 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3"
-                                    />
-                                </div>
-                                <h1 className="brand-title brand-title-lg">
-                                    HyperAgent
-                                </h1>
-                            </div>
-
+                        <div className="text-center mb-6">
                             {/* Subtitle - larger and more prominent */}
                             <p
                                 className="text-muted-foreground text-lg md:text-xl leading-relaxed max-w-lg mx-auto animate-fade-in"
@@ -1034,7 +1005,7 @@ export function ChatInterface() {
                         style={!hasMessages ? { animationDelay: '0.3s', animationFillMode: 'backwards' } : undefined}
                     >
                         <div className={cn(
-                            "relative flex flex-col bg-card rounded-2xl border border-border focus-within:border-foreground/30 focus-within:shadow-glow-sm transition-all duration-200"
+                            "relative flex flex-col bg-card rounded-2xl border border-border focus-within:border-foreground/30 transition-colors"
                         )}>
                             {/* Attachment preview */}
                             <AttachmentPreview
@@ -1088,15 +1059,12 @@ export function ChatInterface() {
                                     onClick={handleSubmit}
                                     disabled={!input.trim() || isProcessing || isUploading}
                                     variant={input.trim() && !isProcessing && !isUploading ? "primary" : "default"}
-                                    className="min-h-[44px]"
+                                    size="icon"
                                 >
                                     {isProcessing || isUploading ? (
                                         <Loader2 className="w-4 h-4 animate-spin" />
                                     ) : (
-                                        <>
-                                            <span>{tChat("send")}</span>
-                                            <Send className="w-4 h-4" />
-                                        </>
+                                        <Send className="w-4 h-4" />
                                     )}
                                 </Button>
                             </div>

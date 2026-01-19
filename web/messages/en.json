@@ -4,7 +4,7 @@
         "description": "AI Agent Platform for Chat and Deep Research"
     },
     "sidebar": {
-        "create": "Create",
+        "create": "New",
         "recentTasks": "Recent Tasks",
         "lightMode": "Light mode",
         "darkMode": "Dark mode",

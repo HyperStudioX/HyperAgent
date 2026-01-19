@@ -20,8 +20,8 @@ A radically minimal design system using the Cursor aesthetic - pure neutrals, fl
 
 | Token | Light Mode | Dark Mode | Usage |
 |-------|------------|-----------|-------|
-| `bg-background` | Pure white (100%) | Deep black (4%) | Page backgrounds |
-| `bg-card` | Off-white (98%) | Dark gray (7%) | Cards, elevated surfaces |
+| `bg-background` | Off-white (98%) | Dark gray (7%) | Page backgrounds |
+| `bg-card` | Pure white (100%) | Deep black (4%) | Editor areas (chat input, message list), cards, elevated surfaces |
 | `bg-secondary` | Light gray (96%) | Dark gray (12%) | Sidebars, subtle backgrounds |
 | `bg-muted` | Light gray (94%) | Dark gray (14%) | Disabled states, read items |
 | `text-foreground` | Near black (9%) | Light gray (92%) | Primary text |
@@ -30,7 +30,7 @@ A radically minimal design system using the Cursor aesthetic - pure neutrals, fl
 | `border-border/50` | 50% opacity | 50% opacity | Card borders, containers |
 | `border-border/30` | 30% opacity | 30% opacity | Dividers, separators |
 | `bg-primary` | Near black (9%) | Light gray (92%) | Primary buttons, inverted states |
-| `text-primary-foreground` | Off-white (98%) | Near black (4%) | Text on primary |
+| `text-primary-foreground` | Pure white (100%) | Near black (4%) | Text on primary |
 | `bg-destructive` | Red (0 72% 51%) | Red (0 72% 55%) | Error states, delete buttons |
 | `text-destructive` | Red | Red | Error text, warning icons |
 
@@ -115,22 +115,22 @@ Uses native system fonts for optimal performance and a native feel on each platf
 ### CSS Variables (Light Mode - Clean White)
 
 ```css
---background: 0 0% 100%;      /* Pure white */
+--background: 0 0% 98%;      /* Off-white - site background */
 --foreground: 0 0% 9%;        /* Near black */
 --primary: 0 0% 9%;           /* Near black */
---primary-foreground: 0 0% 98%;
+--primary-foreground: 0 0% 100%;  /* Pure white - matches card */
 --secondary: 0 0% 96%;        /* Light gray */
 --muted: 0 0% 94%;
 --muted-foreground: 0 0% 45%;
 --border: 0 0% 93%;           /* Refined from 90% */
---card: 0 0% 98%;
+--card: 0 0% 100%;            /* Pure white - editor areas (chat input, message list) */
 --ring: 0 0% 20%;
 ```
 
 ### CSS Variables (Dark Mode - Deep Black)
 
 ```css
---background: 0 0% 4%;        /* Deep black */
+--background: 0 0% 7%;        /* Dark gray - site background */
 --foreground: 0 0% 92%;       /* Light gray (refined from 89%) */
 --primary: 0 0% 92%;
 --primary-foreground: 0 0% 4%;
@@ -138,7 +138,7 @@ Uses native system fonts for optimal performance and a native feel on each platf
 --muted: 0 0% 14%;
 --muted-foreground: 0 0% 50%;
 --border: 0 0% 16%;           /* Refined from 18% */
---card: 0 0% 7%;
+--card: 0 0% 4%;              /* Deep black - editor areas (chat input, message list) */
 --ring: 0 0% 80%;
 ```
 
