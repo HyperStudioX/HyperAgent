@@ -65,7 +65,7 @@ export function PreferencesPanel({
         className={cn(
           "w-full h-9 px-3 rounded-lg",
           "flex items-center justify-between",
-          "text-sm",
+          "text-base",
           "text-muted-foreground hover:text-foreground",
           "hover:bg-secondary",
           "transition-all duration-200"

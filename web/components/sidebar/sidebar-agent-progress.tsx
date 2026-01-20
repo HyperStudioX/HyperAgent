@@ -195,9 +195,12 @@ function ToolItem({ tool, isStreaming }: { tool: TimestampedEvent; isStreaming: 
     const hasArgs = Object.keys(args).length > 0;
     const isSearch = toolName === "web_search" || toolName === "google_search" || toolName === "web";
     const query = (args as Record<string, unknown>).query as string | undefined;
-    // Tool is only running if streaming is active AND no endTimestamp
-    // When streaming ends, all tools show as completed
-    const isRunning = isStreaming && !tool.endTimestamp;
+
+    // Determine tool status based on status field and timestamps
+    const isPending = tool.status === "pending" || (!tool.status && !tool.endTimestamp && isStreaming);
+    const isRunning = tool.status === "running" || (isStreaming && !tool.endTimestamp && !isPending);
+    const isFailed = tool.status === "failed";
+    const isCompleted = tool.status === "completed" || tool.endTimestamp !== undefined || !isStreaming;
 
     // Get translated tool name, fallback to formatted name
     const defaultToolLabel = tProgress("defaultTool");
@@ -223,14 +226,20 @@ function ToolItem({ tool, isStreaming }: { tool: TimestampedEvent; isStreaming: 
             className={cn(
                 "flex items-center gap-2.5 py-1.5 px-3 ml-6 rounded-md transition-colors",
                 hasArgs && "cursor-pointer hover:bg-muted/40",
-                isRunning && "bg-muted/20"
+                isPending && "bg-muted/10",
+                isRunning && "bg-muted/20",
+                isFailed && "bg-destructive/5"
             )}
             onClick={() => hasArgs && setIsExpanded(!isExpanded)}
         >
             {/* Status indicator - minimal */}
             <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
-                {isRunning ? (
+                {isPending ? (
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground/40" />
+                ) : isRunning ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                ) : isFailed ? (
+                    <AlertCircle className="w-3.5 h-3.5 text-destructive" />
                 ) : (
                     <Check className="w-3.5 h-3.5 text-[hsl(var(--accent-success))]" />
                 )}
@@ -238,8 +247,11 @@ function ToolItem({ tool, isStreaming }: { tool: TimestampedEvent; isStreaming: 
 
             {/* Tool name with inline icon */}
             <span className={cn(
-                "text-sm flex-1 truncate",
-                isRunning ? "text-foreground" : "text-muted-foreground"
+                "text-base flex-1 truncate",
+                isPending && "text-muted-foreground/60",
+                isRunning && "text-foreground",
+                isCompleted && !isFailed && "text-muted-foreground",
+                isFailed && "text-destructive"
             )}>
                 {getToolDisplayName()}
             </span>
@@ -273,23 +285,25 @@ function StageGroupItem({ group, defaultExpanded, isStreaming }: { group: StageG
     const stageDescription = getTranslatedStageDescription(stage, tStages);
 
     const isFailed = stage.status === "failed";
+    const isPending = stage.status === "pending";
 
     // A stage with tools is completed when ALL its tools have completed,
     // even if the backend hasn't sent a stage completion event yet
-    const allToolsCompleted = hasTools && tools.every(t => t.endTimestamp);
+    const allToolsCompleted = hasTools && tools.every(t => t.endTimestamp || t.status === "completed");
 
     // A stage is running only if:
     // 1. Streaming is still active (task not completed)
-    // 2. Stage status is "running" AND (no tools OR some tools still running)
+    // 2. Stage status is "running" AND (no tools OR some tools still running or pending)
     // When streaming ends, no stage should show as "running" anymore
-    const isRunning = isStreaming && !isFailed && stage.status === "running" && (!hasTools || tools.some(t => !t.endTimestamp));
+    const isRunning = isStreaming && !isFailed && !isPending && stage.status === "running" &&
+                      (!hasTools || tools.some(t => !t.endTimestamp && t.status !== "completed"));
 
     // A stage is completed if:
     // 1. Stage status is "completed", OR
     // 2. Stage has an endTimestamp, OR
     // 3. Stage has tools and ALL tools have completed, OR
     // 4. Streaming has ended (task is complete) - all remaining stages are implicitly complete
-    const isCompleted = !isFailed && !isRunning && (
+    const isCompleted = !isFailed && !isRunning && !isPending && (
         stage.status === "completed" ||
         stage.endTimestamp !== undefined ||
         allToolsCompleted ||
@@ -309,11 +323,14 @@ function StageGroupItem({ group, defaultExpanded, isStreaming }: { group: StageG
                 {/* Status indicator - unified size */}
                 <div className={cn(
                     "w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0",
+                    isPending && "bg-muted/40",
                     isRunning && "bg-foreground text-background",
                     isCompleted && "bg-[hsl(var(--accent-success))/0.15]",
                     isFailed && "bg-destructive/15"
                 )}>
-                    {isRunning ? (
+                    {isPending ? (
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground/60" />
+                    ) : isRunning ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : isFailed ? (
                         <AlertCircle className="w-3.5 h-3.5 text-destructive" />
@@ -325,7 +342,8 @@ function StageGroupItem({ group, defaultExpanded, isStreaming }: { group: StageG
                 {/* Stage content */}
                 <div className="flex-1 min-w-0">
                     <span className={cn(
-                        "text-sm font-medium truncate block",
+                        "text-base font-medium truncate block",
+                        isPending && "text-muted-foreground/60",
                         isRunning && "text-foreground",
                         isCompleted && "text-muted-foreground",
                         isFailed && "text-destructive"
@@ -385,7 +403,7 @@ function SourcesSection({ sources, isExpanded: defaultExpanded }: { sources: Sou
                 </div>
 
                 {/* Label */}
-                <span className="text-sm font-medium text-muted-foreground flex-1">
+                <span className="text-base font-medium text-muted-foreground flex-1">
                     {tProgress("sourcesCount", { count: sources.length })}
                 </span>
 
@@ -408,7 +426,7 @@ function SourcesSection({ sources, isExpanded: defaultExpanded }: { sources: Sou
                             className="group flex items-center gap-2.5 py-1.5 px-3 ml-6 rounded-md hover:bg-muted/40 transition-colors"
                         >
                             <Link className="w-4 h-4 text-muted-foreground/60 shrink-0" />
-                            <span className="text-sm text-muted-foreground truncate flex-1 group-hover:text-foreground transition-colors">
+                            <span className="text-base text-muted-foreground truncate flex-1 group-hover:text-foreground transition-colors">
                                 {source.title}
                             </span>
                             <ExternalLink className="w-3 h-3 text-muted-foreground/40 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -439,20 +457,25 @@ export function AgentProgressPanel() {
 
         const { isStreaming: streaming } = activeProgress;
 
+        // Helper to check if a stage is pending (matches StageGroupItem logic)
+        const isStagePending = (g: StageGroup) => {
+            return g.stage.status === "pending";
+        };
+
         // Helper to check if a stage is running (matches StageGroupItem logic)
         const isStageRunning = (g: StageGroup) => {
-            if (g.stage.status === "failed") return false;
+            if (g.stage.status === "failed" || g.stage.status === "pending") return false;
             const hasTools = g.tools.length > 0;
             // When streaming ends, no stage should show as "running" anymore
             return streaming && g.stage.status === "running" &&
-                   (!hasTools || g.tools.some(t => !t.endTimestamp));
+                   (!hasTools || g.tools.some(t => !t.endTimestamp && t.status !== "completed"));
         };
 
         // Helper to check if a stage is completed (matches StageGroupItem logic)
         const isStageCompleted = (g: StageGroup) => {
-            if (g.stage.status === "failed") return false;
+            if (g.stage.status === "failed" || g.stage.status === "pending") return false;
             const hasTools = g.tools.length > 0;
-            const allToolsCompleted = hasTools && g.tools.every(t => t.endTimestamp);
+            const allToolsCompleted = hasTools && g.tools.every(t => t.endTimestamp || t.status === "completed");
             const running = isStageRunning(g);
             return !running && (
                 g.stage.status === "completed" ||
@@ -462,11 +485,12 @@ export function AgentProgressPanel() {
             );
         };
 
+        const pendingStages = stageGroups.filter(isStagePending).length;
         const completedStages = stageGroups.filter(isStageCompleted).length;
         const runningStages = stageGroups.filter(isStageRunning).length;
         const totalTools = stageGroups.reduce((sum, g) => sum + g.tools.length, 0);
         const completedTools = stageGroups.reduce((sum, g) =>
-            sum + g.tools.filter(t => t.endTimestamp).length, 0
+            sum + g.tools.filter(t => t.endTimestamp || t.status === "completed").length, 0
         );
         const failedCount = stageGroups.filter(g => g.stage.status === "failed").length;
 
@@ -539,7 +563,7 @@ export function AgentProgressPanel() {
                         <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-2">
                                 <span className="text-muted-foreground">{agentIcon}</span>
-                                <h3 className="text-sm font-semibold truncate">{agentName}</h3>
+                                <h3 className="text-base font-semibold truncate">{agentName}</h3>
                             </div>
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Clock className="w-3 h-3" />
@@ -586,7 +610,7 @@ export function AgentProgressPanel() {
                 {isStreaming && currentStage && !HIDDEN_STAGES.has(currentStage) && (
                     <div className="px-4 py-3 bg-muted/50 border-b border-border/30 flex items-center gap-3">
                         <Loader2 className="w-4 h-4 animate-spin text-foreground flex-shrink-0" />
-                        <span className="text-sm font-medium truncate">
+                        <span className="text-base font-medium truncate">
                             {KNOWN_STAGES.includes(currentStage)
                                 ? tStages(`${currentStage}.running` as Parameters<typeof tStages>[0])
                                 : currentStage}
@@ -603,12 +627,12 @@ export function AgentProgressPanel() {
                         {progressSummary?.hasError ? (
                             <>
                                 <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0" />
-                                <span className="text-sm font-medium text-destructive">{tChat("completedWithErrors")}</span>
+                                <span className="text-base font-medium text-destructive">{tChat("completedWithErrors")}</span>
                             </>
                         ) : (
                             <>
                                 <Check className="w-4 h-4 text-[hsl(var(--accent-success))] flex-shrink-0" />
-                                <span className="text-sm font-medium text-[hsl(var(--accent-success))]">{tChat("completed")}</span>
+                                <span className="text-base font-medium text-[hsl(var(--accent-success))]">{tChat("completed")}</span>
                             </>
                         )}
                     </div>
@@ -622,7 +646,7 @@ export function AgentProgressPanel() {
                                 <div className="flex items-center justify-center py-8">
                                     <div className="flex items-center gap-3 text-muted-foreground">
                                         <Loader2 className="w-5 h-5 animate-spin" />
-                                        <span className="text-sm">{tChat("thinking")}</span>
+                                        <span className="text-base">{tChat("thinking")}</span>
                                     </div>
                                 </div>
                             )}
@@ -649,17 +673,24 @@ export function AgentProgressPanel() {
                             {stageGroups.length === 0 && isStreaming && (
                                 <div className="flex items-center gap-2 text-muted-foreground py-2">
                                     <Loader2 className="w-4 h-4 animate-spin" />
-                                    <span className="text-sm">{tChat("thinking")}</span>
+                                    <span className="text-base">{tChat("thinking")}</span>
                                 </div>
                             )}
 
                             {stageGroups.map((group, index) => {
                                 const hasTools = group.tools.length > 0;
-                                const allToolsCompleted = hasTools && group.tools.every(t => t.endTimestamp);
-                                // When streaming ends, no stage should show as "running" anymore
-                                const isStageRunning = isStreaming && group.stage.status === "running" && (!hasTools || group.tools.some(t => !t.endTimestamp));
-                                const isStageCompleted = !isStageRunning && (group.stage.status === "completed" || group.stage.endTimestamp !== undefined || allToolsCompleted || !isStreaming);
+                                const allToolsCompleted = hasTools && group.tools.every(t => t.endTimestamp || t.status === "completed");
+                                const isStagePending = group.stage.status === "pending";
                                 const isStageFailed = group.stage.status === "failed";
+                                // When streaming ends, no stage should show as "running" anymore
+                                const isStageRunning = isStreaming && !isStagePending && !isStageFailed &&
+                                                      group.stage.status === "running" &&
+                                                      (!hasTools || group.tools.some(t => !t.endTimestamp && t.status !== "completed"));
+                                const isStageCompleted = !isStagePending && !isStageRunning && !isStageFailed &&
+                                                        (group.stage.status === "completed" ||
+                                                         group.stage.endTimestamp !== undefined ||
+                                                         allToolsCompleted ||
+                                                         !isStreaming);
 
                                 const stageDescription = getTranslatedStageDescription(group.stage, tStages);
 
@@ -667,13 +698,16 @@ export function AgentProgressPanel() {
                                     <div
                                         key={`stage-collapsed-${index}`}
                                         className={cn(
-                                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm",
+                                            "flex items-center gap-2 px-2 py-1.5 rounded-md text-base",
+                                            isStagePending && "text-muted-foreground/60",
                                             isStageRunning && "bg-muted/50",
                                             isStageCompleted && "text-muted-foreground",
                                             isStageFailed && "text-destructive"
                                         )}
                                     >
-                                        {isStageRunning ? (
+                                        {isStagePending ? (
+                                            <Clock className="w-3.5 h-3.5 text-muted-foreground/40 flex-shrink-0" />
+                                        ) : isStageRunning ? (
                                             <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
                                         ) : isStageCompleted ? (
                                             <Check className="w-3.5 h-3.5 text-[hsl(var(--accent-success))] flex-shrink-0" />
@@ -685,7 +719,7 @@ export function AgentProgressPanel() {
                                         <span className="truncate flex-1">{stageDescription}</span>
                                         {hasTools && (
                                             <span className="text-xs text-muted-foreground/70 flex-shrink-0">
-                                                {group.tools.filter(t => t.endTimestamp).length}/{group.tools.length}
+                                                {group.tools.filter(t => t.endTimestamp || t.status === "completed").length}/{group.tools.length}
                                             </span>
                                         )}
                                     </div>
@@ -694,7 +728,7 @@ export function AgentProgressPanel() {
 
                             {/* Sources count in collapsed view */}
                             {sources.length > 0 && (
-                                <div className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
+                                <div className="flex items-center gap-2 px-2 py-1.5 text-base text-muted-foreground">
                                     <Globe className="w-3.5 h-3.5 flex-shrink-0" />
                                     <span>{tProgress("sourcesCount", { count: sources.length })}</span>
                                 </div>

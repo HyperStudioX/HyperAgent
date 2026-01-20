@@ -9,6 +9,17 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontSize: {
+        'xs': ['0.6875rem', { lineHeight: '0.9375rem', letterSpacing: '0' }],    // 11px/15px - labels, badges
+        'sm': ['0.75rem', { lineHeight: '1rem', letterSpacing: '0' }],           // 12px/16px - secondary text
+        'base': ['0.8125rem', { lineHeight: '1.125rem', letterSpacing: '0' }],   // 13px/18px - primary UI
+        'md': ['0.875rem', { lineHeight: '1.25rem', letterSpacing: '0' }],       // 14px/20px - emphasized
+        'lg': ['1rem', { lineHeight: '1.5rem', letterSpacing: '-0.01em' }],      // 16px/24px - headings
+        'xl': ['1.125rem', { lineHeight: '1.75rem', letterSpacing: '-0.01em' }], // 18px/28px
+        '2xl': ['1.25rem', { lineHeight: '1.875rem', letterSpacing: '-0.02em' }], // 20px/30px
+        '3xl': ['1.5rem', { lineHeight: '2rem', letterSpacing: '-0.02em' }],     // 24px/32px
+        '4xl': ['2rem', { lineHeight: '2.5rem', letterSpacing: '-0.03em' }],     // 32px/40px
+      },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",

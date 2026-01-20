@@ -444,7 +444,7 @@ function RecentItemRow({
       {/* Title */}
       <span
         className={cn(
-          "flex-1 text-sm truncate",
+          "flex-1 text-base truncate",
           isActive ? "text-foreground font-medium" : "text-foreground/80 group-hover:text-foreground"
         )}
       >

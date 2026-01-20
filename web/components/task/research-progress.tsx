@@ -260,23 +260,27 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
             // 2. Fallback to Task Store if hydrated - use the selector result
             if (hasHydrated && existingTask) {
-                console.log(`[ResearchProgress] Loading existing task ${taskId} from store`);
-                setTaskInfo({
-                    query: existingTask.query,
-                    scenario: existingTask.scenario,
-                    depth: existingTask.depth,
-                });
-                setResearchResult(existingTask.result);
-                setError(existingTask.error || null);
-                setIsExistingTask(true);
-                setActiveTask(taskId);
-                taskLoadedRef.current = true;
+                // If task has no result and is completed, try to fetch from API
+                if (!existingTask.result && existingTask.status === "completed") {
+                    // Fall through to API fetch
+                } else {
+                    setTaskInfo({
+                        query: existingTask.query,
+                        scenario: existingTask.scenario,
+                        depth: existingTask.depth,
+                    });
+                    setResearchResult(existingTask.result);
+                    setError(existingTask.error || null);
+                    setIsExistingTask(true);
+                    setActiveTask(taskId);
+                    taskLoadedRef.current = true;
 
-                if (existingTask.status !== "running" && existingTask.status !== "pending") {
-                    setHasStarted(true);
-                    setIsResearching(false);
+                    if (existingTask.status !== "running" && existingTask.status !== "pending") {
+                        setHasStarted(true);
+                        setIsResearching(false);
+                    }
+                    return;
                 }
-                return;
             }
 
             // 3. Otherwise fetch from API (existing task from history)
@@ -284,7 +288,9 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
             console.log(`[ResearchProgress] Fetching task ${taskId} from API...`);
             try {
-                const response = await fetch(`/api/v1/tasks/${taskId}/result`);
+                const response = await fetch(`/api/v1/tasks/${taskId}/result`, {
+                    credentials: 'include',
+                });
                 if (response.ok) {
                     const data = await response.json();
                     console.log(`[ResearchProgress] Task data received from API:`, data);
@@ -338,9 +344,16 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                     return;
                 } else if (response.status === 404) {
                     setError(t("taskNotFoundMessage"));
+                } else if (response.status === 401) {
+                    console.warn(`[ResearchProgress] Authentication required - please log in`);
+                    setError("Please log in to view this research task");
+                } else if (response.status === 403) {
+                    console.warn(`[ResearchProgress] Access denied to task`);
+                    setError("You don't have permission to view this task");
                 } else {
-                    console.warn(`[ResearchProgress] API returned status ${response.status}`);
-                    setError("Failed to load task details");
+                    const errorData = await response.json().catch(() => ({}));
+                    console.warn(`[ResearchProgress] API returned status ${response.status}:`, errorData);
+                    setError(errorData.detail || "Failed to load task details");
                 }
             } catch (err) {
                 console.error("[ResearchProgress] API fetch failed:", err);
@@ -399,6 +412,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
             const response = await fetch("/api/v1/query/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: 'include',
                 body: JSON.stringify({
                     message: info.query,
                     mode: "research",

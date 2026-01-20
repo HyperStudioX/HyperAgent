@@ -472,6 +472,7 @@ export function ChatInterface() {
             const response = await fetch("/api/v1/query/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: 'include',
                 body: JSON.stringify({
                     message: userMessage,
                     mode: "chat",
@@ -708,6 +709,7 @@ export function ChatInterface() {
             const response = await fetch("/api/v1/query/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: 'include',
                 body: JSON.stringify({
                     message: userMessage,
                     mode: agentType,
