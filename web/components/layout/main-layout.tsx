@@ -6,6 +6,7 @@ import { MobileSidebar } from "./mobile-sidebar";
 import { MenuToggle } from "@/components/ui/menu-toggle";
 import { UserProfileMenu } from "@/components/auth/user-profile-menu";
 import { useSidebarStore } from "@/lib/stores/sidebar-store";
+import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { cn } from "@/lib/utils";
 
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
@@ -18,6 +19,15 @@ interface MainLayoutProps {
 export function MainLayout({ children }: MainLayoutProps) {
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const { desktopSidebarOpen, toggleDesktopSidebar } = useSidebarStore();
+    const { isPanelOpen, activeProgress } = useAgentProgressStore();
+
+    // Calculate the right panel width for content adjustment
+    const hasBrowserStream = activeProgress?.browserStream;
+    const rightPanelWidth = isPanelOpen
+        ? hasBrowserStream
+            ? "lg:pr-[680px]"  // Browser stream active - wider panel
+            : "lg:pr-[340px]"  // Normal panel width
+        : "";
 
     return (
         <div className="flex h-screen overflow-hidden bg-background">
@@ -30,7 +40,10 @@ export function MainLayout({ children }: MainLayoutProps) {
                 onClose={() => setMobileSidebarOpen(false)}
             />
 
-            <main className="flex-1 flex flex-col overflow-hidden relative">
+            <main className={cn(
+                "flex-1 flex flex-col overflow-hidden relative transition-all duration-300",
+                rightPanelWidth
+            )}>
                 {/* Mobile header with menu toggle and user profile */}
                 <div className="md:hidden h-14 px-2 flex items-center justify-between border-b border-border bg-card sticky top-0 z-30">
                     <div className="flex items-center">

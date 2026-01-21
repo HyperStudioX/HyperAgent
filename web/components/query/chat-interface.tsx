@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import {
     Send,
     Loader2,
@@ -117,6 +117,7 @@ export function ChatInterface() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { status: sessionStatus } = useSession();
+    const locale = useLocale();
     const t = useTranslations("home");
     const tAgents = useTranslations("agents");
     const tResearch = useTranslations("research");
@@ -524,6 +525,7 @@ export function ChatInterface() {
                     attachment_ids: combinedAttachmentIds,
                     conversation_id: conversationId?.startsWith("local-") ? null : conversationId,
                     history: history,
+                    locale: locale,
                 }),
             });
 
@@ -643,6 +645,15 @@ export function ChatInterface() {
                                     }
                                 } else {
                                     console.warn("[Image Event] Missing data/url or mime_type, event:", event);
+                                }
+                            } else if (event.type === "browser_stream") {
+                                // Handle browser stream event - show live browser view
+                                const streamUrl = event.stream_url as string;
+                                const sandboxId = event.sandbox_id as string;
+                                const authKey = event.auth_key as string | undefined;
+                                if (streamUrl && sandboxId) {
+                                    console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
+                                    addAgentEvent(event);
                                 }
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
@@ -789,6 +800,7 @@ export function ChatInterface() {
                     attachment_ids: combinedAttachmentIds,
                     conversation_id: conversationId?.startsWith("local-") ? null : conversationId,
                     history: history,
+                    locale: locale,
                 }),
             });
 
@@ -908,6 +920,15 @@ export function ChatInterface() {
                                     }
                                 } else {
                                     console.warn("[Image Event] Missing data/url or mime_type, event:", event);
+                                }
+                            } else if (event.type === "browser_stream") {
+                                // Handle browser stream event - show live browser view
+                                const streamUrl = event.stream_url as string;
+                                const sandboxId = event.sandbox_id as string;
+                                const authKey = event.auth_key as string | undefined;
+                                if (streamUrl && sandboxId) {
+                                    console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
+                                    addAgentEvent(event);
                                 }
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });

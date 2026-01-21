@@ -43,6 +43,9 @@ class EventType(str, Enum):
     # Code-specific events
     CODE_RESULT = "code_result"
 
+    # Browser/sandbox events
+    BROWSER_STREAM = "browser_stream"
+
 
 class StageStatus(str, Enum):
     """Stage lifecycle statuses."""
@@ -167,6 +170,16 @@ class ConfigEvent(BaseModel):
     type: Literal["config"] = "config"
     depth: str | None = Field(default=None, description="Research depth")
     scenario: str | None = Field(default=None, description="Research scenario")
+
+
+class BrowserStreamEvent(BaseModel):
+    """Event containing browser stream URL for live viewing."""
+
+    type: Literal["browser_stream"] = "browser_stream"
+    stream_url: str = Field(..., description="URL to view the browser stream")
+    sandbox_id: str = Field(..., description="Sandbox identifier")
+    auth_key: str | None = Field(default=None, description="Authentication key if required")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
 # Factory functions for backward compatibility and convenience
@@ -397,3 +410,28 @@ def config(
         Config event dictionary
     """
     return ConfigEvent(depth=depth, scenario=scenario).model_dump()
+
+
+def browser_stream(
+    stream_url: str,
+    sandbox_id: str,
+    auth_key: str | None = None,
+) -> dict[str, Any]:
+    """Create a browser stream event dictionary.
+
+    This event provides a URL that can be embedded in an iframe
+    to show live browser activity in the E2B sandbox.
+
+    Args:
+        stream_url: URL to view the browser stream
+        sandbox_id: Sandbox identifier
+        auth_key: Authentication key if required
+
+    Returns:
+        Browser stream event dictionary
+    """
+    return BrowserStreamEvent(
+        stream_url=stream_url,
+        sandbox_id=sandbox_id,
+        auth_key=auth_key,
+    ).model_dump()

@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useAgentProgressStore, type TimestampedEvent } from "@/lib/stores/agent-progress-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { BrowserStreamViewer } from "@/components/ui/browser-stream-viewer";
 import type { Source } from "@/lib/types";
 
 // Stage group containing a stage and its child tools
@@ -31,7 +32,7 @@ interface StageGroup {
 // Internal stages to hide from the UI (processing/routing phases)
 const HIDDEN_STAGES = new Set(["thinking", "routing"]);
 
-function groupEventsByStage(events: TimestampedEvent[], processingLabel: string = "Processing"): StageGroup[] {
+function groupEventsByStage(events: TimestampedEvent[], processingLabel: string): StageGroup[] {
     const groups: StageGroup[] = [];
     let currentGroup: StageGroup | null = null;
     // Track stage groups by name to update endTime when completion event arrives
@@ -268,6 +269,18 @@ function ToolItem({ tool, isStreaming }: { tool: TimestampedEvent; isStreaming: 
                 return tTools("browser_use");
             case "browser_navigate":
                 return tTools("browser_navigate");
+            case "browser_screenshot":
+                return tTools("browser_screenshot");
+            case "browser_click":
+                return tTools("browser_click");
+            case "browser_type":
+                return tTools("browser_type");
+            case "browser_press_key":
+                return tTools("browser_press_key");
+            case "browser_scroll":
+                return tTools("browser_scroll");
+            case "browser_get_stream_url":
+                return tTools("browser_get_stream_url");
             default:
                 return tTools("default");
         }
@@ -451,7 +464,16 @@ export function AgentProgressPanel() {
     const tChat = useTranslations("chat.agent");
     const tProgress = useTranslations("sidebar.progress");
     const tStages = useTranslations("chat.agent.stages");
-    const { activeProgress, isCompleted, isPanelOpen, closePanel, clearProgress } = useAgentProgressStore();
+    const {
+        activeProgress,
+        isCompleted,
+        isPanelOpen,
+        closePanel,
+        clearProgress,
+        showBrowserStream,
+        setShowBrowserStream,
+        setBrowserStream,
+    } = useAgentProgressStore();
     const [isExpanded, setIsExpanded] = useState(true);
 
     const processingLabel = tProgress("processing");
@@ -541,7 +563,12 @@ export function AgentProgressPanel() {
                     "fixed right-0 top-0 bottom-0 z-50 flex flex-col transition-all duration-300 ease-in-out",
                     "bg-background border-l border-border",
                     isPanelOpen ? "translate-x-0" : "translate-x-full",
-                    isExpanded ? "w-full lg:w-[340px]" : "w-[260px]"
+                    // Wider panel when browser stream is active for better viewing (640px + padding)
+                    activeProgress?.browserStream
+                        ? "w-full lg:w-[680px]"
+                        : isExpanded
+                            ? "w-full lg:w-[340px]"
+                            : "w-[260px]"
                 )}
             >
                 {/* Header - minimal */}
@@ -613,6 +640,16 @@ export function AgentProgressPanel() {
                             </>
                         )}
                     </div>
+                )}
+
+                {/* Browser Stream Viewer */}
+                {activeProgress?.browserStream && (
+                    <BrowserStreamViewer
+                        stream={activeProgress.browserStream}
+                        onClose={() => setBrowserStream(null)}
+                        defaultExpanded={showBrowserStream}
+                        collapsible={true}
+                    />
                 )}
 
                 {/* Stage list */}

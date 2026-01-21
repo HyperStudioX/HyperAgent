@@ -2,22 +2,26 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import {
     Loader2,
     GraduationCap,
     TrendingUp,
     Code2,
     Newspaper,
-    Check,
-    Copy,
     Share2,
     ArrowLeft,
     AlertCircle,
+    Monitor,
+    ChevronRight,
+    X,
+    PanelRightClose,
+    PanelRight,
 } from "lucide-react";
 import { ResearchResultView } from "@/components/query/research-report-view";
+import { Button } from "@/components/ui/button";
 import { useTaskStore } from "@/lib/stores/task-store";
-import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
+import { useAgentProgressStore, type BrowserStreamInfo } from "@/lib/stores/agent-progress-store";
 import type { ResearchStep, Source, ResearchScenario, AgentEvent } from "@/lib/types";
 import type { ResearchTask } from "@/lib/stores/task-store";
 
@@ -40,6 +44,7 @@ interface EventHandlerContext {
     setResearchResult: (result: string) => void;
     setError: (error: string | null) => void;
     addEvent: (event: AgentEvent) => void;
+    setBrowserStream: (stream: BrowserStreamInfo | null) => void;
 }
 
 // Event dispatch table for O(1) lookup instead of if/else chain
@@ -150,6 +155,25 @@ const createEventHandlers = (): Map<string, EventHandler> => {
         } as AgentEvent);
     });
 
+    handlers.set("browser_stream", (event, ctx) => {
+        const streamUrl = event.stream_url as string;
+        const sandboxId = event.sandbox_id as string;
+        const authKey = event.auth_key as string | undefined;
+        if (streamUrl && sandboxId) {
+            ctx.setBrowserStream({
+                streamUrl,
+                sandboxId,
+                authKey,
+            });
+            ctx.addEvent({
+                type: "stage",
+                name: "browser",
+                description: "Browser session started - live view available",
+                status: "running",
+            });
+        }
+    });
+
     return handlers;
 };
 
@@ -184,6 +208,7 @@ interface ResearchProgressProps {
 
 export function ResearchProgress({ taskId }: ResearchProgressProps) {
     const router = useRouter();
+    const locale = useLocale();
     const t = useTranslations("task");
     const tResearch = useTranslations("research");
     const tChat = useTranslations("chat");
@@ -202,8 +227,19 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         useCallback((state) => state.tasks.find((task) => task.id === taskId), [taskId])
     );
 
-    // Agent progress store for unified progress display
-    const { startProgress, addEvent, endProgress } = useAgentProgressStore();
+    // Agent progress store for unified progress display (includes browser stream state)
+    const {
+        startProgress,
+        addEvent,
+        endProgress,
+        activeProgress,
+        showBrowserStream,
+        setShowBrowserStream,
+        setBrowserStream,
+    } = useAgentProgressStore();
+
+    // Get browser stream from shared store
+    const browserStream = activeProgress?.browserStream ?? null;
 
     // Refs for stable references in callbacks
     const taskLoadedRef = useRef(false);
@@ -215,21 +251,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
     const [error, setError] = useState<string | null>(null);
     const [hasStarted, setHasStarted] = useState(false);
     const [isExistingTask, setIsExistingTask] = useState(false);
-    const [copied, setCopied] = useState(false);
-
-    const handleCopyReport = async () => {
-        if (!researchResult || !taskInfo) return;
-        const resultString = typeof researchResult === "string"
-            ? researchResult
-            : Array.isArray(researchResult)
-                ? researchResult.map((item) => typeof item === "string" ? item : String(item)).join("")
-                : String(researchResult);
-
-        const textToCopy = `# ${taskInfo.query}\n\n${resultString}`;
-        await navigator.clipboard.writeText(textToCopy);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
 
     // Load task from store or API - optimized with reduced dependencies
     useEffect(() => {
@@ -406,6 +427,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
             setResearchResult,
             setError,
             addEvent,
+            setBrowserStream,
         };
 
         try {
@@ -419,6 +441,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                     scenario: info.scenario,
                     depth: info.depth,
                     task_id: taskId,
+                    locale: locale,
                 }),
                 signal: abortControllerRef.current.signal,
             });
@@ -589,17 +612,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                         {/* Action Buttons */}
                         {!isResearching && researchResult && (
                             <div className="flex items-center gap-2 animate-in fade-in duration-300">
-                                <button
-                                    onClick={handleCopyReport}
-                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors text-sm font-medium"
-                                >
-                                    {copied ? (
-                                        <Check className="w-3.5 h-3.5" strokeWidth={3} />
-                                    ) : (
-                                        <Copy className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>{copied ? "Copied" : "Copy"}</span>
-                                </button>
                                 <button className="p-2 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 transition-colors">
                                     <Share2 className="w-3.5 h-3.5" />
                                 </button>
@@ -607,6 +619,57 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                         )}
                     </div>
                 </div>
+
+                {/* Browser Stream Viewer */}
+                {browserStream && (
+                    <div className="border-b border-border/50">
+                        {/* Header - matching sidebar-agent-progress style */}
+                        <div className="flex items-center justify-between px-3 h-10 border-b border-border/30 shrink-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <Monitor className="w-4 h-4 text-foreground flex-shrink-0" />
+                                <span className="text-sm font-medium truncate">Live Browser</span>
+                                <span className="text-xs text-muted-foreground/60">
+                                    {browserStream.sandboxId.slice(0, 8)}...
+                                </span>
+                            </div>
+                            <div className="flex items-center shrink-0">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => setShowBrowserStream(!showBrowserStream)}
+                                >
+                                    {showBrowserStream ? (
+                                        <PanelRightClose className="w-4 h-4" />
+                                    ) : (
+                                        <PanelRight className="w-4 h-4" />
+                                    )}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => setBrowserStream(null)}
+                                >
+                                    <X className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </div>
+                        {/* Stream iframe */}
+                        {showBrowserStream && (
+                            <div className="p-3">
+                                <div className="rounded-lg overflow-hidden border border-border bg-black">
+                                    <iframe
+                                        src={browserStream.streamUrl}
+                                        className="w-full h-[400px]"
+                                        allow="autoplay"
+                                        sandbox="allow-same-origin allow-scripts"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="flex-1 overflow-y-auto">
                     <div className="max-w-none mx-auto px-4 md:px-6 py-4 md:py-6">

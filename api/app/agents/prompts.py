@@ -55,6 +55,20 @@ For effective web searches:
 </search_best_practices>
 """
 
+BROWSER_BEST_PRACTICES = """
+<browser_best_practices>
+For effective browser usage:
+- Start with browser_navigate to open the target URL
+- Take screenshots to understand page layout before interactions
+- Use browser_scroll to see content below the fold
+- For forms: click the field first, then type, then press Return
+- For JavaScript-heavy sites: increase wait_ms (e.g., 8000-10000)
+- Analyze screenshots to find element positions for clicking
+- The browser runs in an isolated sandbox - it's safe to visit any URL
+- Session persists within a task - no need to re-navigate to same page
+</browser_best_practices>
+"""
+
 
 # ============================================================================
 # Chat Agent Prompts
@@ -81,7 +95,29 @@ You also have access to image generation and vision tools:
 
 For image generation, provide detailed prompts including style, composition, colors, and subject.
 For image analysis, be specific about what to analyze in your prompt.
+
+You have access to browser tools for visiting and interacting with websites:
+- browser_navigate: Open a URL in a real browser, optionally capture screenshot
+- browser_screenshot: Capture current screen state
+- browser_click: Click at specific coordinates on the page
+- browser_type: Type text at cursor position
+- browser_press_key: Press keyboard keys (e.g., "Return", "ctrl+a")
+- browser_scroll: Scroll the page up or down
+
+Use browser tools when:
+- The user asks to "visit", "open", "go to", or "check" a specific URL
+- The website requires JavaScript to render (SPAs, dashboards, interactive sites)
+- You need to capture a screenshot of a webpage
+- You need to interact with forms, buttons, or dynamic elements
+- The user wants to see what a page looks like
+
+Use web_search instead when:
+- You need to find/discover relevant pages on a topic
+- You want quick information from multiple sources
+- The content is simple static text
 </tools>
+
+{BROWSER_BEST_PRACTICES}
 
 {HANDOFF_INSTRUCTIONS}
 
@@ -106,7 +142,7 @@ CHAT_SYSTEM_MESSAGE = SystemMessage(content=CHAT_SYSTEM_PROMPT)
 SEARCH_SYSTEM_PROMPT_TEMPLATE = """<system>
 <role>You are a research assistant that gathers information from the web.</role>
 
-<task>Your task is to search for relevant information on the given topic. You have access to web_search, generate_image, and analyze_image tools.</task>
+<task>Your task is to search for relevant information on the given topic. You have access to web_search, browser tools, generate_image, and analyze_image tools.</task>
 
 <guidelines>
 1. Start with a broad search to understand the topic
@@ -121,7 +157,42 @@ SEARCH_SYSTEM_PROMPT_TEMPLATE = """<system>
 10. Use generate_image to create visual aids or illustrations when helpful for the report
 </guidelines>
 
+<browser_tools>
+You have access to browser tools for interacting with websites that require JavaScript or visual inspection:
+
+Available browser tools:
+- browser_navigate: Navigate to a URL, optionally capture screenshot
+- browser_screenshot: Capture current screen
+- browser_click: Click at specific coordinates
+- browser_type: Type text at cursor position
+- browser_press_key: Press keyboard keys (e.g., "Return", "ctrl+a")
+- browser_scroll: Scroll the page up or down
+- browser_get_stream_url: Get live stream URL for viewing
+
+When to use browser tools instead of web_search:
+- The website requires JavaScript to render content (SPAs, dynamic dashboards)
+- You need to see the visual layout or capture screenshots
+- The site blocks automated crawlers but allows browsers
+- You need to interact with forms, buttons, or dynamic elements
+- You want to verify what a page actually looks like
+- The user explicitly asks to "visit", "open", or "check" a specific URL
+
+When to use web_search instead:
+- You need to find relevant pages (discovery)
+- You want quick text extraction from multiple sources
+- The content is static HTML that doesn't require JavaScript
+
+Browser usage tips:
+1. Always use browser_navigate first to open a page
+2. Wait for pages to load (default 5 seconds, increase for slow sites)
+3. Use browser_screenshot to see current state before interacting
+4. For clicking, use coordinates from screenshot analysis
+5. The browser session persists across calls within the same task
+</browser_tools>
+
 """ + SEARCH_BEST_PRACTICES + """
+
+""" + BROWSER_BEST_PRACTICES + """
 
 <handoff>
 You can delegate to specialized agents:
@@ -231,6 +302,7 @@ def get_report_prompt(
     sources_text: str,
     report_structure: list[str],
     report_length: str,
+    locale: str = "en",
 ) -> str:
     """Generate the report writing prompt for research agent.
 
@@ -240,6 +312,7 @@ def get_report_prompt(
         sources_text: Formatted sources text
         report_structure: List of report section names
         report_length: Length descriptor (concise, comprehensive, detailed and extensive)
+        locale: User's preferred language code (e.g., 'en', 'zh-CN')
 
     Returns:
         Formatted report prompt
@@ -247,6 +320,22 @@ def get_report_prompt(
     structure_str = "\n".join(
         [f"{i + 1}. {section}" for i, section in enumerate(report_structure)]
     )
+
+    # Map locale codes to language names for clearer instruction
+    language_map = {
+        "en": "English",
+        "zh-CN": "Simplified Chinese (简体中文)",
+        "zh-TW": "Traditional Chinese (繁體中文)",
+        "ja": "Japanese (日本語)",
+        "ko": "Korean (한국어)",
+        "es": "Spanish (Español)",
+        "fr": "French (Français)",
+        "de": "German (Deutsch)",
+        "pt": "Portuguese (Português)",
+        "ru": "Russian (Русский)",
+    }
+    language = language_map.get(locale, locale)
+    language_instruction = f"\n\n<language>\nIMPORTANT: Write the entire report in {language}. All section headers, content, and conclusions must be in {language}.\n</language>" if locale != "en" else ""
 
     return f"""<user>
 <task>Write a {report_length} research report on: {query}</task>
@@ -272,7 +361,7 @@ Ensure the report:
 - Cites specific sources where appropriate
 - Provides actionable insights
 - Acknowledges limitations of the research
-</requirements>
+</requirements>{language_instruction}
 </user>"""
 
 

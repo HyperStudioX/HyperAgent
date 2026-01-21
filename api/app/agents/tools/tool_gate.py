@@ -117,9 +117,26 @@ SEARCH_PATTERNS = [
     TriggerPattern("find information", ToolCategory.SEARCH, 0.9),
     TriggerPattern("find sources", ToolCategory.SEARCH, 0.9),
 
-    # Browse/navigation (medium confidence)
+    # Browse/navigation - triggers both SEARCH and BROWSER
     TriggerPattern("browse", ToolCategory.SEARCH, 0.7, requires_boundary=True),
     TriggerPattern("navigate to", ToolCategory.SEARCH, 0.6),
+
+    # Browser automation (URLs and website access)
+    TriggerPattern("visit", ToolCategory.BROWSER, 0.85, requires_boundary=True),
+    TriggerPattern("open", ToolCategory.BROWSER, 0.5, requires_boundary=True),
+    TriggerPattern("go to", ToolCategory.BROWSER, 0.7),
+    TriggerPattern("navigate to", ToolCategory.BROWSER, 0.8),
+    TriggerPattern("browse to", ToolCategory.BROWSER, 0.85),
+    TriggerPattern("access", ToolCategory.BROWSER, 0.5, requires_boundary=True),
+    TriggerPattern("website", ToolCategory.BROWSER, 0.7, requires_boundary=True),
+    TriggerPattern("webpage", ToolCategory.BROWSER, 0.75, requires_boundary=True),
+    TriggerPattern("web page", ToolCategory.BROWSER, 0.75),
+    TriggerPattern("http://", ToolCategory.BROWSER, 0.95),
+    TriggerPattern("https://", ToolCategory.BROWSER, 0.95),
+    TriggerPattern(".com", ToolCategory.BROWSER, 0.6),
+    TriggerPattern(".org", ToolCategory.BROWSER, 0.6),
+    TriggerPattern(".io", ToolCategory.BROWSER, 0.6),
+    TriggerPattern(".net", ToolCategory.BROWSER, 0.6),
 
     # Research/citation requests (high confidence)
     TriggerPattern("research", ToolCategory.SEARCH, 0.75, requires_boundary=True),

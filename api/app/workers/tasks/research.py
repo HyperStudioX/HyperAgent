@@ -31,6 +31,7 @@ async def run_research_task(
     depth: str,
     scenario: str,
     user_id: str,
+    locale: str = "en",
 ) -> dict[str, Any]:
     """
     Execute a research task in the background worker.
@@ -45,6 +46,7 @@ async def run_research_task(
         depth: Research depth (quick, standard, deep)
         scenario: Research scenario (academic, market, technical, news)
         user_id: User ID for task ownership (required)
+        locale: User's preferred language (e.g., 'en', 'zh-CN')
 
     Returns:
         Result dictionary with task_id and status
@@ -127,6 +129,7 @@ async def run_research_task(
                 mode="research",
                 depth=ResearchDepth(depth),
                 scenario=ResearchScenario(scenario),
+                locale=locale,
             ):
                 # Handle stage events (supervisor uses "stage", not "step")
                 if event["type"] == "stage":

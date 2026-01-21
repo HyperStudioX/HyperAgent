@@ -19,10 +19,7 @@ from app.agents.prompts import (
 )
 from app.agents.state import DataAnalysisState
 from app.agents.tools import (
-    web_search,
-    generate_image,
-    analyze_image,
-    get_handoff_tools_for_agent,
+    get_tools_for_agent,
     execute_react_loop,
     get_react_config,
 )
@@ -48,8 +45,6 @@ from app.services.model_tiers import ModelTier
 from app.models.schemas import LLMProvider
 
 logger = get_logger(__name__)
-
-ANALYTICS_TOOLS = [web_search, generate_image, analyze_image]
 
 
 async def plan_analysis_node(state: DataAnalysisState) -> dict:
@@ -94,10 +89,6 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
 
     attachments_context = "\n".join(attachments_info) if attachments_info else "No files attached."
 
-    # Get handoff tools for data agent
-    handoff_tools = get_handoff_tools_for_agent("data")
-    all_tools = ANALYTICS_TOOLS + handoff_tools
-
     # Get agent-specific ReAct configuration
     config = get_react_config("data")
 
@@ -113,6 +104,9 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
         history = state.get("messages", [])
 
         enable_tools = should_enable_tools(query, history)
+
+        # Get all tools for data agent (code_exec, data, handoffs)
+        all_tools = get_tools_for_agent("data", include_handoffs=True)
 
         if enable_tools and all_tools:
             llm_with_tools = llm.bind_tools(all_tools)
@@ -252,10 +246,6 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
 
     file_context = "\n".join(file_info) if file_info else "No additional data files."
 
-    # Get handoff tools for data agent
-    handoff_tools = get_handoff_tools_for_agent("data")
-    all_tools = ANALYTICS_TOOLS + handoff_tools
-
     # Get agent-specific ReAct configuration
     config = get_react_config("data")
 
@@ -280,6 +270,9 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
         history = state.get("messages", [])
 
         enable_tools = should_enable_tools(query, history)
+
+        # Get all tools for data agent (code_exec, data, handoffs)
+        all_tools = get_tools_for_agent("data", include_handoffs=True)
 
         if enable_tools and all_tools:
             llm_with_tools = llm.bind_tools(all_tools)

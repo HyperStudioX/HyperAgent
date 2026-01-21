@@ -166,6 +166,7 @@ class UnifiedQueryRequest(BaseModel):
     tier: ModelTier | None = None  # Optional tier override
     history: list[ChatMessage] = Field(default_factory=list)
     attachment_ids: list[str] = Field(default_factory=list)
+    locale: str = Field(default="en", description="User's preferred language (e.g., 'en', 'zh-CN')")
 
 
 class UnifiedQueryResponse(BaseModel):

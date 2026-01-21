@@ -47,7 +47,8 @@
             "expand": "Expand",
             "collapse": "Collapse",
             "defaultTool": "Tool",
-            "sourcesCount": "{count, plural, =1 {1 source} other {# sources}}"
+            "sourcesCount": "{count, plural, =1 {1 source} other {# sources}}",
+            "liveBrowser": "Live Browser"
         }
     },
     "home": {
@@ -217,6 +218,12 @@
                 "sandbox_file": "File Operation",
                 "browser_use": "Browser Automation",
                 "browser_navigate": "Browser Navigation",
+                "browser_screenshot": "Browser Screenshot",
+                "browser_click": "Browser Click",
+                "browser_type": "Browser Type",
+                "browser_press_key": "Browser Key Press",
+                "browser_scroll": "Browser Scroll",
+                "browser_get_stream_url": "Browser Stream",
                 "default": "Tool"
             },
             "stages": {

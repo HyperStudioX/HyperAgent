@@ -7,10 +7,7 @@ from langgraph.graph import END, StateGraph
 from app.agents.prompts import CODE_SYSTEM_PROMPT
 from app.agents.state import CodeState
 from app.agents.tools import (
-    web_search,
-    generate_image,
-    analyze_image,
-    get_handoff_tools_for_agent,
+    get_tools_for_agent,
     execute_react_loop,
     get_react_config,
 )
@@ -31,8 +28,6 @@ from app.models.schemas import LLMProvider
 from app.services.llm import llm_service, extract_text_from_content
 
 logger = get_logger(__name__)
-
-CODING_TOOLS = [web_search, generate_image, analyze_image]
 
 
 async def generate_code_node(state: CodeState) -> dict:
@@ -57,15 +52,18 @@ async def generate_code_node(state: CodeState) -> dict:
     messages.append(HumanMessage(content=query))
     history = state.get("messages", [])
 
-    # Get handoff tools for code agent
-    handoff_tools = get_handoff_tools_for_agent("code")
-
     # Get agent-specific ReAct configuration
     config = get_react_config("code")
 
     try:
         enable_tools = should_enable_tools(query, history)
-        all_tools = CODING_TOOLS + handoff_tools if enable_tools else handoff_tools
+        # Get all tools for code agent (search, code_exec, handoffs)
+        # Search tools are conditionally enabled based on tool gate
+        all_tools = get_tools_for_agent(
+            "code",
+            include_handoffs=True,
+            enable_search=enable_tools,
+        )
 
         if enable_tools and all_tools:
             llm_with_tools = llm.bind_tools(all_tools)

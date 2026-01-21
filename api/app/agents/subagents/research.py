@@ -21,10 +21,7 @@ from app.agents.scenarios import get_scenario_config
 from app.agents.state import ResearchState
 from app.agents.tools import (
     parse_search_results,
-    web_search,
-    generate_image,
-    analyze_image,
-    get_handoff_tools_for_agent,
+    get_tools_for_agent,
 )
 from app.agents.utils import (
     extract_and_add_image_events,
@@ -40,9 +37,6 @@ from app.services.llm import llm_service, extract_text_from_content
 from app.services.search import SearchResult
 
 logger = get_logger(__name__)
-
-# Tools available for research
-RESEARCH_TOOLS = [web_search, generate_image, analyze_image]
 
 # Depth-based configuration
 DEPTH_CONFIG = {
@@ -177,9 +171,8 @@ async def search_agent_node(state: ResearchState) -> dict:
 
     event_list = []
 
-    # Get handoff tools for research agent
-    handoff_tools = get_handoff_tools_for_agent("research")
-    all_tools = RESEARCH_TOOLS + handoff_tools
+    # Get all tools for research agent (includes browser, search, image, handoffs)
+    all_tools = get_tools_for_agent("research", include_handoffs=True)
 
     # Get LLM with tools bound
     provider = state.get("provider") or LLMProvider.ANTHROPIC
@@ -358,9 +351,8 @@ async def search_tools_node(state: ResearchState) -> dict:
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {"lc_messages": lc_messages, "events": event_list}
 
-    # Get handoff tools for research agent
-    handoff_tools = get_handoff_tools_for_agent("research")
-    all_tools = RESEARCH_TOOLS + handoff_tools
+    # Get all tools for research agent (includes browser, search, image, handoffs)
+    all_tools = get_tools_for_agent("research", include_handoffs=True)
 
     # Execute tools
     tool_executor = ToolNode(all_tools)
@@ -375,7 +367,7 @@ async def search_tools_node(state: ResearchState) -> dict:
 
             # Note: generate_image visualization is handled in react_tool.py
 
-            # Parse structured results from tool output
+            # Parse structured results from tool output (web_search results)
             new_sources = parse_search_results(msg.content)
             sources.extend(new_sources)
 
@@ -600,12 +592,14 @@ async def write_node(state: ResearchState) -> dict:
     combined_findings = synthesis if synthesis else analysis
     sources_text = _format_sources(sources)
 
+    locale = state.get("locale") or "en"
     report_prompt = get_report_prompt(
         query=query,
         combined_findings=combined_findings,
         sources_text=sources_text,
         report_structure=report_structure,
         report_length=depth_config.get("report_length", "comprehensive"),
+        locale=locale,
     )
 
     provider = state.get("provider") or LLMProvider.ANTHROPIC

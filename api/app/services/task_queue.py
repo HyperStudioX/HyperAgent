@@ -38,6 +38,7 @@ class TaskQueueService:
         depth: str,
         scenario: str,
         user_id: str,
+        locale: str = "en",
         priority: int = 0,
         delay: timedelta | None = None,
     ) -> str:
@@ -50,6 +51,7 @@ class TaskQueueService:
             depth: Research depth level
             scenario: Research scenario type
             user_id: User ID (required)
+            locale: User's preferred language (e.g., 'en', 'zh-CN')
             priority: Job priority (higher = more urgent)
             delay: Optional delay before processing
 
@@ -65,6 +67,7 @@ class TaskQueueService:
             depth=depth,
             scenario=scenario,
             user_id=user_id,
+            locale=locale,
             _defer_by=delay,
             _job_id=f"research:{task_id}",
         )

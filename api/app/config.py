@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     e2b_api_key: str = ""
     e2b_template_id: str = ""  # Optional: custom template with pre-installed packages for faster startup
 
+    # E2B Desktop Sandbox
+    e2b_desktop_timeout: int = 900  # 15 minutes (longer for browser startup)
+    e2b_desktop_default_browser: str = "google-chrome"
+
     # Search
     tavily_api_key: str = ""
 

@@ -499,17 +499,30 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
 
     full_content = ""
     all_tool_calls: list[dict] = []
+    # Track IDs from fully-formed tool_calls to avoid duplicates from tool_call_chunks
+    seen_tool_call_ids: set[str] = set()
+
     for chunk in response_chunks:
         if hasattr(chunk, "content") and chunk.content:
             full_content += extract_text_from_content(chunk.content)
 
-        # Handle fully formed tool_calls
+        # Handle fully formed tool_calls (preferred over tool_call_chunks)
         if hasattr(chunk, "tool_calls") and chunk.tool_calls:
-            all_tool_calls.extend(chunk.tool_calls)
+            for tc in chunk.tool_calls:
+                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                if tc_id:
+                    seen_tool_call_ids.add(tc_id)
+                all_tool_calls.append(tc if isinstance(tc, dict) else tc.model_dump() if hasattr(tc, "model_dump") else tc)
 
         # Handle streaming tool_call_chunks (incremental format)
+        # Skip if we already have a fully-formed tool_call with this ID
         if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
             for tc_chunk in chunk.tool_call_chunks:
+                # Check if we already have this tool call from tool_calls
+                tc_id = tc_chunk.get("id") if isinstance(tc_chunk, dict) else getattr(tc_chunk, "id", None)
+                if tc_id and tc_id in seen_tool_call_ids:
+                    continue  # Skip duplicate from tool_call_chunks
+
                 # Convert ToolCallChunk to dict for unified processing
                 if hasattr(tc_chunk, "model_dump"):
                     all_tool_calls.append(tc_chunk.model_dump())
@@ -548,6 +561,47 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
                 tool_args = {**tool_args, "query": query}
             else:
                 continue
+
+        # Handle browser_navigate with missing url - extract from query
+        if tool_name == "browser_navigate" and not tool_args.get("url"):
+            import re
+            # Try to extract URL from the query
+            url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+            urls = re.findall(url_pattern, query)
+            if urls:
+                # Strip trailing punctuation (including Chinese punctuation)
+                extracted_url = urls[0].rstrip('.,;:!?，。；：！？、）】》')
+                tool_args = {**tool_args, "url": extracted_url}
+                logger.info(
+                    "browser_navigate_url_extracted_from_query",
+                    url=extracted_url[:50],
+                )
+            else:
+                # Try to find domain-like patterns (e.g., "example.com")
+                domain_pattern = r'\b([a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\b'
+                domains = re.findall(domain_pattern, query)
+                if domains:
+                    # Reconstruct full domain and add https://
+                    full_domain_match = re.search(r'\b((?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,})\b', query)
+                    if full_domain_match:
+                        inferred_url = f"https://{full_domain_match.group(1)}"
+                        tool_args = {**tool_args, "url": inferred_url}
+                        logger.info(
+                            "browser_navigate_url_inferred_from_domain",
+                            url=inferred_url,
+                        )
+                    else:
+                        logger.warning(
+                            "browser_navigate_missing_url",
+                            query=query[:50],
+                        )
+                        continue
+                else:
+                    logger.warning(
+                        "browser_navigate_missing_url",
+                        query=query[:50],
+                    )
+                    continue
 
         # Skip generate_image if prompt is missing (required field)
         if tool_name == "generate_image" and not tool_args.get("prompt"):
@@ -994,6 +1048,61 @@ async def execute_react_loop(
                 iteration_errors += 1
                 continue
 
+            # Pre-execution: For browser_navigate, get stream URL first so user can watch
+            if tool_name == "browser_navigate":
+                try:
+                    from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+                    from app.agents import events as agent_events
+
+                    manager = get_browser_sandbox_manager()
+                    # Get user_id and task_id from tool args if available
+                    user_id = tool_args.get("user_id")
+                    task_id = tool_args.get("task_id")
+
+                    # Pre-create session to get stream URL before navigation
+                    session = await manager.get_or_create_sandbox(
+                        user_id=user_id,
+                        task_id=task_id,
+                        launch_browser=True,
+                    )
+
+                    # Get stream URL
+                    try:
+                        stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
+                        # Emit browser_stream event immediately so frontend can show live view
+                        events.append(agent_events.browser_stream(
+                            stream_url=stream_url,
+                            sandbox_id=session.sandbox_id,
+                            auth_key=auth_key,
+                        ))
+                        logger.info(
+                            "browser_stream_event_emitted_early",
+                            sandbox_id=session.sandbox_id,
+                        )
+                    except Exception as stream_err:
+                        # Stream already running or other error - try to get existing URL
+                        if "already running" in str(stream_err).lower():
+                            import asyncio
+                            if session.executor.sandbox and session.executor.sandbox.stream:
+                                auth_key = await asyncio.to_thread(session.executor.sandbox.stream.get_auth_key)
+                                stream_url = await asyncio.to_thread(
+                                    session.executor.sandbox.stream.get_url,
+                                    auth_key=auth_key,
+                                )
+                                events.append(agent_events.browser_stream(
+                                    stream_url=stream_url,
+                                    sandbox_id=session.sandbox_id,
+                                    auth_key=auth_key,
+                                ))
+                                logger.info(
+                                    "browser_stream_event_emitted_early_reused",
+                                    sandbox_id=session.sandbox_id,
+                                )
+                        else:
+                            logger.warning("browser_stream_early_failed", error=str(stream_err))
+                except Exception as e:
+                    logger.warning("browser_pre_execution_failed", error=str(e))
+
             # Execute with retry
             try:
                 result = await execute_tool_with_retry(
@@ -1034,6 +1143,31 @@ async def execute_react_loop(
                             })
                     except Exception as e:
                         logger.warning("generate_image_result_processing_error", error=str(e))
+
+                # Special handling for browser_navigate: handle content (stream URL emitted early)
+                if tool_name == "browser_navigate" and result:
+                    try:
+                        import json
+                        parsed = json.loads(result)
+                        if parsed.get("success"):
+                            # If screenshot was taken but content extraction is the focus,
+                            # remove screenshot from result to avoid token overflow
+                            if parsed.get("screenshot") and parsed.get("content"):
+                                # Keep content, remove screenshot from LLM result
+                                llm_result = json.dumps({
+                                    "success": True,
+                                    "url": parsed.get("url", ""),
+                                    "content": parsed.get("content", ""),
+                                    "content_length": parsed.get("content_length", 0),
+                                    "sandbox_id": parsed.get("sandbox_id", ""),
+                                })
+                                logger.info(
+                                    "browser_content_passed_to_llm",
+                                    url=parsed.get("url", "")[:50],
+                                    content_length=parsed.get("content_length", 0),
+                                )
+                    except Exception as e:
+                        logger.warning("browser_navigate_result_processing_error", error=str(e))
 
                 # Truncate result if configured
                 if config.truncate_tool_results and llm_result:

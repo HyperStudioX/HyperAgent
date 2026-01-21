@@ -69,6 +69,7 @@ class SupervisorState(TypedDict, total=False):
     provider: LLMProvider
     model: str | None
     tier: ModelTier | None  # User-specified tier override
+    locale: str  # User's preferred language (e.g., 'en', 'zh-CN')
 
 
 class ChatState(SupervisorState, total=False):

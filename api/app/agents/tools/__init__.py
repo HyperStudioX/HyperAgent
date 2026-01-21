@@ -1,7 +1,20 @@
 """Agent tools for the multi-agent system."""
 
-from app.agents.tools.browser_use import browser_navigate, browser_use
 from app.agents.tools.code_execution import execute_code, execute_code_with_context
+from app.agents.tools.browser import (
+    browser_click,
+    browser_get_stream_url,
+    browser_navigate,
+    browser_press_key,
+    browser_screenshot,
+    browser_scroll,
+    browser_type,
+)
+from app.agents.tools.browser_sandbox_manager import (
+    BrowserSandboxManager,
+    BrowserSandboxSession,
+    get_browser_sandbox_manager,
+)
 from app.agents.tools.handoff import (
     AGENT_DESCRIPTIONS,
     # Constants
@@ -99,10 +112,16 @@ __all__ = [
     # Core tools
     "web_search",
     "parse_search_results",
-    "browser_use",
-    "browser_navigate",
     "generate_image",
     "analyze_image",
+    # Browser tools (E2B Desktop sandbox)
+    "browser_navigate",
+    "browser_screenshot",
+    "browser_click",
+    "browser_type",
+    "browser_press_key",
+    "browser_scroll",
+    "browser_get_stream_url",
     # Code execution and sandbox tools
     "execute_code",
     "execute_code_with_context",
@@ -112,6 +131,10 @@ __all__ = [
     "SandboxSession",
     "SandboxManager",
     "get_sandbox_manager",
+    # Browser sandbox management
+    "BrowserSandboxSession",
+    "BrowserSandboxManager",
+    "get_browser_sandbox_manager",
     # Handoff types
     "HandoffInfo",
     "SharedAgentMemory",

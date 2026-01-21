@@ -47,7 +47,8 @@
             "expand": "展开",
             "collapse": "收起",
             "defaultTool": "工具",
-            "sourcesCount": "{count, plural, =1 {1 个来源} other {# 个来源}}"
+            "sourcesCount": "{count, plural, =1 {1 个来源} other {# 个来源}}",
+            "liveBrowser": "实时浏览器"
         }
     },
     "home": {
@@ -217,6 +218,12 @@
                 "sandbox_file": "文件操作",
                 "browser_use": "浏览器自动化",
                 "browser_navigate": "浏览器导航",
+                "browser_screenshot": "浏览器截图",
+                "browser_click": "浏览器点击",
+                "browser_type": "浏览器输入",
+                "browser_press_key": "浏览器按键",
+                "browser_scroll": "浏览器滚动",
+                "browser_get_stream_url": "浏览器直播",
                 "default": "工具"
             },
             "stages": {

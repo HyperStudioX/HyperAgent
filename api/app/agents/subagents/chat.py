@@ -10,10 +10,7 @@ from langgraph.graph import END, StateGraph
 from app.agents.prompts import CHAT_SYSTEM_PROMPT
 from app.agents.state import ChatState
 from app.agents.tools import (
-    web_search,
-    generate_image,
-    analyze_image,
-    get_handoff_tools_for_agent,
+    get_tools_for_agent,
     execute_react_loop,
     get_react_config,
 )
@@ -32,9 +29,6 @@ from app.models.schemas import LLMProvider
 from app.services.llm import llm_service
 
 logger = get_logger(__name__)
-
-# Available tools for the chat agent
-CHAT_TOOLS = [web_search, generate_image, analyze_image]
 
 
 async def agent_node(state: ChatState) -> dict:
@@ -79,9 +73,6 @@ async def agent_node(state: ChatState) -> dict:
     # Enable tools if search/image triggers detected OR images are attached
     enable_tools = should_enable_tools(query, history) or bool(image_attachments)
 
-    # Get handoff tools for chat agent
-    handoff_tools = get_handoff_tools_for_agent("chat")
-
     # Get LLM with tier routing (chat uses PRO tier by default)
     provider = state.get("provider") or LLMProvider.ANTHROPIC
     tier = state.get("tier")
@@ -93,8 +84,15 @@ async def agent_node(state: ChatState) -> dict:
         model_override=model,
     )
 
-    # Combine regular tools with handoff tools
-    all_tools = CHAT_TOOLS + handoff_tools if enable_tools else handoff_tools
+    # Get all tools for chat agent (search, image, browser, handoffs)
+    # Tools are conditionally enabled based on tool gate
+    all_tools = get_tools_for_agent(
+        "chat",
+        include_handoffs=True,
+        enable_search=enable_tools,
+        enable_image=enable_tools,
+        enable_browser=enable_tools,
+    )
     llm_with_tools = llm.bind_tools(all_tools) if all_tools else llm
 
     # Get agent-specific ReAct configuration

@@ -370,6 +370,7 @@ async def stream_query(
                     model=request.model,
                     attachment_ids=request.attachment_ids,
                     image_attachments=image_attachments,
+                    locale=request.locale,
                 ):
                     if event["type"] == "token":
                         data = json.dumps({"type": "token", "data": event["content"]})
@@ -432,6 +433,17 @@ async def stream_query(
                             "exit_code": event.get("exit_code"),
                             "error": event.get("error"),
                         })
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "browser_stream":
+                        # Stream browser stream events for live E2B desktop viewing
+                        data = json.dumps({
+                            "type": "browser_stream",
+                            "stream_url": event.get("stream_url", ""),
+                            "sandbox_id": event.get("sandbox_id", ""),
+                            "auth_key": event.get("auth_key"),
+                        })
+                        logger.info("streaming_browser_stream_event",
+                                   sandbox_id=event.get("sandbox_id", "")[:8])
                         yield f"data: {data}\n\n"
                     elif event["type"] == "image":
                         # Stream image events (generated images)
@@ -515,6 +527,7 @@ async def stream_query(
             depth=request.depth.value,
             scenario=request.scenario.value,
             user_id=current_user.id,
+            locale=request.locale,
         )
 
         # Update task with worker job ID

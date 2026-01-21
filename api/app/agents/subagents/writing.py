@@ -10,10 +10,7 @@ from app.agents.prompts import (
 )
 from app.agents.state import WritingState
 from app.agents.tools import (
-    web_search,
-    generate_image,
-    analyze_image,
-    get_handoff_tools_for_agent,
+    get_tools_for_agent,
     execute_react_loop,
     get_react_config,
 )
@@ -34,11 +31,6 @@ from app.models.schemas import LLMProvider
 from app.services.llm import llm_service, extract_text_from_content
 
 logger = get_logger(__name__)
-
-# Outline phase: only research tools (no image generation to avoid duplicates)
-OUTLINE_TOOLS = [web_search, analyze_image]
-# Writing phase: full tools including image generation
-WRITING_TOOLS = [web_search, generate_image, analyze_image]
 
 
 async def analyze_task_node(state: WritingState) -> dict:
@@ -93,9 +85,6 @@ async def create_outline_node(state: WritingState) -> dict:
 
     event_list = [create_stage_event("outline", "Creating outline...", "running")]
 
-    # Get handoff tools for writing agent
-    handoff_tools = get_handoff_tools_for_agent("writing")
-
     # Get agent-specific ReAct configuration
     config = get_react_config("writing")
 
@@ -130,8 +119,17 @@ async def create_outline_node(state: WritingState) -> dict:
         enable_tools = should_enable_tools(query, history) or bool(image_attachments)
 
         if enable_tools:
-            # Use OUTLINE_TOOLS (no image generation) to avoid duplicate images
-            all_tools = OUTLINE_TOOLS + handoff_tools
+            # Get tools for writing agent, filtering out generate_image for outline phase
+            # to avoid duplicate images (image generation happens in write phase)
+            all_tools = [
+                t for t in get_tools_for_agent(
+                    "writing",
+                    include_handoffs=True,
+                    enable_search=True,
+                    enable_image=True,
+                )
+                if t.name != "generate_image"
+            ]
             llm_with_tools = llm.bind_tools(all_tools)
 
             # Define callbacks for tool events
@@ -238,9 +236,6 @@ async def write_content_node(state: WritingState) -> dict:
 
     event_list = [create_stage_event("write", "Writing content...", "running")]
 
-    # Get handoff tools for writing agent
-    handoff_tools = get_handoff_tools_for_agent("writing")
-
     # Get agent-specific ReAct configuration
     config = get_react_config("writing")
 
@@ -280,7 +275,13 @@ async def write_content_node(state: WritingState) -> dict:
         enable_tools = should_enable_tools(query, history) or bool(image_attachments)
 
         if enable_tools:
-            all_tools = WRITING_TOOLS + handoff_tools
+            # Get all tools for writing agent (includes search, image, handoffs)
+            all_tools = get_tools_for_agent(
+                "writing",
+                include_handoffs=True,
+                enable_search=True,
+                enable_image=True,
+            )
             llm_with_tools = llm.bind_tools(all_tools)
 
             # Define callbacks for tool events

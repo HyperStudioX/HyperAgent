@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Copy, Check, BookOpen, FileText, List, ChevronRight } from "lucide-react";
+import { BookOpen, FileText, List, ChevronRight } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
@@ -83,7 +83,7 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
             {toc.length > 0 && (
                 <aside
                     className={cn(
-                        "hidden lg:block shrink-0 h-fit sticky top-24 transition-all duration-300 ease-in-out border-r border-transparent",
+                        "hidden lg:block shrink-0 h-fit sticky top-10 md:top-12 transition-all duration-300 ease-in-out border-r border-transparent",
                         isTocCollapsed ? "w-12" : "w-64"
                     )}
                 >
@@ -294,35 +294,12 @@ interface CodeBlockProps {
 }
 
 function CodeBlock({ language, children }: CodeBlockProps) {
-    const [copied, setCopied] = useState(false);
-
-    const handleCopy = async () => {
-        await navigator.clipboard.writeText(children);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
     return (
         <div className="my-8 rounded-xl overflow-hidden border border-border bg-muted">
-            <div className="flex items-center justify-between bg-secondary px-5 py-3 border-b border-border">
-                <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                        {language || "code"}
-                    </span>
-                </div>
-                <button
-                    onClick={handleCopy}
-                    className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                    {copied ? (
-                        <Check className="w-3.5 h-3.5 text-foreground" />
-                    ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                    )}
-                    <span className="font-medium">
-                        {copied ? "Copied" : "Copy"}
-                    </span>
-                </button>
+            <div className="flex items-center bg-secondary px-5 py-3 border-b border-border">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                    {language || "code"}
+                </span>
             </div>
             <div className="relative overflow-x-auto">
                 <SyntaxHighlighter

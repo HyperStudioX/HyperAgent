@@ -203,6 +203,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                             style={{ opacity: 0.95 }}
                         />
                     </div>
+                    <span className="brand-title brand-title-sm">HyperAgent</span>
                 </div>
                 <MenuToggle
                     isOpen={true}

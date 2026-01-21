@@ -13,7 +13,15 @@ from langchain_core.tools import BaseTool
 from app.agents.state import AgentType
 from app.agents.tools.handoff import get_handoff_tools_for_agent
 from app.agents.tools.web_search import web_search
-from app.agents.tools.browser_use import browser_use, browser_navigate
+from app.agents.tools.browser import (
+    browser_navigate,
+    browser_screenshot,
+    browser_click,
+    browser_type,
+    browser_press_key,
+    browser_scroll,
+    browser_get_stream_url,
+)
 from app.agents.tools.image_generation import generate_image
 from app.agents.tools.vision import analyze_image
 from app.agents.tools.code_execution import execute_code
@@ -28,7 +36,7 @@ class ToolCategory(str, Enum):
 
     SEARCH = "search"  # Web search capabilities
     IMAGE = "image"  # Image generation and analysis
-    BROWSER = "browser"  # Browser automation
+    BROWSER = "browser"  # Browser automation (E2B Desktop sandbox)
     CODE_EXEC = "code_exec"  # Code execution in sandbox
     DATA = "data"  # Data processing and analysis
     HANDOFF = "handoff"  # Agent-to-agent delegation
@@ -39,7 +47,15 @@ class ToolCategory(str, Enum):
 TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
     ToolCategory.SEARCH: [web_search],
     ToolCategory.IMAGE: [generate_image, analyze_image],
-    ToolCategory.BROWSER: [browser_use, browser_navigate],
+    ToolCategory.BROWSER: [
+        browser_navigate,
+        browser_screenshot,
+        browser_click,
+        browser_type,
+        browser_press_key,
+        browser_scroll,
+        browser_get_stream_url,
+    ],
     ToolCategory.CODE_EXEC: [execute_code],
     ToolCategory.DATA: [sandbox_file],
     # HANDOFF tools are created dynamically per agent
@@ -52,6 +68,7 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
     AgentType.CHAT.value: [
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
+        ToolCategory.BROWSER,
         ToolCategory.HANDOFF,
     ],
     AgentType.RESEARCH.value: [
@@ -107,7 +124,7 @@ def get_tools_for_agent(
         include_handoffs: Whether to include handoff tools
         enable_search: Whether to enable search tools (for gating)
         enable_image: Whether to enable image tools (for gating)
-        enable_browser: Whether to enable browser tools
+        enable_browser: Whether to enable browser tools (E2B Desktop)
 
     Returns:
         List of tools available to the agent
