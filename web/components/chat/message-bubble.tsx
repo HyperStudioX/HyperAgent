@@ -11,8 +11,41 @@ import { Copy, Check, Terminal, RotateCcw, FileText, ImageIcon } from "lucide-re
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { usePreviewStore } from "@/lib/stores/preview-store";
-import { Visualization } from "@/components/chat/visualization";
-import type { Message, FileAttachment } from "@/lib/types";
+import { GeneratedMedia } from "@/components/chat/generated-media";
+import type { Message, FileAttachment, GeneratedImage, AgentEvent } from "@/lib/types";
+
+// Normalized image structure for consistent handling
+interface NormalizedImage {
+    index: number;
+    data?: string;
+    url?: string;
+    storageKey?: string;
+    fileId?: string;
+    mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html";
+}
+
+// Raw image data from backend (supports both camelCase and snake_case)
+interface RawImageData {
+    index?: number;
+    data?: string;
+    base64_data?: string;
+    url?: string;
+    storage_key?: string;
+    storageKey?: string;
+    file_id?: string;
+    fileId?: string;
+    mime_type?: string;
+    mimeType?: string;
+}
+
+// Metadata that can come from message (parsed or raw)
+interface ParsedMetadata {
+    model?: string;
+    tokens?: number;
+    images?: RawImageData[];
+    generated_images?: RawImageData[];
+    agentEvents?: AgentEvent[];
+}
 
 /**
  * Typing indicator with animated dots
@@ -45,13 +78,16 @@ function TypingIndicator({ message }: { message?: string }) {
 /**
  * Streaming cursor that blinks at the end of content
  * Uses pure CSS animation to avoid React re-renders
+ * Refined for precise alignment and visual polish
  */
 function StreamingCursor() {
     return (
         <span
-            className="inline-block w-[2px] h-[1.1em] bg-primary ml-0.5 align-middle streaming-cursor"
+            className="streaming-cursor-wrapper"
             aria-hidden="true"
-        />
+        >
+            <span className="streaming-cursor-bar" />
+        </span>
     );
 }
 
@@ -72,7 +108,7 @@ interface MessageBubbleProps {
     message: Message;
     onRegenerate?: () => void;
     isStreaming?: boolean;
-    visualizations?: { data: string; mimeType: "image/png" | "text/html" }[]; // For data analytics visualizations
+    images?: GeneratedImage[]; // For charts and generated images
 }
 
 function MessageAttachments({
@@ -119,12 +155,52 @@ function MessageAttachments({
     );
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, onRegenerate, isStreaming = false, visualizations }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, onRegenerate, isStreaming = false, images }: MessageBubbleProps) {
     const isUser = message.role === "user";
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
     const t = useTranslations("chat");
-    const effectiveVisualizations = visualizations || message.metadata?.visualizations;
+    // Strip image placeholders from content - we render images separately now
+    const normalizedContent = message.content
+        .replace(/!\[generated-image:\d+\]\(placeholder\)/g, "") // Remove full placeholders
+        .replace(/!\[generated-image:\d+\]/g, ""); // Remove placeholders without url
+    const parsedMetadata: ParsedMetadata | undefined = (() => {
+        if (!message.metadata || typeof message.metadata !== "string") {
+            return message.metadata as ParsedMetadata | undefined;
+        }
+        try {
+            return JSON.parse(message.metadata) as ParsedMetadata;
+        } catch {
+            return undefined;
+        }
+    })();
+
+    // Deduplicate images by index to prevent multiple renders
+    const rawImages: RawImageData[] | undefined = images || parsedMetadata?.images || parsedMetadata?.generated_images;
+
+
+    // Normalize images from various formats (camelCase/snake_case) to consistent structure
+    const normalizedImages: NormalizedImage[] | undefined = rawImages?.map((img: RawImageData, idx: number): NormalizedImage => ({
+        index: img.index ?? idx,
+        data: img.data ?? img.base64_data,
+        url: img.url,
+        storageKey: img.storageKey ?? img.storage_key,
+        fileId: img.fileId ?? img.file_id,
+        mimeType: (img.mimeType ?? img.mime_type ?? "image/png") as NormalizedImage["mimeType"],
+    }));
+
+    // Filter out duplicate images by index
+    const effectiveImages: NormalizedImage[] | undefined = normalizedImages ? (() => {
+        const seen = new Set<number>();
+        return normalizedImages.filter((img: NormalizedImage) => {
+            if (seen.has(img.index)) {
+                return false;
+            }
+            seen.add(img.index);
+            return true;
+        });
+    })() : undefined;
+
 
     const handleCopyMessage = async () => {
         await navigator.clipboard.writeText(message.content);
@@ -267,7 +343,10 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                     );
                                 },
                                 img: ({ src, alt }) => {
-                                    // Filter out invalid image sources (e.g., Chinese text being used as src)
+                                    // Generated images are rendered outside ReactMarkdown
+                                    // This handler only processes regular markdown images
+
+                                    // Filter out invalid image sources
                                     const isValidSrc = src && (
                                         src.startsWith('http://') ||
                                         src.startsWith('https://') ||
@@ -360,24 +439,54 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                 ),
                             }}
                         >
-                            {message.content}
+                            {normalizedContent}
                         </ReactMarkdown>
                         {/* Show streaming cursor at the end of content */}
                         {isStreaming && message.content && <StreamingCursor />}
                     </div>
 
-                    {/* Visualizations from data analytics agent */}
-                    {effectiveVisualizations && effectiveVisualizations.length > 0 && (
-                        <div className="mt-4">
-                            {effectiveVisualizations.map((viz, index) => (
-                                <Visualization
-                                    key={index}
-                                    data={viz.data}
-                                    mimeType={viz.mimeType}
+                    {/* Render images after markdown content */}
+                    {/* ReactMarkdown has issues with custom img components, so we render separately */}
+                    {effectiveImages && effectiveImages.length > 0 && (
+                        <div className="mt-4 space-y-4">
+                            {effectiveImages.map((img: NormalizedImage) => (
+                                <GeneratedMedia
+                                    key={`gallery-img-${img.index}`}
+                                    data={img.data}
+                                    url={img.url}
+                                    mimeType={img.mimeType}
                                 />
                             ))}
                         </div>
                     )}
+
+                    {/* DISABLED: Old gallery logic - kept for reference */}
+                    {false && !isStreaming && effectiveImages && effectiveImages.length > 0 && (() => {
+                        // Filter out images that have inline placeholders in content
+                        const inlinePlaceholderIndices = new Set<number>();
+                        const placeholderMatches = normalizedContent.matchAll(/!\[generated-image:(\d+)\]/g);
+                        for (const match of placeholderMatches) {
+                            inlinePlaceholderIndices.add(parseInt(match[1], 10));
+                        }
+                        // Only show images that don't have inline placeholders
+                        const nonInlineImages = effectiveImages.filter((img: NormalizedImage) =>
+                            !inlinePlaceholderIndices.has(img.index)
+                        );
+
+                        if (nonInlineImages.length === 0) return null;
+                        return (
+                            <div className="mt-4">
+                                {nonInlineImages.map((img: NormalizedImage) => (
+                                    <GeneratedMedia
+                                        key={`gallery-${img.index}`}
+                                        data={img.data}
+                                        url={img.url}
+                                        mimeType={img.mimeType}
+                                    />
+                                ))}
+                            </div>
+                        );
+                    })()}
 
                     {/* Action buttons for assistant message - only show when not streaming */}
                     {!isStreaming && (

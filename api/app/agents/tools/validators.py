@@ -70,7 +70,7 @@ class CodeExecutionOutput(BaseModel):
     stdout: str = Field(default="")
     stderr: str = Field(default="")
     exit_code: int | None = Field(default=None)
-    visualizations: list[dict[str, str]] = Field(default_factory=list)
+    images: list[dict[str, str]] = Field(default_factory=list)
     error: str | None = Field(default=None)
 
 
@@ -264,23 +264,23 @@ def extract_search_sources(validated_data: dict) -> list[dict[str, str]]:
     return sources
 
 
-def extract_visualizations(validated_data: dict) -> list[dict[str, str]]:
-    """Extract visualization data from validated code execution results.
+def extract_images(validated_data: dict) -> list[dict[str, str]]:
+    """Extract image data from validated code execution results.
 
     Args:
         validated_data: Validated CodeExecutionOutput data
 
     Returns:
-        List of visualization dicts with data, type keys
+        List of image dicts with data, type keys
     """
-    visualizations = []
-    for viz in validated_data.get("visualizations", []):
-        if viz.get("data"):
-            visualizations.append({
-                "data": viz.get("data", ""),
-                "type": viz.get("type", "image/png"),
+    images = []
+    for img in validated_data.get("images", []):
+        if img.get("data"):
+            images.append({
+                "data": img.get("data", ""),
+                "type": img.get("type", "image/png"),
             })
-    return visualizations
+    return images
 
 
 def is_tool_error_response(output: str | dict) -> bool:

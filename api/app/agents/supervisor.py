@@ -10,6 +10,7 @@ from app.agents.state import AgentType, SupervisorState
 from app.agents.subagents.chat import chat_subgraph
 from app.agents.subagents.code import code_subgraph
 from app.agents.subagents.analytics import data_subgraph
+from app.agents.subagents.image import image_subgraph
 from app.agents.subagents.research import research_subgraph
 from app.agents.subagents.writing import writing_subgraph
 from app.agents.tools.handoff import (
@@ -296,6 +297,65 @@ async def writing_node(state: SupervisorState) -> dict:
     return output
 
 
+async def image_node(state: SupervisorState) -> dict:
+    """Execute the image generation subagent.
+
+    Args:
+        state: Current supervisor state
+
+    Returns:
+        Dict with image generation results and events
+    """
+    logger.info("image_generation_started", query=state.get("query", "")[:50])
+
+    input_state = {
+        "query": _build_query_with_context(state),
+        "messages": state.get("messages") or [],
+        "user_id": state.get("user_id"),
+        "provider": state.get("provider"),
+        "model": state.get("model"),
+        "image_model": state.get("image_model"),
+        "quality": state.get("quality"),
+        "shared_memory": state.get("shared_memory") or {},
+    }
+
+    result = await image_subgraph.ainvoke(input_state)
+
+    # Extract events from subgraph result
+    subgraph_events = result.get("events", [])
+    image_events = [e for e in subgraph_events if isinstance(e, dict) and e.get("type") == "image"]
+    token_events = [e for e in subgraph_events if isinstance(e, dict) and e.get("type") == "token"]
+
+    logger.info(
+        "image_node_subgraph_result",
+        total_events=len(subgraph_events),
+        image_events_count=len(image_events),
+        token_events_count=len(token_events),
+        has_response=bool(result.get("response")),
+        response_preview=result.get("response", "")[:100] if result.get("response") else None,
+        image_events_have_data=[bool(e.get("data")) for e in image_events],
+        image_events_have_url=[bool(e.get("url")) for e in image_events],
+    )
+
+    output = {
+        "response": result.get("response", ""),
+        "events": subgraph_events,
+    }
+
+    # Update shared memory with generated images info
+    shared_memory = state.get("shared_memory") or {}
+    if result.get("generated_images"):
+        shared_memory["generated_images"] = result.get("generated_images", [])
+    output["shared_memory"] = shared_memory
+
+    logger.info(
+        "image_generation_completed",
+        image_count=len(result.get("generated_images", [])),
+    )
+
+    return output
+
+
 async def data_node(state: SupervisorState) -> dict:
     """Execute the data analysis subagent.
 
@@ -329,8 +389,8 @@ async def data_node(state: SupervisorState) -> dict:
     shared_memory = state.get("shared_memory") or {}
     if result.get("analysis_plan"):
         shared_memory["data_analysis_plan"] = result.get("analysis_plan", "")
-    if result.get("visualizations"):
-        shared_memory["data_visualizations"] = result.get("visualizations", [])
+    if result.get("images"):
+        shared_memory["data_images"] = result.get("images", [])
     output["shared_memory"] = shared_memory
 
     # Check for handoff in result
@@ -484,6 +544,7 @@ def create_supervisor_graph(checkpointer=None):
     graph.add_node("code", code_node)
     graph.add_node("writing", writing_node)
     graph.add_node("data", data_node)
+    graph.add_node("image", image_node)
 
     # Research agent uses prep -> subgraph -> post pattern for real-time streaming
     # Adding the subgraph directly (not wrapped) allows internal events to propagate
@@ -504,6 +565,7 @@ def create_supervisor_graph(checkpointer=None):
             AgentType.CODE.value: "code",
             AgentType.WRITING.value: "writing",
             AgentType.DATA.value: "data",
+            AgentType.IMAGE.value: "image",
         },
     )
 
@@ -512,7 +574,7 @@ def create_supervisor_graph(checkpointer=None):
     graph.add_edge("research", "research_post")
 
     # After each agent (or research_post), check for handoff or end
-    for agent in ["chat", "research_post", "code", "writing", "data"]:
+    for agent in ["chat", "research_post", "code", "writing", "data", "image"]:
         graph.add_conditional_edges(
             agent,
             check_for_handoff,
@@ -617,6 +679,7 @@ class AgentSupervisor:
 
         emitted_tool_call_ids = set()
         emitted_stage_keys = set()
+        emitted_image_indices = set()  # Track yielded image events by index
         streamed_tokens = False
         # Track tool calls by ID for matching with results
         pending_tool_calls: dict[str, dict] = {}
@@ -818,7 +881,16 @@ class AgentSupervisor:
                             for e in events_list:
                                 if isinstance(e, dict):
                                     # Skip token events if we already streamed them in real-time
-                                    if e.get("type") == "token" and streamed_tokens:
+                                    # BUT: Don't skip token events from these nodes:
+                                    # - "present" nodes (like image agent's present_results_node)
+                                    # - "image" node (supervisor wrapper for image agent)
+                                    # - "summarize" nodes (data analysis results)
+                                    # These contain programmatic responses that weren't streamed via LLM
+                                    is_programmatic_node = any(
+                                        keyword in node_name.lower()
+                                        for keyword in ["present", "image", "summarize"]
+                                    )
+                                    if e.get("type") == "token" and streamed_tokens and not is_programmatic_node:
                                         continue
                                     # Deduplicate stage events
                                     if e.get("type") == "stage":
@@ -826,13 +898,51 @@ class AgentSupervisor:
                                         if stage_key in emitted_stage_keys:
                                             continue
                                         emitted_stage_keys.add(stage_key)
-                                    # Log visualization events for debugging
-                                    if e.get("type") == "visualization":
+                                    # Deduplicate tool_call events
+                                    if e.get("type") == "tool_call":
+                                        tool_id = e.get("id")
+                                        if tool_id and tool_id in emitted_tool_call_ids:
+                                            continue
+                                        if tool_id:
+                                            emitted_tool_call_ids.add(tool_id)
+                                    # Deduplicate tool_result events
+                                    if e.get("type") == "tool_result":
+                                        tool_id = e.get("id")
+                                        # Check if we've already emitted a result for this tool
+                                        # Use a separate key to track emitted results
+                                        result_key = f"result:{tool_id}"
+                                        if tool_id and result_key in emitted_tool_call_ids:
+                                            continue
+                                        if tool_id:
+                                            emitted_tool_call_ids.add(result_key)
+                                    # Deduplicate image events by index
+                                    if e.get("type") == "image":
+                                        image_index = e.get("index", 0)
+                                        if image_index in emitted_image_indices:
+                                            logger.debug(
+                                                "skipping_duplicate_image_event",
+                                                node_name=node_name,
+                                                index=image_index,
+                                            )
+                                            continue
+                                        emitted_image_indices.add(image_index)
                                         logger.info(
-                                            "yielding_visualization_event",
+                                            "yielding_image_event",
                                             node_name=node_name,
                                             has_data=bool(e.get("data")),
                                             data_length=len(e.get("data", "")) if e.get("data") else 0,
+                                            has_url=bool(e.get("url")),
+                                            url=e.get("url", "")[:100] if e.get("url") else None,
+                                            mime_type=e.get("mime_type"),
+                                            index=image_index,
+                                        )
+                                    # Log token events from image node for debugging
+                                    if e.get("type") == "token" and "image" in node_name.lower():
+                                        logger.info(
+                                            "yielding_image_token_event",
+                                            node_name=node_name,
+                                            content_length=len(e.get("content", "")),
+                                            content_preview=e.get("content", "")[:100],
                                         )
                                     yield e
 
@@ -842,11 +952,18 @@ class AgentSupervisor:
                     node_path_str = "/".join(node_path)
 
                     # Emit tool calls immediately if present in the chunk
+                    # Note: During streaming, early chunks may have empty names.
+                    # Only emit when we have a valid tool name to avoid generic "Tool" display.
                     chunk = (event.get("data") or {}).get("chunk")
                     if chunk and getattr(chunk, "tool_calls", None):
                         for tool_call in chunk.tool_calls:
                             # Skip None or non-dict tool calls
                             if not tool_call or not isinstance(tool_call, dict):
+                                continue
+                            tool_name = tool_call.get("name") or tool_call.get("tool")
+                            # Skip if no tool name yet (streaming chunks may arrive without name)
+                            # The subagent's on_tool_call callback will emit the proper event
+                            if not tool_name:
                                 continue
                             tool_id = tool_call.get("id") or tool_call.get("tool_call_id")
                             # Generate a unique ID if not provided
@@ -855,7 +972,6 @@ class AgentSupervisor:
                             if tool_id in emitted_tool_call_ids:
                                 continue
                             emitted_tool_call_ids.add(tool_id)
-                            tool_name = tool_call.get("name") or tool_call.get("tool")
                             tool_args = tool_call.get("args") or {}
                             # Track pending tool call for matching with result
                             pending_tool_calls[tool_id] = {
@@ -922,12 +1038,22 @@ class AgentSupervisor:
                     tool_name = event.get("name", "")
                     output = (event.get("data") or {}).get("output", "")
 
-                    # Find matching tool call by run_id
+                    # Find matching tool call by run_id or tool name
                     tool_call_id = None
+                    matched_info = None
                     for tid, info in pending_tool_calls.items():
-                        if info.get("run_id") == run_id or info.get("tool") == tool_name:
+                        if info.get("run_id") == run_id or (tool_name and info.get("tool") == tool_name):
                             tool_call_id = tid
+                            matched_info = info
                             break
+
+                    # Try to get tool name from matched pending call if not in event
+                    if not tool_name and matched_info:
+                        tool_name = matched_info.get("tool", "")
+
+                    # Skip if we still don't have a tool name
+                    if not tool_name:
+                        continue
 
                     # If no match found, use run_id as the ID
                     if not tool_call_id:

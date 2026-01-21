@@ -26,3 +26,6 @@
 ## Configuration & Secrets
 - Copy `.env` templates: `cp api/.env.example api/.env` and `cp web/.env.example web/.env`, then set provider keys.
 - Never commit real API keys or local credentials.
+
+## Known Issues
+- Image agent tasks in the frontend can render text multiple times and fail to render images.

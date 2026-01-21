@@ -57,10 +57,15 @@ class Settings(BaseSettings):
     # Image Understanding (Vision - Gemini only)
     vision_model: str = "gemini-2.5-flash"
 
-    # Image Generation (Gemini Imagen)
-    image_gen_model: str = "imagen-3.0-generate-001"
+    # Image Generation (Multi-provider)
+    image_gen_model: str = "gemini-3-pro-image-preview"
     image_gen_default_size: str = "1024x1024"
     image_gen_safety_filter: str = "block_some"  # block_none, block_some, block_most
+    image_gen_default_provider: Literal["gemini", "openai"] = "gemini"
+
+    # OpenAI Image Generation (DALL-E)
+    image_gen_openai_model: str = "dall-e-3"
+    image_gen_openai_quality: str = "standard"  # standard or hd
 
     # Audio Transcription (Gemini only)
     audio_transcription_model: str = "gemini-2.0-flash-exp"

@@ -32,9 +32,9 @@ class ExecuteCodeInput(BaseModel):
         default=None,
         description="Optional list of packages to install before execution (pip for Python, npm for JS/TS)",
     )
-    capture_visualizations: bool = Field(
+    capture_images: bool = Field(
         default=True,
-        description="Whether to capture visualization outputs (PNG/HTML from /tmp/output*)",
+        description="Whether to capture image outputs (PNG/HTML from /tmp/output*)",
     )
     timeout: int = Field(
         default=180,
@@ -49,7 +49,7 @@ async def execute_code(
     code: str,
     language: Literal["python", "javascript", "typescript", "bash"] = "python",
     packages: list[str] | None = None,
-    capture_visualizations: bool = True,
+    capture_images: bool = True,
     timeout: int = 180,
     # Session context (injected by agent, not provided by LLM)
     user_id: str | None = None,
@@ -58,14 +58,14 @@ async def execute_code(
     """Execute code in an E2B sandbox.
 
     Runs code in an isolated sandbox environment with support for multiple
-    languages, package installation, and visualization capture. The sandbox
+    languages, package installation, and image capture. The sandbox
     is reused within the same user/task session for efficiency.
 
     Args:
         code: The code to execute
         language: Programming language (python, javascript, typescript, bash)
         packages: Optional packages to install before execution
-        capture_visualizations: Whether to capture output files from /tmp/output*
+        capture_images: Whether to capture output files from /tmp/output*
         timeout: Execution timeout in seconds
         user_id: User ID for session management (injected)
         task_id: Task ID for session management (injected)
@@ -76,7 +76,7 @@ async def execute_code(
         - stdout: Standard output from execution
         - stderr: Standard error output
         - exit_code: Process exit code
-        - visualizations: List of captured visualizations (if enabled)
+        - images: List of captured images (if enabled)
         - error: Error message if execution failed
         - sandbox_id: ID of the sandbox used
     """
@@ -88,7 +88,7 @@ async def execute_code(
             "stdout": "",
             "stderr": "",
             "exit_code": None,
-            "visualizations": [],
+            "images": [],
             "error": "E2B API key not configured. Set E2B_API_KEY environment variable.",
             "sandbox_id": None,
         })
@@ -134,17 +134,17 @@ async def execute_code(
             timeout=timeout,
         )
 
-        # Capture visualizations if requested
-        visualizations = []
-        if capture_visualizations:
-            visualizations = await executor.capture_visualizations()
+        # Capture images if requested
+        images = []
+        if capture_images:
+            images = await executor.capture_images()
 
         result = {
             "success": exec_result["success"],
             "stdout": exec_result["stdout"],
             "stderr": exec_result["stderr"],
             "exit_code": exec_result["exit_code"],
-            "visualizations": visualizations,
+            "images": images,
             "error": None if exec_result["success"] else exec_result.get("stderr", ""),
             "sandbox_id": session.sandbox_id,
         }
@@ -155,7 +155,7 @@ async def execute_code(
             success=result["success"],
             exit_code=result["exit_code"],
             sandbox_id=session.sandbox_id,
-            visualization_count=len(visualizations),
+            image_count=len(images),
         )
 
         return json.dumps(result)
@@ -168,7 +168,7 @@ async def execute_code(
             "stdout": "",
             "stderr": str(e),
             "exit_code": None,
-            "visualizations": [],
+            "images": [],
             "error": str(e),
             "sandbox_id": None,
         })
@@ -178,7 +178,7 @@ async def execute_code_with_context(
     code: str,
     language: Literal["python", "javascript", "typescript", "bash"] = "python",
     packages: list[str] | None = None,
-    capture_visualizations: bool = True,
+    capture_images: bool = True,
     timeout: int = 180,
     user_id: str | None = None,
     task_id: str | None = None,
@@ -191,7 +191,7 @@ async def execute_code_with_context(
         code: The code to execute
         language: Programming language
         packages: Optional packages to install
-        capture_visualizations: Whether to capture output files
+        capture_images: Whether to capture output files
         timeout: Execution timeout in seconds
         user_id: User ID for session management
         task_id: Task ID for session management
@@ -203,7 +203,7 @@ async def execute_code_with_context(
         "code": code,
         "language": language,
         "packages": packages,
-        "capture_visualizations": capture_visualizations,
+        "capture_images": capture_images,
         "timeout": timeout,
         "user_id": user_id,
         "task_id": task_id,

@@ -19,6 +19,7 @@ import {
   ListFilter,
   ChevronDown,
   Check,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationType } from "@/lib/types";
@@ -38,6 +39,7 @@ const CONVERSATION_TYPE_ICONS: Record<ConversationType, React.ReactNode> = {
   code: <Code2 className="w-4 h-4" />,
   writing: <PenTool className="w-4 h-4" />,
   data: <BarChart3 className="w-4 h-4" />,
+  image: <ImageIcon className="w-4 h-4" />,
 };
 
 const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
@@ -47,6 +49,7 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   code: <Code2 className="w-3.5 h-3.5" />,
   writing: <PenTool className="w-3.5 h-3.5" />,
   data: <BarChart3 className="w-3.5 h-3.5" />,
+  image: <ImageIcon className="w-3.5 h-3.5" />,
   task: <Search className="w-3.5 h-3.5" />,
 };
 
@@ -198,6 +201,7 @@ export function RecentTasks({
     code: t("code"),
     writing: t("writing"),
     data: t("data"),
+    image: t("image") || "Image",
     task: t("task") || "Task",
   };
 

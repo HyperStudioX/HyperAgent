@@ -32,6 +32,7 @@ AGENT_RESEARCH = "research"
 AGENT_CODE = "code"
 AGENT_WRITING = "writing"
 AGENT_DATA = "data"
+AGENT_IMAGE = "image"
 
 
 # =============================================================================
@@ -70,7 +71,7 @@ class SharedAgentMemory(TypedDict, total=False):
 
     # Data analysis artifacts from data agent
     data_analysis_plan: str
-    data_visualizations: list[dict[str, str]]
+    data_images: list[dict[str, str]]
 
     # General context that any agent can add
     additional_context: str
@@ -103,13 +104,16 @@ HANDOFF_MATRIX: dict[str, list[str]] = {
         AGENT_CODE,
         AGENT_WRITING,
         AGENT_DATA,
+        AGENT_IMAGE,
     ],
     AGENT_RESEARCH: [
         AGENT_CODE,
         AGENT_DATA,
+        AGENT_IMAGE,
     ],
     AGENT_WRITING: [
         AGENT_RESEARCH,
+        AGENT_IMAGE,
     ],
     AGENT_CODE: [
         AGENT_DATA,
@@ -117,6 +121,7 @@ HANDOFF_MATRIX: dict[str, list[str]] = {
     AGENT_DATA: [
         AGENT_CODE,
     ],
+    AGENT_IMAGE: [],  # Image agent doesn't delegate to others
 }
 
 # Agent descriptions for handoff tool docstrings
@@ -126,6 +131,7 @@ AGENT_DESCRIPTIONS: dict[str, str] = {
     AGENT_CODE: "Code generation, debugging, and programming tasks",
     AGENT_WRITING: "Long-form content creation, articles, documentation",
     AGENT_DATA: "Data analysis, CSV/JSON processing, statistics, visualization",
+    AGENT_IMAGE: "Image generation, artwork creation, and visual content",
 }
 
 # Shared memory context budget configuration
@@ -142,7 +148,7 @@ SHARED_MEMORY_PRIORITIES = {
     "writing_outline": 2,        # Medium priority
     "writing_draft": 3,          # High priority - main content
     "data_analysis_plan": 2,     # Medium priority
-    "data_visualizations": 1,    # Low priority - large binary data
+    "data_images": 1,    # Low priority - large binary data
     "additional_context": 2,     # Medium priority
 }
 
@@ -334,7 +340,7 @@ def truncate_shared_memory(
         if isinstance(value, str):
             field_sizes[key] = len(value)
         elif isinstance(value, list):
-            # For lists (sources, visualizations), estimate size
+            # For lists (sources, images), estimate size
             field_sizes[key] = len(str(value))
 
     total_size = sum(field_sizes.values())

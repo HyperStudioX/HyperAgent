@@ -213,7 +213,7 @@ class SharedAgentContext:
         self._writing_outline: str | None = None
         self._writing_draft: str | None = None
         self._data_analysis: str | None = None
-        self._visualizations: list[dict[str, str]] = []
+        self._images: list[dict[str, str]] = []
         self._additional_context: str | None = None
         self._handoff_history: list[dict[str, str]] = []
 
@@ -272,27 +272,27 @@ class SharedAgentContext:
     def set_data_analysis(
         self,
         analysis: str,
-        visualizations: list[dict[str, str]] | None = None,
+        images: list[dict[str, str]] | None = None,
     ) -> None:
         """Set data analysis results.
 
         Args:
             analysis: Analysis text
-            visualizations: Optional list of visualization dicts
+            images: Optional list of image dicts (charts/visualizations)
         """
         self._data_analysis = analysis
-        if visualizations:
-            self._visualizations = visualizations
-        logger.debug("data_analysis_set", viz_count=len(visualizations or []))
+        if images:
+            self._images = images
+        logger.debug("data_analysis_set", image_count=len(images or []))
 
-    def add_visualization(self, data: str, mime_type: str = "image/png") -> None:
-        """Add a visualization.
+    def add_image(self, data: str, mime_type: str = "image/png") -> None:
+        """Add an image (chart/visualization).
 
         Args:
-            data: Base64-encoded visualization data
+            data: Base64-encoded image data
             mime_type: MIME type
         """
-        self._visualizations.append({
+        self._images.append({
             "data": data,
             "type": mime_type,
         })
@@ -331,7 +331,7 @@ class SharedAgentContext:
             "writing_outline": self._writing_outline,
             "writing_draft": self._writing_draft,
             "data_analysis": self._data_analysis,
-            "visualizations": self._visualizations,
+            "images": self._images,
             "additional_context": self._additional_context,
             "handoff_history": self._handoff_history,
         }
@@ -355,7 +355,7 @@ class SharedAgentContext:
         ctx._writing_outline = data.get("writing_outline")
         ctx._writing_draft = data.get("writing_draft")
         ctx._data_analysis = data.get("data_analysis")
-        ctx._visualizations = data.get("visualizations", [])
+        ctx._images = data.get("images", [])
         ctx._additional_context = data.get("additional_context")
         ctx._handoff_history = data.get("handoff_history", [])
         return ctx

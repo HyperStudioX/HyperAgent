@@ -82,8 +82,8 @@ from app.agents.tools.tool_gate import (
 from app.agents.tools.validators import (
     FileOperationOutput,
     ValidationResult,
+    extract_images,
     extract_search_sources,
-    extract_visualizations,
     get_error_message,
     is_tool_error_response,
     validate_code_execution,
@@ -157,8 +157,8 @@ __all__ = [
     "validate_image_generation",
     "validate_code_execution",
     "validate_file_operation",
+    "extract_images",
     "extract_search_sources",
-    "extract_visualizations",
     "is_tool_error_response",
     "get_error_message",
     # Execution utilities

@@ -44,6 +44,7 @@ export function UserMenu() {
           alt={user.name || "User"}
           width={32}
           height={32}
+          loading="eager"
           unoptimized
           className="w-8 h-8 rounded-full"
         />

@@ -68,7 +68,9 @@ export function PreferencesPanel({
           "text-base",
           "text-muted-foreground hover:text-foreground",
           "hover:bg-secondary",
-          "transition-all duration-200"
+          "transition-all duration-200",
+          "cursor-pointer",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
         )}
       >
         <div className="flex items-center gap-2">
@@ -109,6 +111,8 @@ export function PreferencesPanel({
                   className={cn(
                     "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
                     "text-xs font-medium transition-colors",
+                    "cursor-pointer",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20",
                     mounted && theme === value
                       ? "bg-secondary text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
@@ -136,6 +140,8 @@ export function PreferencesPanel({
                   className={cn(
                     "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
                     "text-xs font-medium transition-colors",
+                    "cursor-pointer",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20",
                     currentLocale.code === loc.code
                       ? "bg-secondary text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"

@@ -71,13 +71,12 @@ async def generate_code_node(state: CodeState) -> dict:
             llm_with_tools = llm.bind_tools(all_tools)
 
             # Define callbacks for tool events
-            def on_tool_call(tool_name: str, args: dict):
-                event_list.append(create_tool_call_event(tool_name, args))
+            def on_tool_call(tool_name: str, args: dict, tool_id: str):
+                event_list.append(create_tool_call_event(tool_name, args, tool_id))
 
-            def on_tool_result(tool_name: str, result: str):
-                if tool_name == "generate_image":
-                    extract_and_add_image_events(result, event_list)
-                event_list.append(create_tool_result_event(tool_name, result))
+            def on_tool_result(tool_name: str, result: str, tool_id: str):
+                # Note: generate_image visualization is handled in react_tool.py
+                event_list.append(create_tool_result_event(tool_name, result, tool_id))
 
             def on_handoff(source: str, target: str, task: str):
                 event_list.append(events.handoff(source=source, target=target, task=task))
@@ -181,7 +180,7 @@ async def execute_code_node(state: CodeState) -> dict:
         exec_result = await execute_code_with_context(
             code=code,
             language=language,
-            capture_visualizations=True,
+            capture_images=True,
             user_id=state.get("user_id"),
             task_id=state.get("task_id"),
         )

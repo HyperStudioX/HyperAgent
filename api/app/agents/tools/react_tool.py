@@ -571,10 +571,21 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
             }
         )
 
+    # Deduplicate by tool_call_id to prevent "tool_use ids must be unique" errors
+    seen_ids = set()
+    deduplicated_tool_calls = []
+    for tc in normalized_tool_calls:
+        tc_id = tc.get("id")
+        if tc_id not in seen_ids:
+            seen_ids.add(tc_id)
+            deduplicated_tool_calls.append(tc)
+        else:
+            logger.warning("duplicate_tool_call_id_removed", tool_call_id=tc_id, tool_name=tc.get("name"))
+
     # AIMessage requires tool_calls to be a list (not None)
     # Only include tool_calls if we have any
-    if normalized_tool_calls:
-        return AIMessage(content=full_content, tool_calls=normalized_tool_calls)
+    if deduplicated_tool_calls:
+        return AIMessage(content=full_content, tool_calls=deduplicated_tool_calls)
     return AIMessage(content=full_content)
 
 
@@ -810,8 +821,8 @@ async def execute_react_loop(
     query: str,
     config: ReActLoopConfig | None = None,
     source_agent: str = "unknown",
-    on_tool_call: Callable[[str, dict], None] | None = None,
-    on_tool_result: Callable[[str, str], None] | None = None,
+    on_tool_call: Callable[[str, dict, str], None] | None = None,
+    on_tool_result: Callable[[str, str, str], None] | None = None,
     on_handoff: Callable[[str, str, str], None] | None = None,
     on_token: Callable[[str], None] | None = None,
 ) -> ReActLoopResult:
@@ -833,8 +844,8 @@ async def execute_react_loop(
         query: The user query (used for missing args fallback)
         config: Configuration for the loop
         source_agent: The name of the agent executing the loop (for handoff tracking)
-        on_tool_call: Callback when a tool is called (tool_name, args)
-        on_tool_result: Callback when a tool returns (tool_name, result)
+        on_tool_call: Callback when a tool is called (tool_name, args, tool_call_id)
+        on_tool_result: Callback when a tool returns (tool_name, result, tool_call_id)
         on_handoff: Callback when a handoff is detected (source, target, task)
         on_token: Callback for each streamed token (token_content)
 
@@ -966,7 +977,7 @@ async def execute_react_loop(
             tool_call_id = tool_call.get("id", "")
 
             if on_tool_call:
-                on_tool_call(tool_name, tool_args)
+                on_tool_call(tool_name, tool_args, tool_call_id)
 
             # Find tool
             tool = tool_map.get(tool_name)
@@ -992,16 +1003,48 @@ async def execute_react_loop(
                     base_delay=config.retry_base_delay,
                 )
 
+                # Special handling for generate_image: extract images for image events,
+                # but send summarized result to LLM to avoid token overflow
+                llm_result = result
+                if tool_name == "generate_image" and result:
+                    try:
+                        import json
+                        parsed = json.loads(result)
+                        if parsed.get("success") and parsed.get("images"):
+                            # Extract images for image events with indices
+                            from app.agents.utils import extract_and_add_image_events
+                            start_index = len([e for e in events if e.get("type") == "image"])
+                            extract_and_add_image_events(result, events, start_index=start_index)
+
+                            # Emit image placeholder tokens so frontend can render inline
+                            image_count = len(parsed["images"])
+                            if on_token:
+                                placeholders = "\n\n" + "\n\n".join(
+                                    f"![generated-image:{start_index + i}]"
+                                    for i in range(image_count)
+                                ) + "\n\n"
+                                on_token(placeholders)
+
+                            # Send summary to LLM (no base64 data)
+                            llm_result = json.dumps({
+                                "success": True,
+                                "message": f"Successfully generated {image_count} image(s). The images have been displayed to the user.",
+                                "prompt": parsed.get("prompt", ""),
+                                "count": image_count,
+                            })
+                    except Exception as e:
+                        logger.warning("generate_image_result_processing_error", error=str(e))
+
                 # Truncate result if configured
-                if config.truncate_tool_results and result:
-                    result = truncate_tool_result(result, config.tool_result_max_chars)
+                if config.truncate_tool_results and llm_result:
+                    llm_result = truncate_tool_result(llm_result, config.tool_result_max_chars)
 
                 if on_tool_result:
-                    on_tool_result(tool_name, result[:500] if result else "")
+                    on_tool_result(tool_name, llm_result[:500] if llm_result else "", tool_call_id)
 
                 tool_results.append(
                     ToolMessage(
-                        content=result,
+                        content=llm_result,
                         tool_call_id=tool_call_id,
                         name=tool_name,
                     )

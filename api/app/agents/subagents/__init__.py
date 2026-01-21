@@ -3,6 +3,7 @@
 from app.agents.subagents.chat import chat_subgraph
 from app.agents.subagents.code import code_subgraph
 from app.agents.subagents.analytics import data_subgraph
+from app.agents.subagents.image import image_subgraph
 from app.agents.subagents.research import research_subgraph
 from app.agents.subagents.writing import writing_subgraph
 
@@ -10,6 +11,7 @@ __all__ = [
     "chat_subgraph",
     "code_subgraph",
     "data_subgraph",
+    "image_subgraph",
     "research_subgraph",
     "writing_subgraph",
 ]

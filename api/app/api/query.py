@@ -264,7 +264,7 @@ async def query(
                 provider=request.provider,
             )
 
-        elif request.mode in (QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA):
+        elif request.mode in (QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA, QueryMode.IMAGE):
             # Use agent supervisor for specialized modes
             result = await agent_supervisor.invoke(
                 query=request.message,
@@ -328,7 +328,7 @@ async def stream_query(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Stream response for chat, research, and other agent modes."""
-    if request.mode in (QueryMode.CHAT, QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA):
+    if request.mode in (QueryMode.CHAT, QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA, QueryMode.IMAGE):
         history = [m.model_dump() for m in request.history]
         if not history and request.conversation_id:
             history = await get_conversation_history(
@@ -433,19 +433,38 @@ async def stream_query(
                             "error": event.get("error"),
                         })
                         yield f"data: {data}\n\n"
-                    elif event["type"] == "visualization":
-                        # Stream visualization events (generated images, charts, etc.)
-                        viz_data = event.get("data")
-                        if viz_data:  # Only send if data is present
-                            data = json.dumps({
-                                "type": "visualization",
-                                "data": viz_data,
+                    elif event["type"] == "image":
+                        # Stream image events (generated images)
+                        # Include data (base64), url, storage_key, file_id
+                        img_data = event.get("data")
+                        img_url = event.get("url")
+                        if img_data or img_url:  # Send if either data or url is present
+                            payload = {
+                                "type": "image",
                                 "mime_type": event.get("mime_type", "image/png"),
-                            })
-                            logger.info("streaming_visualization_event", mime_type=event.get("mime_type", "image/png"), data_length=len(viz_data) if viz_data else 0)
+                                "index": event.get("index"),  # Include index for inline rendering
+                            }
+                            # Include base64 data if available (for immediate display)
+                            if img_data:
+                                payload["data"] = img_data
+                            # Include persistent URL if available
+                            if img_url:
+                                payload["url"] = img_url
+                            # Include storage metadata if available
+                            if event.get("storage_key"):
+                                payload["storage_key"] = event["storage_key"]
+                            if event.get("file_id"):
+                                payload["file_id"] = event["file_id"]
+
+                            data = json.dumps(payload)
+                            logger.info("streaming_image_event",
+                                       mime_type=event.get("mime_type", "image/png"),
+                                       has_data=bool(img_data),
+                                       has_url=bool(img_url),
+                                       index=event.get("index"))
                             yield f"data: {data}\n\n"
                         else:
-                            logger.warning("skipping_empty_visualization_event")
+                            logger.warning("skipping_empty_image_event", event=event)
                     elif event["type"] == "complete":
                         yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
                     elif event["type"] == "error":

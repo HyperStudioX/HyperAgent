@@ -256,7 +256,11 @@ class FileStorageService:
         """Generate a presigned URL for file access (R2 only)."""
         if self.backend == "local":
             # For local files, return a file path or local URL
-            # In production, you'd want to serve these through the API
+            # Generated images use a different endpoint path
+            if storage_key.startswith("generated/"):
+                # Strip "generated/" prefix as the endpoint will add it back
+                path_without_prefix = storage_key[len("generated/"):]
+                return f"/api/v1/files/generated/{path_without_prefix}"
             return f"/api/v1/files/download/{storage_key}"
 
         return self.client.generate_presigned_url(
@@ -305,6 +309,77 @@ class FileStorageService:
 
         buffer.seek(0)
         return buffer
+
+    async def save_generated_image(
+        self,
+        image_data: bytes,
+        user_id: str,
+        content_type: str = "image/png",
+        metadata: dict | None = None,
+    ) -> dict:
+        """Save a generated image to storage.
+
+        This is a simplified upload method for AI-generated images.
+        Uses content-addressable storage for deduplication.
+
+        Args:
+            image_data: Raw image bytes
+            user_id: User who generated the image
+            content_type: MIME type (default: image/png)
+            metadata: Optional metadata (prompt, model, etc.)
+
+        Returns:
+            Dict with file_id, storage_key, file_hash, and url
+        """
+        import base64
+
+        # Calculate content hash for deduplication
+        file_hash = hashlib.sha256(image_data).hexdigest()
+
+        # Determine file extension from content type
+        ext_map = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/gif": ".gif",
+            "image/webp": ".webp",
+        }
+        ext = ext_map.get(content_type, ".png")
+
+        # Storage key: generated/{user_id}/{file_hash}{ext}
+        # Use 'generated' prefix to distinguish from user uploads
+        storage_key = f"generated/{user_id}/{file_hash}{ext}"
+        file_id = str(uuid.uuid4())
+
+        # Wrap bytes in BytesIO for upload methods
+        file_buffer = BytesIO(image_data)
+
+        if self.backend == "local":
+            result = await self._upload_local(
+                file_buffer, storage_key, file_id, file_hash, user_id, f"generated{ext}"
+            )
+        else:
+            result = await self._upload_r2(
+                file_buffer, storage_key, content_type, file_id, file_hash, user_id, f"generated{ext}"
+            )
+
+        # Generate URL for accessing the image
+        url = await self.get_presigned_url(storage_key)
+
+        logger.info(
+            "generated_image_saved",
+            storage_key=storage_key,
+            file_hash=file_hash,
+            user_id=user_id,
+            size=len(image_data),
+        )
+
+        return {
+            "file_id": file_id,
+            "storage_key": storage_key,
+            "file_hash": file_hash,
+            "url": url,
+            "content_type": content_type,
+        }
 
 
 file_storage_service = FileStorageService()

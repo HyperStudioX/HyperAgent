@@ -33,6 +33,7 @@
         "code": "Code",
         "writing": "Writing",
         "data": "Data",
+        "image": "Image",
         "noResults": "No items found",
         "chatDescription": "Quick questions & conversations",
         "researchDescription": "In-depth analysis & reports",
@@ -57,6 +58,7 @@
         "codePlaceholder": "Describe what code you need...",
         "writingPlaceholder": "What would you like me to write?",
         "dataPlaceholder": "Describe the data analysis you need...",
+        "imagePlaceholder": "Describe the image you want to create...",
         "selectMode": "Select Mode",
         "deepResearch": "Deep Research"
     },
@@ -80,6 +82,10 @@
         "data": {
             "name": "Data Analysis",
             "description": "Analyze data & generate insights"
+        },
+        "image": {
+            "name": "Image",
+            "description": "Generate images & artwork"
         }
     },
     "research": {
@@ -239,6 +245,11 @@
                     "completed": "Analysis complete",
                     "failed": "Analysis failed"
                 },
+                "analyze_image": {
+                    "running": "Analyzing image request...",
+                    "completed": "Request analyzed",
+                    "failed": "Analysis failed"
+                },
                 "search": {
                     "running": "Searching...",
                     "completed": "Search complete",
@@ -294,6 +305,11 @@
                     "completed": "Code generated",
                     "failed": "Code generation failed"
                 },
+                "generate_image": {
+                    "running": "Generating image...",
+                    "completed": "Image generated",
+                    "failed": "Image generation failed"
+                },
                 "execute": {
                     "running": "Executing code...",
                     "completed": "Execution complete",
@@ -319,6 +335,16 @@
                     "completed": "Data analysis complete",
                     "failed": "Data analysis failed",
                     "pending": "Analyze data"
+                },
+                "refine": {
+                    "running": "Refining prompt...",
+                    "completed": "Prompt refined",
+                    "failed": "Refinement failed"
+                },
+                "present": {
+                    "running": "Preparing results...",
+                    "completed": "Results ready",
+                    "failed": "Presentation failed"
                 },
                 "source": {
                     "running": "Finding sources...",

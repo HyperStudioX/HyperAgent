@@ -35,6 +35,9 @@ from app.services.llm import llm_service, extract_text_from_content
 
 logger = get_logger(__name__)
 
+# Outline phase: only research tools (no image generation to avoid duplicates)
+OUTLINE_TOOLS = [web_search, analyze_image]
+# Writing phase: full tools including image generation
 WRITING_TOOLS = [web_search, generate_image, analyze_image]
 
 
@@ -127,17 +130,16 @@ async def create_outline_node(state: WritingState) -> dict:
         enable_tools = should_enable_tools(query, history) or bool(image_attachments)
 
         if enable_tools:
-            all_tools = WRITING_TOOLS + handoff_tools
+            # Use OUTLINE_TOOLS (no image generation) to avoid duplicate images
+            all_tools = OUTLINE_TOOLS + handoff_tools
             llm_with_tools = llm.bind_tools(all_tools)
 
             # Define callbacks for tool events
-            def on_tool_call(tool_name: str, args: dict):
-                event_list.append(create_tool_call_event(tool_name, args))
+            def on_tool_call(tool_name: str, args: dict, tool_id: str):
+                event_list.append(create_tool_call_event(tool_name, args, tool_id))
 
-            def on_tool_result(tool_name: str, result: str):
-                if tool_name == "generate_image":
-                    extract_and_add_image_events(result, event_list)
-                event_list.append(create_tool_result_event(tool_name, result))
+            def on_tool_result(tool_name: str, result: str, tool_id: str):
+                event_list.append(create_tool_result_event(tool_name, result, tool_id))
 
             def on_handoff(source: str, target: str, task: str):
                 event_list.append(events.handoff(source=source, target=target, task=task))
@@ -168,16 +170,29 @@ async def create_outline_node(state: WritingState) -> dict:
                     "pending_handoff": result.pending_handoff,
                 }
 
-        # Stream the outline
-        outline_chunks = []
-        async for chunk in llm.astream(messages):
-            if chunk.content:
-                content = extract_text_from_content(chunk.content)
-                if content:
-                    outline_chunks.append(content)
-                    event_list.append(events.token(content))
-
-        outline = "".join(outline_chunks)
+            # Use final response from ReAct loop if available
+            if result.final_response:
+                outline = result.final_response
+            else:
+                # Fallback: stream if ReAct didn't produce final response
+                outline_chunks = []
+                async for chunk in llm.astream(messages):
+                    if chunk.content:
+                        text = extract_text_from_content(chunk.content)
+                        if text:
+                            outline_chunks.append(text)
+                            event_list.append(events.token(text))
+                outline = "".join(outline_chunks)
+        else:
+            # No tools enabled - stream directly
+            outline_chunks = []
+            async for chunk in llm.astream(messages):
+                if chunk.content:
+                    text = extract_text_from_content(chunk.content)
+                    if text:
+                        outline_chunks.append(text)
+                        event_list.append(events.token(text))
+            outline = "".join(outline_chunks)
 
         if outline and len(outline.strip()) < 50:
             logger.warning("outline_too_short", length=len(outline))
@@ -269,16 +284,19 @@ async def write_content_node(state: WritingState) -> dict:
             llm_with_tools = llm.bind_tools(all_tools)
 
             # Define callbacks for tool events
-            def on_tool_call(tool_name: str, args: dict):
-                event_list.append(create_tool_call_event(tool_name, args))
+            def on_tool_call(tool_name: str, args: dict, tool_id: str):
+                event_list.append(create_tool_call_event(tool_name, args, tool_id))
 
-            def on_tool_result(tool_name: str, result: str):
-                if tool_name == "generate_image":
-                    extract_and_add_image_events(result, event_list)
-                event_list.append(create_tool_result_event(tool_name, result))
+            def on_tool_result(tool_name: str, result: str, tool_id: str):
+                # Note: generate_image visualization is handled in react_tool.py
+                event_list.append(create_tool_result_event(tool_name, result, tool_id))
 
             def on_handoff(source: str, target: str, task: str):
                 event_list.append(events.handoff(source=source, target=target, task=task))
+
+            def on_token(token: str):
+                # Stream tokens including image placeholders
+                event_list.append(events.token(token))
 
             # Execute the canonical ReAct loop
             result = await execute_react_loop(
@@ -291,6 +309,7 @@ async def write_content_node(state: WritingState) -> dict:
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
                 on_handoff=on_handoff,
+                on_token=on_token,
             )
 
             # Add events from the ReAct loop
@@ -306,16 +325,29 @@ async def write_content_node(state: WritingState) -> dict:
                     "pending_handoff": result.pending_handoff,
                 }
 
-        # Stream the content
-        content_chunks = []
-        async for chunk in llm.astream(messages):
-            if chunk.content:
-                content = extract_text_from_content(chunk.content)
-                if content:
-                    content_chunks.append(content)
-                    event_list.append(events.token(content))
-
-        content = "".join(content_chunks)
+            # Use final response from ReAct loop if available (already streamed via on_token)
+            if result.final_response:
+                content = result.final_response
+            else:
+                # Fallback: stream the content if ReAct didn't produce final response
+                content_chunks = []
+                async for chunk in llm.astream(messages):
+                    if chunk.content:
+                        text = extract_text_from_content(chunk.content)
+                        if text:
+                            content_chunks.append(text)
+                            event_list.append(events.token(text))
+                content = "".join(content_chunks)
+        else:
+            # No tools enabled - stream directly
+            content_chunks = []
+            async for chunk in llm.astream(messages):
+                if chunk.content:
+                    text = extract_text_from_content(chunk.content)
+                    if text:
+                        content_chunks.append(text)
+                        event_list.append(events.token(text))
+            content = "".join(content_chunks)
 
         event_list.append(create_stage_event("write", "Content written", "completed"))
 

@@ -52,6 +52,7 @@ const config: Config = {
           amber: "hsl(var(--accent-amber))",
           rose: "hsl(var(--accent-rose))",
           blue: "hsl(var(--accent-blue))",
+          purple: "hsl(var(--accent-purple))",
         },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",

@@ -85,15 +85,17 @@ def build_image_context_message(
 def extract_and_add_image_events(
     tool_content: str | list | None,
     events: list[dict],
+    start_index: int = 0,
 ) -> None:
-    """Extract image data from generate_image tool response and add visualization events.
+    """Extract image data from generate_image tool response and add image events.
 
-    Parses the JSON response from the generate_image tool and creates visualization
+    Parses the JSON response from the generate_image tool and creates image
     events for each generated image.
 
     Args:
         tool_content: JSON string or list from generate_image tool containing base64 image data
-        events: List of events to append visualization events to (modified in place)
+        events: List of events to append image events to (modified in place)
+        start_index: Starting index for image numbering (for inline rendering)
     """
     # Handle list content (multimodal)
     if isinstance(tool_content, list):
@@ -134,17 +136,28 @@ def extract_and_add_image_events(
             logger.warning("image_generation_failed", error=result.get("error"))
             return
 
-        # Extract images and create visualization events
+        # Extract images and create image events
         images = result.get("images", [])
-        for img in images:
+        for i, img in enumerate(images):
             base64_data = img.get("base64_data")
             if base64_data:
+                # Detect mime type from base64 signature
+                mime_type = "image/png"
+                if base64_data.startswith("/9j/"):
+                    mime_type = "image/jpeg"
+                elif base64_data.startswith("R0lGOD"):
+                    mime_type = "image/gif"
+                elif base64_data.startswith("UklGR"):
+                    mime_type = "image/webp"
+
+                image_index = start_index + i
                 events.append({
-                    "type": "visualization",
+                    "type": "image",
+                    "index": image_index,
                     "data": base64_data,
-                    "mime_type": "image/png",
+                    "mime_type": mime_type,
                 })
-                logger.info("image_visualization_added", index=img.get("index", 0))
+                logger.info("image_event_added", index=image_index, mime_type=mime_type)
 
     except json.JSONDecodeError as e:
         logger.warning(
@@ -246,12 +259,17 @@ def create_error_event(
     }
 
 
-def create_tool_call_event(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+def create_tool_call_event(
+    tool_name: str,
+    args: dict[str, Any],
+    tool_id: str | None = None,
+) -> dict[str, Any]:
     """Create a tool call event dictionary.
 
     Args:
         tool_name: Name of the tool being called
         args: Arguments passed to the tool
+        tool_id: Unique ID for matching with tool_result (from LLM response)
 
     Returns:
         Tool call event dictionary
@@ -260,12 +278,14 @@ def create_tool_call_event(tool_name: str, args: dict[str, Any]) -> dict[str, An
         "type": "tool_call",
         "tool": tool_name,
         "args": args,
+        "id": tool_id,
     }
 
 
 def create_tool_result_event(
     tool_name: str,
     content: str,
+    tool_id: str | None = None,
     max_content_length: int = 500,
 ) -> dict[str, Any]:
     """Create a tool result event dictionary.
@@ -273,6 +293,7 @@ def create_tool_result_event(
     Args:
         tool_name: Name of the tool
         content: Tool result content
+        tool_id: Unique ID for matching with tool_call
         max_content_length: Maximum content length to include
 
     Returns:
@@ -282,6 +303,7 @@ def create_tool_result_event(
         "type": "tool_result",
         "tool": tool_name,
         "content": truncate_content(content, max_content_length),
+        "id": tool_id,
     }
 
 

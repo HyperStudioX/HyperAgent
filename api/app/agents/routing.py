@@ -21,9 +21,10 @@ Available agents:
 3. code - For code execution, writing scripts, debugging, and programming tasks
 4. writing - For long-form content creation like articles, documentation, essays, and creative writing
 5. data - For data analysis, CSV/JSON processing, statistics, and data visualization
+6. image - For image generation, creating pictures, artwork, illustrations, and visual content
 
 Analyze the user's query and respond with a JSON object containing:
-- "agent": The agent name (chat, research, code, writing, or data)
+- "agent": The agent name (chat, research, code, writing, data, or image)
 - "confidence": Your confidence level (0.0 to 1.0)
 - "reason": Brief explanation for your choice
 
@@ -43,7 +44,13 @@ Query: "Write a blog post about climate change"
 {"agent": "writing", "confidence": 0.85, "reason": "Long-form content creation"}
 
 Query: "Analyze this CSV data and find trends"
-{"agent": "data", "confidence": 0.9, "reason": "Data analysis task"}"""
+{"agent": "data", "confidence": 0.9, "reason": "Data analysis task"}
+
+Query: "Generate an image of a sunset over mountains"
+{"agent": "image", "confidence": 0.95, "reason": "Image generation request"}
+
+Query: "Create a picture of a cute robot"
+{"agent": "image", "confidence": 0.95, "reason": "Requesting visual content creation"}"""
 
 # Fallback prompt for legacy parsing (backward compatibility)
 ROUTER_PROMPT_LEGACY = """You are a routing assistant that determines which specialized agent should handle a user query.
@@ -54,8 +61,9 @@ Available agents:
 3. CODE - For code execution, writing scripts, debugging, and programming tasks
 4. WRITING - For long-form content creation like articles, documentation, essays, and creative writing
 5. DATA - For data analysis, CSV/JSON processing, statistics, and data visualization
+6. IMAGE - For image generation, creating pictures, artwork, illustrations, and visual content
 
-Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, CODE, WRITING, or DATA) followed by a brief reason.
+Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, CODE, WRITING, DATA, or IMAGE) followed by a brief reason.
 
 Format your response exactly as:
 AGENT: <agent_name>
@@ -83,11 +91,13 @@ AGENT_NAME_MAP = {
     "code": AgentType.CODE,
     "writing": AgentType.WRITING,
     "data": AgentType.DATA,
+    "image": AgentType.IMAGE,
     "CHAT": AgentType.CHAT,
     "RESEARCH": AgentType.RESEARCH,
     "CODE": AgentType.CODE,
     "WRITING": AgentType.WRITING,
     "DATA": AgentType.DATA,
+    "IMAGE": AgentType.IMAGE,
 }
 
 

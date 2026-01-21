@@ -1,0 +1,22 @@
+{
+  "id": "ws_d50cc0a9",
+  "name": "HyperAgent",
+  "slug": "hyperagent",
+  "defaults": {
+    "model": "claude-sonnet-4-5-20250929",
+    "permissionMode": "safe",
+    "cyclablePermissionModes": [
+      "safe",
+      "ask",
+      "allow-all"
+    ],
+    "thinkingLevel": "think",
+    "enabledSourceSlugs": [],
+    "workingDirectory": "~/Workspace/HyperAgent"
+  },
+  "localMcpServers": {
+    "enabled": true
+  },
+  "createdAt": 1768919973008,
+  "updatedAt": 1768919973010
+}

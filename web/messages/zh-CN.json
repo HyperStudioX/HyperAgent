@@ -33,6 +33,7 @@
         "code": "代码",
         "writing": "写作",
         "data": "数据",
+        "image": "图片",
         "noResults": "没有找到项目",
         "chatDescription": "快速提问与对话",
         "researchDescription": "深度分析与报告",
@@ -57,6 +58,7 @@
         "codePlaceholder": "描述您需要的代码...",
         "writingPlaceholder": "您想让我写什么？",
         "dataPlaceholder": "描述您需要的数据分析...",
+        "imagePlaceholder": "描述您想要创建的图片...",
         "selectMode": "选择模式",
         "deepResearch": "深度研究"
     },
@@ -80,6 +82,10 @@
         "data": {
             "name": "数据分析",
             "description": "分析数据并生成洞察"
+        },
+        "image": {
+            "name": "图片生成",
+            "description": "生成图片和艺术作品"
         }
     },
     "research": {
@@ -239,6 +245,11 @@
                     "completed": "分析完成",
                     "failed": "分析失败"
                 },
+                "analyze_image": {
+                    "running": "正在分析图片请求...",
+                    "completed": "请求已分析",
+                    "failed": "分析失败"
+                },
                 "search": {
                     "running": "正在搜索...",
                     "completed": "搜索完成",
@@ -294,6 +305,11 @@
                     "completed": "代码已生成",
                     "failed": "代码生成失败"
                 },
+                "generate_image": {
+                    "running": "正在生成图片...",
+                    "completed": "图片已生成",
+                    "failed": "图片生成失败"
+                },
                 "execute": {
                     "running": "正在执行代码...",
                     "completed": "执行完成",
@@ -319,6 +335,16 @@
                     "completed": "数据分析完成",
                     "failed": "数据分析失败",
                     "pending": "分析数据"
+                },
+                "refine": {
+                    "running": "正在优化提示词...",
+                    "completed": "提示词已优化",
+                    "failed": "优化失败"
+                },
+                "present": {
+                    "running": "正在准备结果...",
+                    "completed": "结果已就绪",
+                    "failed": "展示失败"
                 },
                 "source": {
                     "running": "正在查找来源...",

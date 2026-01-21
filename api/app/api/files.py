@@ -189,6 +189,72 @@ async def delete_file(
     return {"status": "deleted", "file_id": file_id}
 
 
+@router.get("/generated/{storage_key:path}")
+async def download_generated_image(
+    storage_key: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Download a generated image by storage key.
+
+    Generated images are stored with the pattern: generated/{user_id}/{hash}.{ext}
+    This endpoint serves them directly from storage without database lookup.
+    Access is restricted to the user who generated the image (user_id in path).
+    """
+    # Reconstruct full storage key with generated/ prefix
+    full_storage_key = f"generated/{storage_key}"
+
+    logger.info("download_generated_image_request", storage_key=full_storage_key, user_id=current_user.id)
+
+    # Security check: verify the storage key belongs to the requesting user
+    # Storage key format: generated/{user_id}/{hash}.{ext}
+    parts = storage_key.split("/", 1)
+    if len(parts) < 2:
+        logger.error("invalid_generated_storage_key", storage_key=storage_key)
+        raise HTTPException(status_code=400, detail="Invalid storage key format")
+
+    key_user_id = parts[0]
+    if key_user_id != current_user.id:
+        logger.error(
+            "generated_image_access_denied",
+            storage_key=full_storage_key,
+            requesting_user=current_user.id,
+            file_owner=key_user_id,
+        )
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Determine content type from file extension
+    ext = Path(full_storage_key).suffix.lower()
+    content_type_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }
+    content_type = content_type_map.get(ext, "image/png")
+
+    # Download file from storage
+    try:
+        logger.info("download_generated_from_storage", storage_key=full_storage_key)
+        file_data = await file_storage_service.download_file(full_storage_key)
+
+        logger.info("download_generated_success", storage_key=full_storage_key)
+        return StreamingResponse(
+            file_data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="generated-image{ext}"',
+                "Cache-Control": "public, max-age=31536000",  # Cache for 1 year (content-addressed)
+            }
+        )
+    except FileNotFoundError as e:
+        logger.error("generated_file_not_found", error=str(e), storage_key=full_storage_key)
+        raise HTTPException(status_code=404, detail="Generated image not found")
+    except Exception as e:
+        logger.error("generated_download_failed", error=str(e), storage_key=full_storage_key, error_type=type(e).__name__)
+        raise HTTPException(status_code=500, detail=f"Failed to download generated image: {str(e)}")
+
+
 @router.get("/download/{storage_key:path}")
 async def download_file(
     storage_key: str,

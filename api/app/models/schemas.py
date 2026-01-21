@@ -31,6 +31,7 @@ class QueryMode(str, Enum):
     CODE = "code"
     WRITING = "writing"
     DATA = "data"
+    IMAGE = "image"
 
 
 class ResearchScenario(str, Enum):
@@ -185,6 +186,7 @@ class ConversationType(str, Enum):
     CODE = "code"
     WRITING = "writing"
     DATA = "data"
+    IMAGE = "image"
 
 
 class AttachmentInfo(BaseModel):

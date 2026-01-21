@@ -26,7 +26,7 @@ class EventType(str, Enum):
 
     # Content events
     TOKEN = "token"
-    VISUALIZATION = "visualization"
+    IMAGE = "image"
 
     # Tool events
     TOOL_CALL = "tool_call"
@@ -72,12 +72,13 @@ class TokenEvent(BaseModel):
     content: str = Field(..., description="Token content to stream")
 
 
-class VisualizationEvent(BaseModel):
-    """Event containing visualization data."""
+class ImageEvent(BaseModel):
+    """Event containing generated image data."""
 
-    type: Literal["visualization"] = "visualization"
-    data: str = Field(..., description="Base64-encoded visualization data")
-    mime_type: str = Field(default="image/png", description="MIME type of the visualization")
+    type: Literal["image"] = "image"
+    data: str = Field(..., description="Base64-encoded image data")
+    mime_type: str = Field(default="image/png", description="MIME type of the image")
+    index: int | None = Field(default=None, description="Index for inline rendering with placeholders")
 
 
 class ToolCallEvent(BaseModel):
@@ -205,17 +206,22 @@ def token(content: str) -> dict[str, Any]:
     return TokenEvent(content=content).model_dump()
 
 
-def visualization(data: str, mime_type: str = "image/png") -> dict[str, Any]:
-    """Create a visualization event dictionary.
+def image(
+    data: str,
+    mime_type: str = "image/png",
+    index: int | None = None,
+) -> dict[str, Any]:
+    """Create an image event dictionary.
 
     Args:
-        data: Base64-encoded visualization data
-        mime_type: MIME type
+        data: Base64-encoded image data
+        mime_type: MIME type of the image
+        index: Index for inline rendering (matches ![generated-image:INDEX] placeholders)
 
     Returns:
-        Visualization event dictionary
+        Image event dictionary
     """
-    return VisualizationEvent(data=data, mime_type=mime_type).model_dump()
+    return ImageEvent(data=data, mime_type=mime_type, index=index).model_dump()
 
 
 def tool_call(

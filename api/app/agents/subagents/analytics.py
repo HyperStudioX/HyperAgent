@@ -118,13 +118,12 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
             llm_with_tools = llm.bind_tools(all_tools)
 
             # Define callbacks for tool events
-            def on_tool_call(tool_name: str, args: dict):
-                event_list.append(create_tool_call_event(tool_name, args))
+            def on_tool_call(tool_name: str, args: dict, tool_id: str):
+                event_list.append(create_tool_call_event(tool_name, args, tool_id))
 
-            def on_tool_result(tool_name: str, result: str):
-                if tool_name == "generate_image":
-                    extract_and_add_image_events(result, event_list)
-                event_list.append(create_tool_result_event(tool_name, result))
+            def on_tool_result(tool_name: str, result: str, tool_id: str):
+                # Note: generate_image visualization is handled in react_tool.py
+                event_list.append(create_tool_result_event(tool_name, result, tool_id))
 
             def on_handoff(source: str, target: str, task: str):
                 event_list.append(events.handoff(source=source, target=target, task=task))
@@ -286,13 +285,12 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
             llm_with_tools = llm.bind_tools(all_tools)
 
             # Define callbacks for tool events
-            def on_tool_call(tool_name: str, args: dict):
-                event_list.append(create_tool_call_event(tool_name, args))
+            def on_tool_call(tool_name: str, args: dict, tool_id: str):
+                event_list.append(create_tool_call_event(tool_name, args, tool_id))
 
-            def on_tool_result(tool_name: str, result: str):
-                if tool_name == "generate_image":
-                    extract_and_add_image_events(result, event_list)
-                event_list.append(create_tool_result_event(tool_name, result))
+            def on_tool_result(tool_name: str, result: str, tool_id: str):
+                # Note: generate_image visualization is handled in react_tool.py
+                event_list.append(create_tool_result_event(tool_name, result, tool_id))
 
             def on_handoff(source: str, target: str, task: str):
                 event_list.append(events.handoff(source=source, target=target, task=task))
@@ -367,13 +365,13 @@ async def execute_code_node(state: DataAnalysisState) -> dict:
         state: Current data analysis state with code to execute
 
     Returns:
-        Dict with execution results, visualizations, and events
+        Dict with execution results, images, and events
     """
     # Check for pending handoff
     if state.get("pending_handoff"):
         return {
             "execution_result": "",
-            "visualizations": [],
+            "images": [],
             "events": [],
             "pending_handoff": state.get("pending_handoff"),
         }
@@ -465,13 +463,13 @@ async def execute_code_node(state: DataAnalysisState) -> dict:
             code=code,
             language="python",
             packages=packages,
-            capture_visualizations=True,
+            capture_images=True,
             user_id=user_id,
             task_id=task_id,
         )
 
-        # Get visualizations from result
-        visualizations = exec_result.get("visualizations", [])
+        # Get images from result
+        images = exec_result.get("images", [])
 
         # Build result
         result_parts = []
@@ -482,17 +480,17 @@ async def execute_code_node(state: DataAnalysisState) -> dict:
 
         execution_result = "\n\n".join(result_parts) if result_parts else "Code executed successfully (no output)"
 
-        # Add visualization events (only if data is non-empty)
-        for viz in visualizations:
-            viz_data = viz.get("data", "")
-            if viz_data:  # Only emit visualization event if data is present
-                event_list.append(events.visualization(
-                    data=viz_data,
-                    mime_type=viz.get("type", "image/png"),
+        # Add image events for charts/images (only if data is non-empty)
+        for img in images:
+            img_data = img.get("data", "")
+            if img_data:  # Only emit image event if data is present
+                event_list.append(events.image(
+                    data=img_data,
+                    mime_type=img.get("type", "image/png"),
                 ))
-                logger.info("visualization_event_created", mime_type=viz.get("type", "image/png"), data_length=len(viz_data))
+                logger.info("image_event_created", mime_type=img.get("type", "image/png"), data_length=len(img_data))
             else:
-                logger.warning("visualization_skipped_empty_data", path=viz.get("path", "unknown"))
+                logger.warning("image_skipped_empty_data", path=img.get("path", "unknown"))
 
         event_list.append(events.code_result(
             execution_result,
@@ -506,7 +504,7 @@ async def execute_code_node(state: DataAnalysisState) -> dict:
             "execution_result": execution_result,
             "stdout": exec_result.get("stdout", ""),
             "stderr": exec_result.get("stderr", ""),
-            "visualizations": visualizations,
+            "images": images,
             "sandbox_id": exec_result.get("sandbox_id"),
             "events": event_list,
         }
@@ -544,10 +542,10 @@ async def summarize_results_node(state: DataAnalysisState) -> dict:
     code = state.get("code", "")
     analysis_type = state.get("analysis_type", "general")
 
-    # Check for visualizations (new format) or fallback to old format
-    visualizations = state.get("visualizations", [])
-    has_visualization = len(visualizations) > 0 or state.get("visualization") is not None
-    visualization_count = len(visualizations) if visualizations else (1 if state.get("visualization") else 0)
+    # Check for images (new format) or fallback to old format
+    images = state.get("images", [])
+    has_visualization = len(images) > 0 or state.get("visualization") is not None
+    visualization_count = len(images) if images else (1 if state.get("visualization") else 0)
 
     event_list = []
 

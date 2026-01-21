@@ -20,6 +20,7 @@ class AgentType(str, Enum):
     CODE = "code"
     WRITING = "writing"
     DATA = "data"
+    IMAGE = "image"
 
 
 # Re-export HandoffInfo and SharedAgentMemory from handoff module for backward compatibility
@@ -146,7 +147,31 @@ class DataAnalysisState(SupervisorState, total=False):
     stderr: str
     sandbox_id: str | None
 
-    # Visualization output (supports multiple visualizations)
-    visualization: str | None  # DEPRECATED: Use visualizations instead
-    visualization_type: str | None  # DEPRECATED: Use visualizations instead
-    visualizations: list[dict[str, str]] | None  # List of {data: str, type: str, path: str}
+    # Image output (supports multiple images/charts)
+    visualization: str | None  # DEPRECATED: Use images instead
+    visualization_type: str | None  # DEPRECATED: Use images instead
+    images: list[dict[str, str]] | None  # List of {data: str, type: str, path: str}
+
+
+class ImageState(SupervisorState, total=False):
+    """State for the image generation subagent."""
+
+    # Request analysis
+    original_prompt: str  # User's original request
+    refined_prompt: str  # LLM-enhanced prompt for better results
+    should_refine: bool  # Whether prompt refinement is needed
+
+    # Image parameters
+    style: str  # e.g., "photorealistic", "artistic", "cartoon"
+    aspect_ratio: str  # e.g., "1:1", "16:9", "9:16"
+    size: str  # e.g., "1024x1024", "1792x1024"
+    quality: str  # "standard" or "hd" (for OpenAI)
+
+    # Provider configuration
+    image_provider: str  # "gemini" or "openai"
+    image_model: str  # Specific model name
+
+    # Generation results
+    generated_images: list[dict[str, Any]]  # List of {base64_data, url, revised_prompt}
+    generation_status: str  # "pending", "generating", "completed", "failed"
+    generation_error: str | None  # Error message if failed

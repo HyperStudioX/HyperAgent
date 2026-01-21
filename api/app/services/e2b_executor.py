@@ -1,7 +1,7 @@
 """E2B Sandbox Service
 
 Provides a unified interface for executing code in E2B sandboxes.
-Supports multiple programming languages, file uploads, and visualization capture.
+Supports multiple programming languages, file uploads, and image capture.
 """
 
 import base64
@@ -301,11 +301,11 @@ class E2BSandboxExecutor:
             "exit_code": execution.exit_code,
         }
 
-    async def capture_visualizations(
+    async def capture_images(
         self,
         max_files: int = 10,
     ) -> list[dict[str, str]]:
-        """Capture visualization files from sandbox.
+        """Capture image/output files from sandbox.
 
         Looks for:
         - /tmp/output.png, /tmp/output_0.png, /tmp/output_1.png, etc.
@@ -326,7 +326,7 @@ class E2BSandboxExecutor:
         if not self.sandbox:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
-        visualizations = []
+        images = []
 
         # List files in /tmp for debugging
         try:
@@ -346,33 +346,33 @@ class E2BSandboxExecutor:
                     content = await self.sandbox.files.read(path, format="text")
                 return content if content else None
             except Exception as e:
-                logger.debug("visualization_file_not_found", path=path, error=str(e))
+                logger.debug("image_file_not_found", path=path, error=str(e))
                 return None
 
         # Try to capture PNG outputs
         # First check primary output file
         primary_png = await try_read_file("/tmp/output.png")
         if primary_png:
-            visualization_data = base64.b64encode(primary_png).decode("utf-8")
-            visualizations.append({
-                "data": visualization_data,
+            image_data = base64.b64encode(primary_png).decode("utf-8")
+            images.append({
+                "data": image_data,
                 "type": "image/png",
                 "path": "/tmp/output.png",
             })
-            logger.info("visualization_captured", type="png", path="/tmp/output.png", size=len(primary_png))
+            logger.info("image_captured", type="png", path="/tmp/output.png", size=len(primary_png))
 
         # Then check numbered files (stop on first missing for efficiency)
         for i in range(max_files):
             png_path = f"/tmp/output_{i}.png"
             png_content = await try_read_file(png_path)
             if png_content:
-                visualization_data = base64.b64encode(png_content).decode("utf-8")
-                visualizations.append({
-                    "data": visualization_data,
+                image_data = base64.b64encode(png_content).decode("utf-8")
+                images.append({
+                    "data": image_data,
                     "type": "image/png",
                     "path": png_path,
                 })
-                logger.info("visualization_captured", type="png", path=png_path, size=len(png_content))
+                logger.info("image_captured", type="png", path=png_path, size=len(png_content))
             else:
                 break  # Stop on first missing numbered file
 
@@ -380,33 +380,33 @@ class E2BSandboxExecutor:
         # First check primary output file
         primary_html = await try_read_file("/tmp/output.html", as_bytes=False)
         if primary_html:
-            visualizations.append({
+            images.append({
                 "data": primary_html,
                 "type": "text/html",
                 "path": "/tmp/output.html",
             })
-            logger.info("visualization_captured", type="html", path="/tmp/output.html", size=len(primary_html))
+            logger.info("image_captured", type="html", path="/tmp/output.html", size=len(primary_html))
 
         # Then check numbered files (stop on first missing for efficiency)
         for i in range(max_files):
             html_path = f"/tmp/output_{i}.html"
             html_content = await try_read_file(html_path, as_bytes=False)
             if html_content:
-                visualizations.append({
+                images.append({
                     "data": html_content,
                     "type": "text/html",
                     "path": html_path,
                 })
-                logger.info("visualization_captured", type="html", path=html_path, size=len(html_content))
+                logger.info("image_captured", type="html", path=html_path, size=len(html_content))
             else:
                 break  # Stop on first missing numbered file
 
-        if visualizations:
-            logger.info("total_visualizations_captured", count=len(visualizations))
+        if images:
+            logger.info("total_images_captured", count=len(images))
         else:
-            logger.info("no_visualizations_found_in_sandbox")
+            logger.info("no_images_found_in_sandbox")
 
-        return visualizations
+        return images
 
     async def cleanup(self) -> None:
         """Clean up sandbox resources."""
@@ -426,7 +426,7 @@ async def execute_python_with_data(
     code: str,
     files: dict[str, BytesIO | bytes] | None = None,
     packages: list[str] | None = None,
-    capture_viz: bool = True,
+    capture_images: bool = True,
 ) -> dict[str, Any]:
     """Execute Python code with data files and optional package installation.
 
@@ -434,7 +434,7 @@ async def execute_python_with_data(
         code: Python code to execute
         files: Dict of {filename: file_data} to upload
         packages: List of pip packages to install
-        capture_viz: Whether to capture visualizations
+        capture_images: Whether to capture images/outputs
 
     Returns:
         Dict with keys:
@@ -442,7 +442,7 @@ async def execute_python_with_data(
             - stdout: str
             - stderr: str
             - exit_code: int
-            - visualizations: list[dict] (if capture_viz=True)
+            - images: list[dict] (if capture_images=True)
             - sandbox_id: str
     """
     async with E2BSandboxExecutor() as executor:
@@ -458,10 +458,10 @@ async def execute_python_with_data(
         # Execute code
         result = await executor.execute_code(code, language="python")
 
-        # Capture visualizations if requested
-        if capture_viz:
-            visualizations = await executor.capture_visualizations()
-            result["visualizations"] = visualizations
+        # Capture images if requested
+        if capture_images:
+            images = await executor.capture_images()
+            result["images"] = images
 
         result["sandbox_id"] = executor.sandbox.sandbox_id if executor.sandbox else None
 

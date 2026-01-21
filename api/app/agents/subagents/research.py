@@ -248,6 +248,7 @@ async def search_agent_node(state: ResearchState) -> dict:
                     event_list.append(create_tool_call_event(
                         tool_call["name"],
                         tool_call["args"],
+                        tool_call.get("id"),
                     ))
 
                 logger.info(
@@ -307,6 +308,7 @@ async def search_agent_node(state: ResearchState) -> dict:
                 event_list.append(create_tool_call_event(
                     tool_call["name"],
                     tool_call["args"],
+                    tool_call.get("id"),
                 ))
             logger.info(
                 "search_tool_calls",
@@ -369,11 +371,9 @@ async def search_tools_node(state: ResearchState) -> dict:
         lc_messages = lc_messages + [msg]
         if isinstance(msg, ToolMessage):
             # Emit tool result event
-            event_list.append(create_tool_result_event(msg.name, msg.content))
+            event_list.append(create_tool_result_event(msg.name, msg.content, msg.tool_call_id))
 
-            # Handle image generation results
-            if msg.name == "generate_image":
-                extract_and_add_image_events(msg.content, event_list)
+            # Note: generate_image visualization is handled in react_tool.py
 
             # Parse structured results from tool output
             new_sources = parse_search_results(msg.content)

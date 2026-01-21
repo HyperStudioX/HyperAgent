@@ -35,6 +35,7 @@ from app.agents.state import (
     ChatState,
     CodeState,
     DataAnalysisState,
+    ImageState,
     ResearchState,
     SupervisorState,
     WritingState,
@@ -55,6 +56,7 @@ from app.agents.supervisor import (
 from app.agents.subagents import (
     chat_subgraph,
     code_subgraph,
+    image_subgraph,
     research_subgraph,
     writing_subgraph,
 )
@@ -68,6 +70,7 @@ __all__ = [
     "CodeState",
     "WritingState",
     "DataAnalysisState",
+    "ImageState",
     # Routing
     "route_query",
     "RoutingResult",
@@ -81,4 +84,5 @@ __all__ = [
     "research_subgraph",
     "code_subgraph",
     "writing_subgraph",
+    "image_subgraph",
 ]

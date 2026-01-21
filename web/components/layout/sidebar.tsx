@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useTaskStore } from "@/lib/stores/task-store";
+import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { UserMenu } from "@/components/auth/user-menu";
 import { PreferencesPanel } from "@/components/ui/preferences-panel";
@@ -39,6 +40,8 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
         deleteTask,
         loadTasks,
     } = useTaskStore();
+
+    const { closePanel } = useAgentProgressStore();
 
     const hasHydrated = chatHydrated && taskHydrated;
     const { theme, setTheme, mounted } = useTheme();
@@ -152,6 +155,9 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
     };
 
     const handleItemSelect = (item: RecentItem) => {
+        // Close agent progress panel when switching conversations/tasks
+        closePanel();
+
         if (item.type === "conversation") {
             setActiveConversation(item.data.id);
             setActiveTask(null);
@@ -279,6 +285,7 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
                 <div className="px-3 py-3">
                     <CreateMenu
                         onCreate={() => {
+                            closePanel();
                             setActiveConversation(null);
                             setActiveTask(null);
                             router.push("/");

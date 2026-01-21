@@ -18,6 +18,7 @@ import {
     Check,
     Zap,
     Layers,
+    ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
@@ -38,6 +39,7 @@ const AGENT_ICONS: Record<AgentType, React.ReactNode> = {
     code: <Code2 className="w-5 h-5" />,
     writing: <PenTool className="w-5 h-5" />,
     data: <BarChart3 className="w-5 h-5" />,
+    image: <ImageIcon className="w-5 h-5" />,
 };
 
 const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
@@ -47,7 +49,7 @@ const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
     news: <Newspaper className="w-5 h-5" />,
 };
 
-const AGENT_KEYS: AgentType[] = ["research", "code", "writing", "data"];
+const AGENT_KEYS: AgentType[] = ["research", "code", "writing", "data", "image"];
 const SCENARIO_KEYS: ResearchScenario[] = ["academic", "market", "technical", "news"];
 const DEPTH_KEYS: ResearchDepth[] = ["fast", "deep"];
 
@@ -61,7 +63,7 @@ interface MessageListProps {
     messages: any[];
     streamingContent: string;
     isLoading: boolean;
-    streamingVisualizations: any[];
+    streamingImages: any[];
     streamingStartTime: Date;
     onRegenerate: (messageId: string) => void;
     messagesEndRef: React.RefObject<HTMLDivElement>;
@@ -71,7 +73,7 @@ const MessageList = memo(function MessageList({
     messages,
     streamingContent,
     isLoading,
-    streamingVisualizations,
+    streamingImages,
     streamingStartTime,
     onRegenerate,
     messagesEndRef,
@@ -102,7 +104,7 @@ const MessageList = memo(function MessageList({
                             createdAt: streamingStartTime,
                         }}
                         isStreaming={true}
-                        visualizations={streamingVisualizations}
+                        images={streamingImages}
                     />
                 </div>
             )}
@@ -119,6 +121,34 @@ export function ChatInterface() {
     const tAgents = useTranslations("agents");
     const tResearch = useTranslations("research");
     const tChat = useTranslations("chat");
+    const tTools = useTranslations("chat.agent.tools");
+
+    // Helper to get translated tool name
+    const getTranslatedToolName = useCallback((toolName: string): string => {
+        const toolKey = toolName.toLowerCase();
+        switch (toolKey) {
+            case "web_search":
+                return tTools("web_search");
+            case "google_search":
+                return tTools("google_search");
+            case "web":
+                return tTools("web");
+            case "generate_image":
+                return tTools("generate_image");
+            case "analyze_image":
+                return tTools("analyze_image");
+            case "execute_code":
+                return tTools("execute_code");
+            case "sandbox_file":
+                return tTools("sandbox_file");
+            case "browser_use":
+                return tTools("browser_use");
+            case "browser_navigate":
+                return tTools("browser_navigate");
+            default:
+                return tTools("default");
+        }
+    }, [tTools]);
     const [input, setInput] = useState("");
     const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null);
     const [selectedScenario, setSelectedScenario] = useState<ResearchScenario | null>(null);
@@ -127,7 +157,14 @@ export function ChatInterface() {
     const [submenuPosition, setSubmenuPosition] = useState<{ x: 'left' | 'right'; y: 'top' | 'bottom' }>({ x: 'right', y: 'bottom' });
     const submenuRef = useRef<HTMLDivElement>(null);
     const [streamingContent, setStreamingContent] = useState("");
-    const [streamingVisualizations, setStreamingVisualizations] = useState<{ data: string; mimeType: "image/png" | "text/html" }[]>([]);
+    const [streamingImages, setStreamingImages] = useState<{
+        index?: number;
+        data?: string; // Base64 for immediate display
+        url?: string; // Persistent URL from storage
+        storageKey?: string;
+        fileId?: string;
+        mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html";
+    }[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const researchRef = useRef<HTMLDivElement>(null);
@@ -416,7 +453,7 @@ export function ChatInterface() {
         tokenBatchRef.current = [];
         // Status shown in sidebar
         // Events managed in sidebar panel
-        setStreamingVisualizations([]);
+        setStreamingImages([]);
 
         let conversationId = activeConversationId;
         if (!conversationId || activeConversation?.type !== "chat") {
@@ -464,8 +501,16 @@ export function ChatInterface() {
         addAgentEvent(thinkingEvent as any);
 
         let fullContent = "";
+        const mergeTokenContent = (tokenContent: string) => {
+            if (tokenContent.startsWith(fullContent)) {
+                fullContent = tokenContent;
+            } else {
+                fullContent += tokenContent;
+            }
+            updateStreamingContent(fullContent);
+        };
         const collectedEvents: any[] = [thinkingEvent];
-        const collectedVisualizations: { data: string; mimeType: "image/png" | "text/html" }[] = [];
+        const collectedImages: { index?: number; data?: string; url?: string; storageKey?: string; fileId?: string; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html" }[] = [];
 
         try {
 
@@ -511,9 +556,10 @@ export function ChatInterface() {
                             const event = JSON.parse(jsonStr);
 
                             if (event.type === "token" && (event.data || event.content)) {
-                                fullContent += event.data || event.content;
-                                // Simply update streaming content - search queries come via tool_call events
-                                updateStreamingContent(fullContent);
+                                const tokenContent = event.data || event.content;
+                                console.log("[Token Event] Received token, length:", tokenContent.length, "total so far:", fullContent.length);
+                                // Handle both delta and full-content token payloads.
+                                mergeTokenContent(tokenContent);
                                 // Status now shown in sidebar panel
                             } else if (event.type === "stage") {
                                 // Flush tokens before stage change for immediate visual feedback
@@ -533,7 +579,7 @@ export function ChatInterface() {
                                     updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
                                 } else {
                                     // Tool execution status shown in sidebar
-                                    updateAgentStage(tChat("agent.executing", { tool: toolName }));
+                                    updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
                                 }
                                 collectedEvents.push(event);
                                 addAgentEvent(event);
@@ -565,23 +611,38 @@ export function ChatInterface() {
                                 collectedEvents.push(event);
                                 addAgentEvent(event);
                                 // Events batched in sidebar panel
-                            } else if (event.type === "visualization") {
-                                // Handle visualization event from data analytics agent
-                                console.log("[Visualization Event]", {
+                            } else if (event.type === "image") {
+                                // Handle image event - images rendered inline via placeholder
+                                // Accept images with either data (base64) or url
+                                console.log("[Image Event] Received:", {
                                     hasData: !!event.data,
-                                    dataLength: event.data?.length || 0,
-                                    mimeType: event.mime_type
+                                    dataLength: event.data ? event.data.length : 0,
+                                    hasUrl: !!event.url,
+                                    mimeType: event.mime_type,
+                                    index: event.index,
                                 });
-                                if (event.data && event.mime_type) {
-                                    const visualization = {
-                                        data: event.data as string,
-                                        mimeType: event.mime_type as "image/png" | "text/html",
-                                    };
-                                    collectedVisualizations.push(visualization);
-                                    setStreamingVisualizations(prev => [...prev, visualization]);
-                                    collectedEvents.push(event);
+                                if ((event.data || event.url) && event.mime_type) {
+                                    const imageIndex = event.index as number ?? collectedImages.length;
+                                    // Deduplicate: check if image with same index already exists
+                                    const isDuplicate = collectedImages.some(img => img.index === imageIndex);
+                                    if (!isDuplicate) {
+                                        const imageData = {
+                                            index: imageIndex,
+                                            data: event.data as string | undefined,
+                                            url: event.url as string | undefined,
+                                            storageKey: event.storage_key as string | undefined,
+                                            fileId: event.file_id as string | undefined,
+                                            mimeType: event.mime_type as "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html",
+                                        };
+                                        collectedImages.push(imageData);
+                                        setStreamingImages(prev => [...prev, imageData]);
+                                        collectedEvents.push(event);
+                                        console.log("[Image Event] Added to streaming, total images:", collectedImages.length);
+                                    } else {
+                                        console.log("[Image Event] Skipping duplicate at index:", imageIndex);
+                                    }
                                 } else {
-                                    console.warn("[Visualization Event] Missing data or mime_type, skipping");
+                                    console.warn("[Image Event] Missing data/url or mime_type, event:", event);
                                 }
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
@@ -600,16 +661,21 @@ export function ChatInterface() {
                 }
             }
 
-            if (fullContent) {
+            if (fullContent || collectedImages.length > 0) {
                 const sanitizedContent = fullContent;
-                if (collectedVisualizations.length > 0) {
-                    console.log("[Message Save] Saving message with visualizations:", collectedVisualizations.length);
-                }
+                // Clear streaming state BEFORE saving to prevent duplicate rendering
+                // (streaming bubble + persisted message showing simultaneously)
+                flushTokenBatch();
+                setStreamingContent("");
+                streamingContentRef.current = "";
+                setStreamingImages([]);
+                setLoading(false);
+
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: collectedVisualizations.length ? {
-                        visualizations: collectedVisualizations,
+                    metadata: collectedImages.length ? {
+                        images: collectedImages,
                     } : undefined,
                 });
             }
@@ -617,12 +683,11 @@ export function ChatInterface() {
             console.error("Chat error:", error);
             await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
         } finally {
+            // Ensure cleanup in case of early exit
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
-            // Status shown in sidebar
-            // Events managed in sidebar panel
-            setStreamingVisualizations([]);
+            setStreamingImages([]);
             setLoading(false);
             setStreaming(false);
             endAgentProgress();
@@ -640,7 +705,7 @@ export function ChatInterface() {
         tokenBatchRef.current = [];
         // Status shown in sidebar
         // Events managed in sidebar panel
-        setStreamingVisualizations([]);
+        setStreamingImages([]);
 
         // Determine the conversation type based on agent
         const conversationType = agentType === "research" ? "research" : agentType;
@@ -701,8 +766,16 @@ export function ChatInterface() {
         addAgentEvent(thinkingEvent as any);
 
         let fullContent = "";
+        const mergeTokenContent = (tokenContent: string) => {
+            if (tokenContent.startsWith(fullContent)) {
+                fullContent = tokenContent;
+            } else {
+                fullContent += tokenContent;
+            }
+            updateStreamingContent(fullContent);
+        };
         const collectedEvents: any[] = [thinkingEvent];
-        const collectedVisualizations: { data: string; mimeType: "image/png" | "text/html" }[] = [];
+        const collectedImages: { index?: number; data?: string; url?: string; storageKey?: string; fileId?: string; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html" }[] = [];
 
         try {
 
@@ -748,9 +821,10 @@ export function ChatInterface() {
                             const event = JSON.parse(jsonStr);
 
                             if (event.type === "token" && (event.data || event.content)) {
-                                fullContent += event.data || event.content;
-                                // Simply update streaming content - search queries come via tool_call events
-                                updateStreamingContent(fullContent);
+                                const tokenContent = event.data || event.content;
+                                console.log("[Token Event] Received token, length:", tokenContent.length, "total so far:", fullContent.length);
+                                // Handle both delta and full-content token payloads.
+                                mergeTokenContent(tokenContent);
                                 // Status now shown in sidebar panel
                             } else if (event.type === "stage") {
                                 // Flush tokens before stage change for immediate visual feedback
@@ -770,7 +844,7 @@ export function ChatInterface() {
                                     updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
                                 } else {
                                     // Tool execution status shown in sidebar
-                                    updateAgentStage(tChat("agent.executing", { tool: toolName }));
+                                    updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
                                 }
                                 collectedEvents.push(event);
                                 addAgentEvent(event);
@@ -802,23 +876,38 @@ export function ChatInterface() {
                                 collectedEvents.push(event);
                                 addAgentEvent(event);
                                 // Events batched in sidebar panel
-                            } else if (event.type === "visualization") {
-                                // Handle visualization event from data analytics agent
-                                console.log("[Visualization Event]", {
+                            } else if (event.type === "image") {
+                                // Handle image event - images rendered inline via placeholder
+                                // Accept images with either data (base64) or url
+                                console.log("[Image Event] Received:", {
                                     hasData: !!event.data,
-                                    dataLength: event.data?.length || 0,
-                                    mimeType: event.mime_type
+                                    dataLength: event.data ? event.data.length : 0,
+                                    hasUrl: !!event.url,
+                                    mimeType: event.mime_type,
+                                    index: event.index,
                                 });
-                                if (event.data && event.mime_type) {
-                                    const visualization = {
-                                        data: event.data as string,
-                                        mimeType: event.mime_type as "image/png" | "text/html",
-                                    };
-                                    collectedVisualizations.push(visualization);
-                                    setStreamingVisualizations(prev => [...prev, visualization]);
-                                    collectedEvents.push(event);
+                                if ((event.data || event.url) && event.mime_type) {
+                                    const imageIndex = event.index as number ?? collectedImages.length;
+                                    // Deduplicate: check if image with same index already exists
+                                    const isDuplicate = collectedImages.some(img => img.index === imageIndex);
+                                    if (!isDuplicate) {
+                                        const imageData = {
+                                            index: imageIndex,
+                                            data: event.data as string | undefined,
+                                            url: event.url as string | undefined,
+                                            storageKey: event.storage_key as string | undefined,
+                                            fileId: event.file_id as string | undefined,
+                                            mimeType: event.mime_type as "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html",
+                                        };
+                                        collectedImages.push(imageData);
+                                        setStreamingImages(prev => [...prev, imageData]);
+                                        collectedEvents.push(event);
+                                        console.log("[Image Event] Added to streaming, total images:", collectedImages.length);
+                                    } else {
+                                        console.log("[Image Event] Skipping duplicate at index:", imageIndex);
+                                    }
                                 } else {
-                                    console.warn("[Visualization Event] Missing data or mime_type, skipping");
+                                    console.warn("[Image Event] Missing data/url or mime_type, event:", event);
                                 }
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
@@ -838,13 +927,24 @@ export function ChatInterface() {
                 }
             }
 
-            if (fullContent) {
+            if (fullContent || collectedImages.length > 0) {
                 const sanitizedContent = fullContent;
+                if (collectedImages.length > 0) {
+                    console.log("[Message Save] Saving agent message with images:", collectedImages.length);
+                }
+                // Clear streaming state BEFORE saving to prevent duplicate rendering
+                // (streaming bubble + persisted message showing simultaneously)
+                flushTokenBatch();
+                setStreamingContent("");
+                streamingContentRef.current = "";
+                setStreamingImages([]);
+                setLoading(false);
+
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: collectedVisualizations.length ? {
-                        visualizations: collectedVisualizations,
+                    metadata: collectedImages.length ? {
+                        images: collectedImages,
                     } : undefined,
                 });
             }
@@ -852,12 +952,11 @@ export function ChatInterface() {
             console.error("Agent task error:", error);
             await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
         } finally {
+            // Ensure cleanup in case of early exit
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
-            // Status shown in sidebar
-            // Events managed in sidebar panel
-            setStreamingVisualizations([]);
+            setStreamingImages([]);
             setLoading(false);
             setStreaming(false);
             endAgentProgress();
@@ -880,16 +979,28 @@ export function ChatInterface() {
         if (messageIndex === -1) return;
 
         let userMessage = "";
+        let userMessageAttachments: FileAttachment[] = [];
         for (let i = messageIndex - 1; i >= 0; i--) {
             if (messages[i].role === "user") {
                 userMessage = messages[i].content;
+                userMessageAttachments = messages[i].attachments || [];
                 break;
             }
         }
         if (!userMessage) return;
 
+        const attachmentIds = userMessageAttachments.filter(a => a.status === 'uploaded').map(a => a.id);
         removeMessage(activeConversationId, messageId);
-        await handleChat(userMessage, true);
+
+        // Check conversation type and call the appropriate handler
+        const conversationType = activeConversation?.type;
+        if (conversationType && conversationType !== "chat" && conversationType !== "research") {
+            // For task-type agents (code, writing, data, image), use handleAgentTask
+            await handleAgentTask(userMessage, conversationType as AgentType, attachmentIds, userMessageAttachments);
+        } else {
+            // For chat type, use handleChat
+            await handleChat(userMessage, true, attachmentIds, userMessageAttachments);
+        }
     };
 
     const handleRegenerate = useCallback((messageId: string) => {
@@ -950,6 +1061,7 @@ export function ChatInterface() {
         if (selectedAgent === "code") return t("codePlaceholder");
         if (selectedAgent === "writing") return t("writingPlaceholder");
         if (selectedAgent === "data") return t("dataPlaceholder");
+        if (selectedAgent === "image") return t("imagePlaceholder");
         return t("inputPlaceholder");
     };
 
@@ -963,7 +1075,7 @@ export function ChatInterface() {
                             messages={messages}
                             streamingContent={streamingContent}
                             isLoading={isLoading}
-                            streamingVisualizations={streamingVisualizations}
+                            streamingImages={streamingImages}
                             streamingStartTime={streamingStartTimeRef.current}
                             onRegenerate={handleRegenerate}
                             messagesEndRef={messagesEndRef}
@@ -1039,18 +1151,20 @@ export function ChatInterface() {
                                 />
                             </div>
 
-                            {/* Bottom bar with plus button, voice input, hint and send button */}
+                            {/* Bottom bar with plus button, voice input, model selector, hint and send button */}
                             <div className="flex items-center justify-between px-2 md:px-3 py-2 border-t border-border/50">
-                                <div className="flex items-center gap-1">
-                                    <FileUploadButton
-                                        onFilesSelected={addFiles}
-                                        onSourceSelect={handleSourceSelect}
-                                        disabled={isProcessing || isUploading}
-                                    />
-                                    <VoiceInputButton
-                                        onTranscription={handleVoiceTranscription}
-                                        disabled={isProcessing || isUploading}
-                                    />
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1">
+                                        <FileUploadButton
+                                            onFilesSelected={addFiles}
+                                            onSourceSelect={handleSourceSelect}
+                                            disabled={isProcessing || isUploading}
+                                        />
+                                        <VoiceInputButton
+                                            onTranscription={handleVoiceTranscription}
+                                            disabled={isProcessing || isUploading}
+                                        />
+                                    </div>
                                     <p className="text-xs text-muted-foreground">
                                         {attachments.length > 0
                                             ? tChat("filesAttached", { count: attachments.length })

@@ -1,54 +1,109 @@
 "use client";
 
 import React, { useState } from "react";
-import { Download, Maximize2, X } from "lucide-react";
+import { Download, Maximize2, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface VisualizationProps {
-    data: string; // Base64 PNG or HTML string
-    mimeType: "image/png" | "text/html";
+interface GeneratedMediaProps {
+    data?: string; // Base64 image or HTML string (for immediate display)
+    url?: string; // Persistent URL for loading from storage
+    mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html";
     className?: string;
 }
 
-export function Visualization({ data, mimeType, className }: VisualizationProps) {
+export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMediaProps) {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
+    const [isLoading, setIsLoading] = useState(!data && !!url);
+    const [loadError, setLoadError] = useState(false);
+    const [useUrlFallback, setUseUrlFallback] = useState(false);
 
-    const handleDownload = () => {
-        if (mimeType === "image/png") {
+    const isImage = mimeType.startsWith("image/");
+    const imageExt = isImage ? mimeType.split("/")[1] : "png";
+
+    // Determine the image source - prefer base64 data for immediate display, fall back to URL
+    const trimmedData = data?.trim();
+    const sanitizedData = trimmedData ? trimmedData.replace(/\s+/g, "") : "";
+    const dataSrc = trimmedData
+        ? (trimmedData.startsWith("data:") ? trimmedData : `data:${mimeType};base64,${sanitizedData}`)
+        : "";
+    const imageSrc = useUrlFallback && url ? url : dataSrc || url || "";
+
+    const handleDownload = async () => {
+        if (isImage) {
             const link = document.createElement("a");
-            link.href = `data:image/png;base64,${data}`;
-            link.download = `visualization-${Date.now()}.png`;
+            if (data) {
+                // Download from base64 data
+                link.href = `data:${mimeType};base64,${data}`;
+            } else if (url) {
+                // Download from URL
+                link.href = url;
+            }
+            link.download = `generated-image-${Date.now()}.${imageExt}`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-        } else if (mimeType === "text/html") {
+        } else if (mimeType === "text/html" && data) {
             const blob = new Blob([data], { type: "text/html" });
-            const url = URL.createObjectURL(blob);
+            const blobUrl = URL.createObjectURL(blob);
             const link = document.createElement("a");
-            link.href = url;
-            link.download = `visualization-${Date.now()}.html`;
+            link.href = blobUrl;
+            link.download = `chart-${Date.now()}.html`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            URL.revokeObjectURL(blobUrl);
         }
     };
 
+    const handleImageLoad = () => {
+        setIsLoading(false);
+        setLoadError(false);
+    };
+
+    const handleImageError = () => {
+        if (!useUrlFallback && url && dataSrc) {
+            // Try falling back to URL if base64 fails
+            setUseUrlFallback(true);
+            setIsLoading(true);
+            return;
+        }
+        setIsLoading(false);
+        setLoadError(true);
+    };
+
     const renderContent = () => {
-        if (mimeType === "image/png") {
+        // Use span elements with block display to avoid hydration errors
+        // when rendered inside markdown <p> tags (div cannot be a descendant of p)
+        if (isImage) {
+            if (loadError) {
+                return (
+                    <span className="flex items-center justify-center h-48 text-muted-foreground">
+                        <span>Failed to load image</span>
+                    </span>
+                );
+            }
             return (
-                <img
-                    src={`data:image/png;base64,${data}`}
-                    alt="Data visualization"
-                    className="w-full h-auto rounded-lg"
-                />
+                <span className="block relative">
+                    {isLoading && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-secondary/50">
+                            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                        </span>
+                    )}
+                    <img
+                        src={imageSrc}
+                        alt="Generated image"
+                        className={cn("w-full h-auto rounded-lg", isLoading && "opacity-0")}
+                        onLoad={handleImageLoad}
+                        onError={handleImageError}
+                    />
+                </span>
             );
-        } else if (mimeType === "text/html") {
+        } else if (mimeType === "text/html" && data) {
             return (
                 <iframe
                     srcDoc={data}
-                    title="Interactive visualization"
+                    title="Interactive content"
                     className="w-full h-[500px] rounded-lg border-0"
                     sandbox="allow-scripts allow-same-origin"
                 />
@@ -57,11 +112,18 @@ export function Visualization({ data, mimeType, className }: VisualizationProps)
         return null;
     };
 
+    // Don't render if we have neither data nor url
+    if (!data && !url) {
+        return null;
+    }
+
+    // Use span elements with block display to avoid hydration errors
+    // when rendered inside markdown <p> tags (div cannot be a descendant of p)
     return (
         <>
-            <div
+            <span
                 className={cn(
-                    "relative my-5 rounded-lg overflow-hidden",
+                    "block relative my-5 rounded-lg overflow-hidden",
                     "ring-1 transition-all duration-300",
                     "bg-secondary/30 ring-border",
                     isHovered && "ring-border/60",
@@ -71,7 +133,7 @@ export function Visualization({ data, mimeType, className }: VisualizationProps)
                 onMouseLeave={() => setIsHovered(false)}
             >
                 {/* Header with controls */}
-                <div
+                <span
                     className={cn(
                         "flex items-center justify-between",
                         "px-3 md:px-4 py-2.5",
@@ -79,13 +141,13 @@ export function Visualization({ data, mimeType, className }: VisualizationProps)
                         "bg-secondary/50"
                     )}
                 >
-                    <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-2">
                         <span className="text-xs font-medium text-muted-foreground">
-                            {mimeType === "image/png" ? "Chart" : "Interactive Chart"}
+                            {isImage ? "Generated Image" : "Interactive Chart"}
                         </span>
-                    </div>
+                    </span>
 
-                    <div className="flex items-center gap-1">
+                    <span className="flex items-center gap-1">
                         <button
                             onClick={() => setIsFullscreen(true)}
                             className={cn(
@@ -114,12 +176,12 @@ export function Visualization({ data, mimeType, className }: VisualizationProps)
                         >
                             <Download className="w-3.5 h-3.5" />
                         </button>
-                    </div>
-                </div>
+                    </span>
+                </span>
 
-                {/* Visualization content */}
-                <div className="p-4">{renderContent()}</div>
-            </div>
+                {/* Media content */}
+                <span className="block p-4">{renderContent()}</span>
+            </span>
 
             {/* Fullscreen modal */}
             {isFullscreen && (
@@ -130,7 +192,7 @@ export function Visualization({ data, mimeType, className }: VisualizationProps)
                     <div className="container h-full max-w-7xl mx-auto p-6 flex flex-col">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold">
-                                {mimeType === "image/png" ? "Chart" : "Interactive Chart"}
+                                {isImage ? "Generated Image" : "Interactive Chart"}
                             </h3>
                             <div className="flex items-center gap-2">
                                 <button
