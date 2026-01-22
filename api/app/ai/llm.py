@@ -8,7 +8,7 @@ from langchain_core.language_models import BaseChatModel
 
 from app.config import settings
 from app.models.schemas import LLMProvider, ChatMessage, MessageRole
-from app.services.model_tiers import ModelTier, get_model_for_tier, get_tier_for_task, get_provider_for_tier
+from app.ai.model_tiers import ModelTier, get_model_for_tier, get_tier_for_task, get_provider_for_tier
 
 
 def extract_text_from_content(content: Any) -> str:

@@ -17,7 +17,7 @@ from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolM
 from langchain_core.tools import BaseTool
 
 from app.core.logging import get_logger
-from app.services.llm import extract_text_from_content
+from app.ai.llm import extract_text_from_content
 
 logger = get_logger(__name__)
 
@@ -611,6 +611,32 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
             )
             continue
 
+        # Skip browser_click if coordinates are missing (required fields)
+        if tool_name == "browser_click" and (
+            tool_args.get("x") is None or tool_args.get("y") is None
+        ):
+            logger.warning(
+                "skipping_browser_click_missing_coordinates",
+                tool_args=tool_args,
+            )
+            continue
+
+        # Skip browser_type if text is missing (required field)
+        if tool_name == "browser_type" and not tool_args.get("text"):
+            logger.warning(
+                "skipping_browser_type_missing_text",
+                tool_args=tool_args,
+            )
+            continue
+
+        # Skip computer_use if action is missing (required field)
+        if tool_name == "computer_use" and not tool_args.get("action"):
+            logger.warning(
+                "skipping_computer_use_missing_action",
+                tool_args=tool_args,
+            )
+            continue
+
         tool_call_id = tool_call.get("id") or tool_call.get("tool_call_id")
         if not tool_call_id:
             import uuid
@@ -879,6 +905,8 @@ async def execute_react_loop(
     on_tool_result: Callable[[str, str, str], None] | None = None,
     on_handoff: Callable[[str, str, str], None] | None = None,
     on_token: Callable[[str], None] | None = None,
+    extra_tool_args: dict[str, Any] | None = None,
+    on_browser_stream: Callable[[str, str, str | None], None] | None = None,
 ) -> ReActLoopResult:
     """Execute a unified ReAct loop with tool calling and retry support.
 
@@ -902,6 +930,8 @@ async def execute_react_loop(
         on_tool_result: Callback when a tool returns (tool_name, result, tool_call_id)
         on_handoff: Callback when a handoff is detected (source, target, task)
         on_token: Callback for each streamed token (token_content)
+        extra_tool_args: Additional arguments to inject into all tool calls (e.g., user_id, task_id)
+        on_browser_stream: Callback when browser stream is ready (stream_url, sandbox_id, auth_key)
 
     Returns:
         ReActLoopResult with updated messages and metadata
@@ -1030,6 +1060,10 @@ async def execute_react_loop(
             tool_args = tool_call.get("args", {})
             tool_call_id = tool_call.get("id", "")
 
+            # Inject extra tool args (e.g., user_id, task_id for session management)
+            if extra_tool_args:
+                tool_args = {**tool_args, **extra_tool_args}
+
             if on_tool_call:
                 on_tool_call(tool_name, tool_args, tool_call_id)
 
@@ -1051,7 +1085,7 @@ async def execute_react_loop(
             # Pre-execution: For browser_navigate, get stream URL first so user can watch
             if tool_name == "browser_navigate":
                 try:
-                    from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+                    from app.sandbox import get_browser_sandbox_manager
                     from app.agents import events as agent_events
 
                     manager = get_browser_sandbox_manager()
@@ -1070,11 +1104,15 @@ async def execute_react_loop(
                     try:
                         stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
                         # Emit browser_stream event immediately so frontend can show live view
-                        events.append(agent_events.browser_stream(
+                        stream_event = agent_events.browser_stream(
                             stream_url=stream_url,
                             sandbox_id=session.sandbox_id,
                             auth_key=auth_key,
-                        ))
+                        )
+                        events.append(stream_event)
+                        # Call callback for immediate streaming to frontend
+                        if on_browser_stream:
+                            on_browser_stream(stream_url, session.sandbox_id, auth_key)
                         logger.info(
                             "browser_stream_event_emitted_early",
                             sandbox_id=session.sandbox_id,
@@ -1089,11 +1127,15 @@ async def execute_react_loop(
                                     session.executor.sandbox.stream.get_url,
                                     auth_key=auth_key,
                                 )
-                                events.append(agent_events.browser_stream(
+                                stream_event = agent_events.browser_stream(
                                     stream_url=stream_url,
                                     sandbox_id=session.sandbox_id,
                                     auth_key=auth_key,
-                                ))
+                                )
+                                events.append(stream_event)
+                                # Call callback for immediate streaming to frontend
+                                if on_browser_stream:
+                                    on_browser_stream(stream_url, session.sandbox_id, auth_key)
                                 logger.info(
                                     "browser_stream_event_emitted_early_reused",
                                     sandbox_id=session.sandbox_id,

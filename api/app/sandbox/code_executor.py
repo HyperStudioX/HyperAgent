@@ -12,7 +12,7 @@ from e2b import AsyncSandbox
 
 from app.config import settings
 from app.core.logging import get_logger
-from app.services.circuit_breaker import CircuitBreakerOpen, get_e2b_breaker
+from app.middleware.circuit_breaker import CircuitBreakerOpen, get_e2b_breaker
 
 logger = get_logger(__name__)
 
@@ -24,18 +24,18 @@ class E2BSandboxExecutor:
         self,
         api_key: str | None = None,
         template_id: str | None = None,
-        timeout: int = 300,
+        timeout: int | None = None,
     ):
         """Initialize E2B executor.
 
         Args:
             api_key: E2B API key (defaults to settings.e2b_api_key)
             template_id: Custom E2B template ID (defaults to settings.e2b_template_id)
-            timeout: Sandbox timeout in seconds
+            timeout: Sandbox timeout in seconds (defaults to settings.e2b_code_timeout)
         """
         self.api_key = api_key or settings.e2b_api_key
         self.template_id = template_id or (settings.e2b_template_id if hasattr(settings, 'e2b_template_id') else None)
-        self.timeout = timeout
+        self.timeout = timeout or settings.e2b_code_timeout
         self.sandbox: AsyncSandbox | None = None
 
     async def __aenter__(self):

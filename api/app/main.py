@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
             raise
 
     # Initialize task queue connection
-    from app.services.task_queue import task_queue
+    from app.workers.task_queue import task_queue
 
     try:
         await task_queue.get_pool()

@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
-from app.services.image_generation import image_generation_service
+from app.ai.image import image_generation_service
 
 logger = get_logger(__name__)
 

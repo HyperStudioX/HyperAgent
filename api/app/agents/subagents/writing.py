@@ -28,7 +28,7 @@ from app.agents.utils import (
 from app.agents import events
 from app.core.logging import get_logger
 from app.models.schemas import LLMProvider
-from app.services.llm import llm_service, extract_text_from_content
+from app.ai.llm import llm_service, extract_text_from_content
 
 logger = get_logger(__name__)
 

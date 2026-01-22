@@ -155,7 +155,7 @@ health: ## Check health of all services
 
 queue-stats: ## Show job queue statistics
 	@echo "$(CYAN)Job Queue Statistics:$(RESET)"
-	@cd api && uv run python -c "import asyncio; from app.services.task_queue import task_queue; asyncio.run((lambda: task_queue.get_queue_stats())()).then(print)"
+	@cd api && uv run python -c "import asyncio; from app.workers.task_queue import task_queue; asyncio.run((lambda: task_queue.get_queue_stats())()).then(print)"
 
 queue-monitor: ## Monitor job queue in real-time (requires redis-cli)
 	@echo "$(CYAN)Monitoring job queue (Ctrl+C to stop)...$(RESET)"

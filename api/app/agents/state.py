@@ -21,6 +21,7 @@ class AgentType(str, Enum):
     WRITING = "writing"
     DATA = "data"
     IMAGE = "image"
+    COMPUTER = "computer"
 
 
 # Re-export HandoffInfo and SharedAgentMemory from handoff module for backward compatibility
@@ -176,3 +177,35 @@ class ImageState(SupervisorState, total=False):
     generated_images: list[dict[str, Any]]  # List of {base64_data, url, revised_prompt}
     generation_status: str  # "pending", "generating", "completed", "failed"
     generation_error: str | None  # Error message if failed
+
+
+class ComputerState(SupervisorState, total=False):
+    """State for the computer/desktop control subagent.
+
+    This agent autonomously controls an E2B Desktop sandbox to complete
+    tasks that require visual interaction with a computer desktop.
+    """
+
+    # Sandbox management
+    sandbox_id: str | None  # E2B sandbox ID
+    stream_url: str | None  # Live stream URL for visual feedback
+    auth_key: str | None  # Auth key for stream access
+
+    # Task planning
+    task_plan: str  # Step-by-step plan for desktop operations
+    current_step: int  # Current step in the plan
+    completed_steps: list[str]  # Completed step descriptions
+
+    # Desktop state tracking
+    last_screenshot: str | None  # Base64-encoded last screenshot
+    screen_width: int  # Desktop width (default 1024)
+    screen_height: int  # Desktop height (default 768)
+    cursor_position: tuple[int, int] | None  # Current cursor (x, y)
+
+    # Tool calling support
+    lc_messages: list[BaseMessage]  # LangChain messages for ReAct loop
+    task_complete: bool  # Flag to indicate task completion
+
+    # Results
+    task_result: str  # Summary of what was accomplished
+    extracted_content: str | None  # Any text/data extracted from the desktop

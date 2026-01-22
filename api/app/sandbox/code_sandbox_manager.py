@@ -1,6 +1,6 @@
-"""Sandbox Manager for E2B Session Lifecycle.
+"""Code Sandbox Manager for E2B Session Lifecycle.
 
-Provides session-based sandbox lifecycle management, enabling sandbox
+Provides session-based code execution sandbox lifecycle management, enabling sandbox
 sharing across multiple tool calls within the same user/task context.
 """
 
@@ -9,27 +9,30 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.config import settings
 from app.core.logging import get_logger
-from app.services.code_executor import E2BSandboxExecutor
+from app.sandbox.code_executor import E2BSandboxExecutor
 
 logger = get_logger(__name__)
 
-# Default session timeout (10 minutes)
-DEFAULT_SESSION_TIMEOUT = timedelta(minutes=10)
+
+def get_default_session_timeout() -> timedelta:
+    """Get default session timeout from settings."""
+    return timedelta(minutes=settings.e2b_session_timeout_minutes)
 
 # Cleanup interval for expired sessions (60 seconds)
 CLEANUP_INTERVAL_SECONDS = 60
 
 
 @dataclass
-class SandboxSession:
-    """Tracks an active sandbox session."""
+class CodeSandboxSession:
+    """Tracks an active code execution sandbox session."""
 
     executor: E2BSandboxExecutor
     session_key: str
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_accessed: datetime = field(default_factory=datetime.utcnow)
-    timeout: timedelta = field(default=DEFAULT_SESSION_TIMEOUT)
+    timeout: timedelta = field(default_factory=get_default_session_timeout)
 
     @property
     def sandbox_id(self) -> str | None:
@@ -48,28 +51,33 @@ class SandboxSession:
         self.last_accessed = datetime.utcnow()
 
 
-class SandboxManager:
-    """Manages sandbox sessions across multiple tool invocations.
+class CodeSandboxManager:
+    """Manages code execution sandbox sessions across multiple tool invocations.
 
     Uses a session key (user_id:task_id) to enable sandbox reuse
     within the same context. Provides automatic cleanup of expired
     sessions via background task.
     """
 
-    _instance: "SandboxManager | None" = None
+    _instance: "CodeSandboxManager | None" = None
     _lock: asyncio.Lock = asyncio.Lock()
 
     def __init__(self) -> None:
-        """Initialize the sandbox manager."""
-        self._sessions: dict[str, SandboxSession] = {}
+        """Initialize the code sandbox manager."""
+        self._sessions: dict[str, CodeSandboxSession] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._session_lock = asyncio.Lock()
+        # Metrics counters
+        self._total_created: int = 0
+        self._total_cleaned: int = 0
+        self._total_reused: int = 0
+        self._health_check_failures: int = 0
 
     @classmethod
-    def get_instance(cls) -> "SandboxManager":
-        """Get the singleton instance of SandboxManager."""
+    def get_instance(cls) -> "CodeSandboxManager":
+        """Get the singleton instance of CodeSandboxManager."""
         if cls._instance is None:
-            cls._instance = SandboxManager()
+            cls._instance = CodeSandboxManager()
         return cls._instance
 
     @staticmethod
@@ -92,7 +100,7 @@ class SandboxManager:
         user_id: str | None = None,
         task_id: str | None = None,
         timeout: timedelta | None = None,
-    ) -> SandboxSession:
+    ) -> CodeSandboxSession:
         """Get an existing sandbox session or create a new one.
 
         Args:
@@ -101,17 +109,28 @@ class SandboxManager:
             timeout: Session timeout (defaults to DEFAULT_SESSION_TIMEOUT)
 
         Returns:
-            SandboxSession with active executor
+            CodeSandboxSession with active executor
+
+        Raises:
+            ValueError: If E2B API key not configured
         """
+        # Validate prerequisites at manager level (fail fast)
+        if not settings.e2b_api_key:
+            raise ValueError(
+                "E2B API key not configured. Set E2B_API_KEY environment variable."
+            )
+
         session_key = self.make_session_key(user_id, task_id)
-        session_timeout = timeout or DEFAULT_SESSION_TIMEOUT
+        session_timeout = timeout or get_default_session_timeout()
 
         async with self._session_lock:
             # Check for existing valid session
             if session_key in self._sessions:
                 session = self._sessions[session_key]
-                if not session.is_expired and session.executor.sandbox:
+                # Perform health check: not expired and sandbox still alive
+                if not session.is_expired and await self._is_sandbox_healthy(session):
                     session.touch()
+                    self._total_reused += 1
                     logger.info(
                         "sandbox_session_reused",
                         session_key=session_key,
@@ -119,19 +138,20 @@ class SandboxManager:
                     )
                     return session
                 else:
-                    # Clean up expired session
+                    # Clean up unhealthy or expired session
                     await self._cleanup_session_internal(session_key)
 
             # Create new session
             executor = E2BSandboxExecutor()
             await executor.create_sandbox()
 
-            session = SandboxSession(
+            session = CodeSandboxSession(
                 executor=executor,
                 session_key=session_key,
                 timeout=session_timeout,
             )
             self._sessions[session_key] = session
+            self._total_created += 1
 
             logger.info(
                 "sandbox_session_created",
@@ -148,7 +168,7 @@ class SandboxManager:
         self,
         user_id: str | None = None,
         task_id: str | None = None,
-    ) -> SandboxSession | None:
+    ) -> CodeSandboxSession | None:
         """Get an existing sandbox session without creating one.
 
         Args:
@@ -156,16 +176,45 @@ class SandboxManager:
             task_id: Task identifier
 
         Returns:
-            SandboxSession if exists and valid, None otherwise
+            CodeSandboxSession if exists and valid, None otherwise
         """
         session_key = self.make_session_key(user_id, task_id)
 
         async with self._session_lock:
             session = self._sessions.get(session_key)
-            if session and not session.is_expired and session.executor.sandbox:
+            if session and not session.is_expired and await self._is_sandbox_healthy(session):
                 session.touch()
                 return session
             return None
+
+    async def _is_sandbox_healthy(self, session: CodeSandboxSession) -> bool:
+        """Check if a sandbox session is still healthy and responsive.
+
+        Args:
+            session: The session to check
+
+        Returns:
+            True if sandbox is healthy, False otherwise
+        """
+        if not session.executor.sandbox:
+            return False
+
+        try:
+            # Perform a lightweight health check by running a simple command
+            result = await session.executor.sandbox.commands.run(
+                "echo 'health_check'",
+                timeout=5,  # 5 second timeout for health check
+            )
+            return result.exit_code == 0 and "health_check" in (result.stdout or "")
+        except Exception as e:
+            self._health_check_failures += 1
+            logger.warning(
+                "sandbox_health_check_failed",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+                error=str(e),
+            )
+            return False
 
     async def cleanup_session(
         self,
@@ -199,6 +248,7 @@ class SandboxManager:
         if session:
             try:
                 await session.executor.cleanup()
+                self._total_cleaned += 1
                 logger.info(
                     "sandbox_session_cleaned",
                     session_key=session_key,
@@ -278,6 +328,25 @@ class SandboxManager:
         """Get the number of active sessions."""
         return len(self._sessions)
 
+    def get_metrics(self) -> dict[str, Any]:
+        """Get sandbox manager metrics.
+
+        Returns:
+            Dict with metrics including:
+                - active_sessions: Current number of active sessions
+                - total_created: Total sessions created since startup
+                - total_cleaned: Total sessions cleaned up since startup
+                - total_reused: Total session reuses since startup
+                - health_check_failures: Total health check failures
+        """
+        return {
+            "active_sessions": len(self._sessions),
+            "total_created": self._total_created,
+            "total_cleaned": self._total_cleaned,
+            "total_reused": self._total_reused,
+            "health_check_failures": self._health_check_failures,
+        }
+
     def get_session_info(self) -> list[dict[str, Any]]:
         """Get information about all active sessions for debugging.
 
@@ -297,10 +366,10 @@ class SandboxManager:
 
 
 # Singleton accessor
-def get_sandbox_manager() -> SandboxManager:
-    """Get the global SandboxManager instance.
+def get_code_sandbox_manager() -> CodeSandboxManager:
+    """Get the global CodeSandboxManager instance.
 
     Returns:
-        SandboxManager singleton
+        CodeSandboxManager singleton
     """
-    return SandboxManager.get_instance()
+    return CodeSandboxManager.get_instance()

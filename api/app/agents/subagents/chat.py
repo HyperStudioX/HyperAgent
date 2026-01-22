@@ -26,7 +26,7 @@ from app.agents.utils import (
 from app.agents import events
 from app.core.logging import get_logger
 from app.models.schemas import LLMProvider
-from app.services.llm import llm_service
+from app.ai.llm import llm_service
 
 logger = get_logger(__name__)
 
@@ -49,6 +49,8 @@ async def agent_node(state: ChatState) -> dict:
     query = state.get("query") or ""
     system_prompt = state.get("system_prompt") or CHAT_SYSTEM_PROMPT
     image_attachments = state.get("image_attachments") or []
+    user_id = state.get("user_id")
+    task_id = state.get("task_id")
 
     logger.info("chat_agent_processing", query=query[:50], image_count=len(image_attachments))
 
@@ -113,6 +115,20 @@ async def agent_node(state: ChatState) -> dict:
         def on_token(token: str):
             event_list.append(events.token(token))
 
+        def on_browser_stream(stream_url: str, sandbox_id: str, auth_key: str | None):
+            # Emit browser_stream event immediately for real-time frontend display
+            event_list.append(events.browser_stream(
+                stream_url=stream_url,
+                sandbox_id=sandbox_id,
+                auth_key=auth_key,
+            ))
+
+        # Inject user_id and task_id for browser session management
+        extra_tool_args = {
+            "user_id": user_id,
+            "task_id": task_id,
+        }
+
         # Execute the canonical ReAct loop
         result = await execute_react_loop(
             llm_with_tools=llm_with_tools,
@@ -125,6 +141,8 @@ async def agent_node(state: ChatState) -> dict:
             on_tool_result=on_tool_result,
             on_handoff=on_handoff,
             on_token=on_token,
+            on_browser_stream=on_browser_stream,
+            extra_tool_args=extra_tool_args,
         )
 
         # Add events from the ReAct loop

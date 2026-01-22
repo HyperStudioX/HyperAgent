@@ -21,7 +21,7 @@ import {
 import { ResearchResultView } from "@/components/query/research-report-view";
 import { Button } from "@/components/ui/button";
 import { useTaskStore } from "@/lib/stores/task-store";
-import { useAgentProgressStore, type BrowserStreamInfo } from "@/lib/stores/agent-progress-store";
+import { useAgentProgressStore, type ComputerStreamInfo } from "@/lib/stores/agent-progress-store";
 import type { ResearchStep, Source, ResearchScenario, AgentEvent } from "@/lib/types";
 import type { ResearchTask } from "@/lib/stores/task-store";
 
@@ -44,7 +44,7 @@ interface EventHandlerContext {
     setResearchResult: (result: string) => void;
     setError: (error: string | null) => void;
     addEvent: (event: AgentEvent) => void;
-    setBrowserStream: (stream: BrowserStreamInfo | null) => void;
+    setBrowserStream: (stream: ComputerStreamInfo | null) => void;
 }
 
 // Event dispatch table for O(1) lookup instead of if/else chain
@@ -172,6 +172,21 @@ const createEventHandlers = (): Map<string, EventHandler> => {
                 status: "running",
             });
         }
+    });
+
+    handlers.set("browser_action", (event, ctx) => {
+        const action = event.action as string;
+        const description = event.description as string;
+        const target = event.target as string | undefined;
+        const status = (event.status as string) || "running";
+
+        // Add browser action as a stage event for progress display
+        ctx.addEvent({
+            type: "stage",
+            name: `browser_${action}`,
+            description: target ? `${description}: ${target}` : description,
+            status: status === "completed" ? "completed" : "running",
+        });
     });
 
     return handlers;

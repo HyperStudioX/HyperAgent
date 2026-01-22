@@ -47,6 +47,7 @@ DEFAULT_TIER_MODELS: Dict[ModelTier, ModelMapping] = {
 TASK_TIER_ROUTING: Dict[str, ModelTier] = {
     "research": ModelTier.MAX,
     "writing": ModelTier.MAX,
+    "computer": ModelTier.MAX,  # Computer use requires reasoning about visual elements
     "code": ModelTier.PRO,
     "chat": ModelTier.PRO,
     "data": ModelTier.PRO,

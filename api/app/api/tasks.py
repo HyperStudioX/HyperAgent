@@ -26,8 +26,8 @@ from app.core.logging import get_logger
 from app.db.base import get_db
 from app.db.models import ResearchTask
 from app.models.schemas import ResearchDepth, ResearchScenario
-from app.services.storage import storage_service
-from app.services.task_queue import task_queue
+from app.repository import deep_research_repository
+from app.workers.task_queue import task_queue
 
 logger = get_logger(__name__)
 
@@ -107,7 +107,7 @@ async def submit_research_task(
     task_id = str(uuid.uuid4())
 
     # Create task in database first
-    await storage_service.create_task(
+    await deep_research_repository.create_task(
         db=db,
         task_id=task_id,
         query=request.query,
@@ -117,7 +117,7 @@ async def submit_research_task(
     )
 
     # Update status to queued
-    await storage_service.update_task_status(db, task_id, "queued")
+    await deep_research_repository.update_task_status(db, task_id, "queued")
     await db.commit()
 
     # Enqueue for background processing
@@ -150,7 +150,7 @@ async def get_task_status(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Get the current status of a task."""
-    task = await storage_service.get_task(db, task_id)
+    task = await deep_research_repository.get_task(db, task_id)
 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -181,7 +181,7 @@ async def get_task_result(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Get the full result of a completed task."""
-    task_data = await storage_service.get_task_dict(db, task_id)
+    task_data = await deep_research_repository.get_task_dict(db, task_id)
 
     if not task_data:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -200,7 +200,7 @@ async def delete_task(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Delete a task. If running, it will be cancelled first."""
-    task = await storage_service.get_task(db, task_id)
+    task = await deep_research_repository.get_task(db, task_id)
 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -218,7 +218,7 @@ async def delete_task(
                 logger.warning("failed_to_cancel_job", job_id=job_id, error=str(e))
 
     # Delete from database
-    await storage_service.delete_task(db, task_id)
+    await deep_research_repository.delete_task(db, task_id)
     await db.commit()
 
     return {"task_id": task_id, "status": "deleted"}

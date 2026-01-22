@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-export interface BrowserStreamInfo {
+export interface ComputerStreamInfo {
     streamUrl: string;
     sandboxId: string;
     authKey?: string;
@@ -24,8 +24,8 @@ const SIZE_CONFIG: Record<ViewerSize, { width: number; height: number }> = {
     large: { width: 640, height: 480 },   // 640/480 = 1.33
 };
 
-interface BrowserStreamViewerProps {
-    stream: BrowserStreamInfo;
+interface ComputerViewerProps {
+    stream: ComputerStreamInfo;
     onClose?: () => void;
     className?: string;
     defaultExpanded?: boolean;
@@ -34,7 +34,7 @@ interface BrowserStreamViewerProps {
     size?: ViewerSize;
 }
 
-export function BrowserStreamViewer({
+export function ComputerViewer({
     stream,
     onClose,
     className,
@@ -42,7 +42,7 @@ export function BrowserStreamViewer({
     collapsible = true,
     showHeader = true,
     size = "large",
-}: BrowserStreamViewerProps) {
+}: ComputerViewerProps) {
     const t = useTranslations("sidebar.progress");
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const [isFullscreen, setIsFullscreen] = useState(false);

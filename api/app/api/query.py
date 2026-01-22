@@ -29,8 +29,8 @@ from app.models.schemas import (
     UnifiedQueryResponse,
 )
 from app.services.file_storage import file_storage_service
-from app.services.storage import storage_service
-from app.services.task_queue import task_queue
+from app.repository import deep_research_repository
+from app.workers.task_queue import task_queue
 
 logger = get_logger(__name__)
 
@@ -301,7 +301,7 @@ async def query(
         task_id = str(uuid.uuid4())
 
         # Create task in database
-        await storage_service.create_task(
+        await deep_research_repository.create_task(
             db=db,
             task_id=task_id,
             query=request.message,
@@ -357,12 +357,17 @@ async def stream_query(
         if file_context:
             system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
 
+        # Generate task_id for browser session management if not provided
+        # Use request.task_id, conversation_id as fallback, or generate a new one
+        chat_task_id = request.task_id or request.conversation_id or str(uuid.uuid4())
+
         # Stream agent response using supervisor
         async def agent_generator() -> AsyncGenerator[str, None]:
             try:
                 async for event in agent_supervisor.run(
                     query=request.message,
                     mode=request.mode.value,
+                    task_id=chat_task_id,  # Pass task_id for browser session management
                     user_id=current_user.id,
                     messages=history,
                     system_prompt=system_prompt,
@@ -445,6 +450,16 @@ async def stream_query(
                         logger.info("streaming_browser_stream_event",
                                    sandbox_id=event.get("sandbox_id", "")[:8])
                         yield f"data: {data}\n\n"
+                    elif event["type"] == "browser_action":
+                        # Stream browser action events to sync progress with browser stream
+                        data = json.dumps({
+                            "type": "browser_action",
+                            "action": event.get("action", ""),
+                            "description": event.get("description", ""),
+                            "target": event.get("target"),
+                            "status": event.get("status", "running"),
+                        })
+                        yield f"data: {data}\n\n"
                     elif event["type"] == "image":
                         # Stream image events (generated images)
                         # Include data (base64), url, storage_key, file_id
@@ -507,7 +522,7 @@ async def stream_query(
         task_id = request.task_id or str(uuid.uuid4())
 
         # Create task in database
-        task = await storage_service.create_task(
+        task = await deep_research_repository.create_task(
             db=db,
             task_id=task_id,
             query=request.message,
@@ -517,7 +532,7 @@ async def stream_query(
         )
 
         # Update status to queued before enqueueing
-        await storage_service.update_task_status(db, task_id, "queued")
+        await deep_research_repository.update_task_status(db, task_id, "queued")
         await db.commit()
 
         # Enqueue to worker for background processing
@@ -531,7 +546,7 @@ async def stream_query(
         )
 
         # Update task with worker job ID
-        await storage_service.update_task_worker_info(db, task_id, job_id, "api-enqueue")
+        await deep_research_repository.update_task_worker_info(db, task_id, job_id, "api-enqueue")
         await db.commit()
 
         logger.info(
@@ -712,7 +727,7 @@ async def get_query_status(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Get the status of a research task."""
-    task_data = await storage_service.get_task_dict(db, task_id)
+    task_data = await deep_research_repository.get_task_dict(db, task_id)
 
     if not task_data:
         raise HTTPException(status_code=404, detail="Task not found")

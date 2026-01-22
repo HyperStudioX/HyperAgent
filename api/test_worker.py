@@ -5,8 +5,8 @@ import asyncio
 import uuid
 
 from app.db.base import get_db
-from app.services.storage import storage_service
-from app.services.task_queue import task_queue
+from app.repository import deep_research_repository
+from app.workers.task_queue import task_queue
 
 
 async def test_worker():
@@ -20,7 +20,7 @@ async def test_worker():
 
     async for db in get_db():
         # Create task in database
-        await storage_service.create_task(
+        await deep_research_repository.create_task(
             db=db,
             task_id=task_id,
             query=query,
@@ -30,7 +30,7 @@ async def test_worker():
         )
 
         # Update to queued
-        await storage_service.update_task_status(db, task_id, "queued")
+        await deep_research_repository.update_task_status(db, task_id, "queued")
         await db.commit()
         print("✓ Task created in database")
 
@@ -48,7 +48,7 @@ async def test_worker():
         print("\nMonitoring task status (will check every 2 seconds for 30 seconds):")
         for i in range(15):
             await asyncio.sleep(2)
-            task = await storage_service.get_task(db, task_id)
+            task = await deep_research_repository.get_task(db, task_id)
             status = task.status if task else "not found"
             progress = task.progress if task else 0
             print(f"  [{i*2}s] Status: {status}, Progress: {progress}%")

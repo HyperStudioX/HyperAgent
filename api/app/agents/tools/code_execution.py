@@ -10,7 +10,7 @@ from typing import Literal
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.agents.tools.sandbox_manager import get_sandbox_manager
+from app.sandbox import get_code_sandbox_manager
 from app.config import settings
 from app.core.logging import get_logger
 
@@ -95,7 +95,7 @@ async def execute_code(
 
     try:
         # Get or create sandbox session
-        sandbox_manager = get_sandbox_manager()
+        sandbox_manager = get_code_sandbox_manager()
         session = await sandbox_manager.get_or_create_sandbox(
             user_id=user_id,
             task_id=task_id,

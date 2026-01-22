@@ -204,7 +204,6 @@
             "detailCount": "{count, plural, =1 {1 条详情} other {# 条详情}}",
             "routedTo": "已路由到 {agent}",
             "lowConfidence": "路由置信度较低 - 如有需要请重新表述",
-            "handoffTo": "委派给 {target}",
             "sourceFound": "已找到来源",
             "codeExecuted": "代码执行成功",
             "codeError": "错误：{error}",
@@ -362,6 +361,46 @@
                     "running": "正在执行代码...",
                     "completed": "代码已执行",
                     "failed": "代码执行失败"
+                },
+                "browser_launch": {
+                    "running": "正在启动浏览器",
+                    "completed": "浏览器已就绪",
+                    "failed": "浏览器启动失败"
+                },
+                "browser_navigate": {
+                    "running": "正在导航",
+                    "completed": "导航完成",
+                    "failed": "导航失败"
+                },
+                "browser_click": {
+                    "running": "正在点击",
+                    "completed": "点击完成",
+                    "failed": "点击失败"
+                },
+                "browser_type": {
+                    "running": "正在输入",
+                    "completed": "输入完成",
+                    "failed": "输入失败"
+                },
+                "browser_screenshot": {
+                    "running": "正在截图",
+                    "completed": "截图完成",
+                    "failed": "截图失败"
+                },
+                "browser_scroll": {
+                    "running": "正在滚动",
+                    "completed": "滚动完成",
+                    "failed": "滚动失败"
+                },
+                "browser_key": {
+                    "running": "正在按键",
+                    "completed": "按键完成",
+                    "failed": "按键失败"
+                },
+                "browser_computer": {
+                    "running": "正在执行桌面操作",
+                    "completed": "桌面操作完成",
+                    "failed": "桌面操作失败"
                 },
                 "default": {
                     "running": "处理中...",

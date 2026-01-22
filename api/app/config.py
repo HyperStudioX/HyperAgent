@@ -86,13 +86,20 @@ class Settings(BaseSettings):
     r2_endpoint_url: str = ""
     local_storage_path: str = "./uploads"  # For local development
 
-    # E2B Sandbox
+    # LangGraph Configuration
+    langgraph_recursion_limit: int = 25  # Maximum recursion depth for graph execution
+
+    # E2B Code Sandbox
     e2b_api_key: str = ""
     e2b_template_id: str = ""  # Optional: custom template with pre-installed packages for faster startup
+    e2b_code_timeout: int = 300  # 5 minutes for code execution sandbox
+    e2b_session_timeout_minutes: int = 10  # Session timeout for code sandbox manager
 
     # E2B Desktop Sandbox
     e2b_desktop_timeout: int = 900  # 15 minutes (longer for browser startup)
     e2b_desktop_default_browser: str = "google-chrome"
+    e2b_desktop_session_timeout_minutes: int = 15  # Session timeout for browser sandbox manager
+    e2b_desktop_stream_ready_wait_ms: int = 3000  # Wait time for stream to be ready before actions
 
     # Search
     tavily_api_key: str = ""
@@ -118,7 +125,7 @@ class Settings(BaseSettings):
     @property
     def tier_mappings(self) -> dict:
         """Get tier mappings from configuration."""
-        from app.services.model_tiers import ModelTier, ModelMapping
+        from app.ai.model_tiers import ModelTier, ModelMapping
 
         return {
             ModelTier.MAX: ModelMapping(
@@ -141,7 +148,7 @@ class Settings(BaseSettings):
     @property
     def tier_providers(self) -> dict:
         """Get provider for each tier from configuration."""
-        from app.services.model_tiers import ModelTier
+        from app.ai.model_tiers import ModelTier
         from app.models.schemas import LLMProvider
 
         provider_map = {

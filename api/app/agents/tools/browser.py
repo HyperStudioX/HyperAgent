@@ -12,7 +12,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
-from app.services.computer_executor import E2B_DESKTOP_AVAILABLE, get_screenshot_as_base64
+from app.sandbox.computer_executor import E2B_DESKTOP_AVAILABLE, get_screenshot_as_base64
 
 logger = get_logger(__name__)
 
@@ -103,69 +103,93 @@ async def browser_navigate(
 
     try:
         # Import here to avoid circular imports
-        from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+        from app.sandbox import get_browser_sandbox_manager
 
         manager = get_browser_sandbox_manager()
-        session = await manager.get_or_create_sandbox(
-            user_id=user_id,
-            task_id=task_id,
-            launch_browser=True,
-        )
+        session_key = manager.make_session_key(user_id, task_id)
+
+        # Get existing session - supervisor should have already created it
+        session = await manager.get_session(user_id=user_id, task_id=task_id)
+        newly_created = False
+
+        if session:
+            logger.info(
+                "browser_navigate_using_existing_session",
+                session_key=session_key,
+                sandbox_id=session.sandbox_id,
+                browser_launched=session.browser_launched,
+                stream_ready=session.is_stream_ready,
+            )
+        else:
+            # Fallback: create session if not exists (shouldn't happen normally)
+            logger.warning(
+                "browser_navigate_creating_new_session",
+                session_key=session_key,
+                user_id=user_id,
+                task_id=task_id,
+            )
+            session = await manager.get_or_create_sandbox(
+                user_id=user_id,
+                task_id=task_id,
+                launch_browser=True,
+            )
+            newly_created = True
 
         executor = session.executor
 
-        # Get stream URL for live viewing (reuse if already started)
-        stream_url = None
-        auth_key = None
-        try:
-            stream_url, auth_key = await executor.get_stream_url(require_auth=True)
-            logger.info("browser_stream_url_retrieved", sandbox_id=session.sandbox_id)
-        except Exception as e:
-            # If stream is already running, try to just get the URL
-            if "already running" in str(e).lower():
-                try:
-                    # Stream already started, get URL without starting
-                    if executor.sandbox and executor.sandbox.stream:
-                        auth_key = await asyncio.to_thread(executor.sandbox.stream.get_auth_key)
-                        stream_url = await asyncio.to_thread(
-                            executor.sandbox.stream.get_url,
-                            auth_key=auth_key,
-                        )
-                        logger.info("browser_stream_url_reused", sandbox_id=session.sandbox_id)
-                except Exception as inner_e:
-                    logger.warning("browser_stream_url_reuse_failed", error=str(inner_e))
-            else:
-                logger.warning("browser_stream_url_failed", error=str(e))
+        # If we created a new session, launch browser if needed
+        if not session.browser_launched:
+            logger.info("browser_navigate_launching_browser", sandbox_id=session.sandbox_id)
+            await executor.launch_browser()
 
-        # Navigate to URL using keyboard
+        # CRITICAL: Ensure stream is ready before any visible actions
+        # This starts the stream (if not started) and waits for frontend to connect
+        stream_url, auth_key = await manager.ensure_stream_ready(session)
+
+        logger.info(
+            "browser_navigate_stream_ready",
+            sandbox_id=session.sandbox_id,
+            stream_url=stream_url[:50] if stream_url else None,
+            newly_created=newly_created,
+        )
+
+        logger.info(
+            "browser_navigate_starting_actions",
+            sandbox_id=session.sandbox_id,
+            url=url[:50],
+        )
+
+        # Navigate to URL using keyboard with visible delays
         # First, focus address bar with Ctrl+L (or Cmd+L on Mac, but E2B uses Linux)
+        logger.info("browser_action_focus_address_bar", sandbox_id=session.sandbox_id)
         await executor.press_key(["ctrl", "l"])
-        await executor.wait(500)
+        await executor.wait(800)  # Longer wait for visibility
 
         # Clear any existing URL and paste new one via clipboard
         # Using clipboard avoids xdotool's issues with non-ASCII characters
+        logger.info("browser_action_clear_and_type_url", sandbox_id=session.sandbox_id, url=url[:50])
         await executor.press_key(["ctrl", "a"])
-        await executor.wait(200)
-        await executor.type_text_via_clipboard(url)
         await executor.wait(300)
+        await executor.type_text_via_clipboard(url)
+        await executor.wait(500)  # Longer wait for visibility
 
         # Press Enter to navigate
+        logger.info("browser_action_press_enter", sandbox_id=session.sandbox_id)
         await executor.press_key("Return")
 
         # Wait for page to load
+        logger.info("browser_action_waiting_for_page", sandbox_id=session.sandbox_id, wait_ms=wait_ms)
         await executor.wait(wait_ms)
 
         result = {
             "success": True,
             "url": url,
             "sandbox_id": session.sandbox_id,
+            # Include stream info for supervisor to emit if needed
+            "stream_url": stream_url,
+            "stream_auth_key": auth_key,
+            "stream_ready": session.is_stream_ready,
         }
-
-        # Add stream URL for live viewing if available
-        if stream_url:
-            result["stream_url"] = stream_url
-            if auth_key:
-                result["stream_auth_key"] = auth_key
 
         # Extract page content if requested (primary use case for research)
         if extract_content:
@@ -191,10 +215,10 @@ async def browser_navigate(
         logger.info(
             "browser_navigate_completed",
             url=url[:50],
+            sandbox_id=session.sandbox_id,
             success=True,
             has_content=extract_content,
             has_screenshot=take_screenshot,
-            has_stream_url=bool(stream_url),
         )
 
         return json.dumps(result)
@@ -255,7 +279,7 @@ async def browser_screenshot(
     logger.info("browser_screenshot_invoked")
 
     try:
-        from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+        from app.sandbox import get_browser_sandbox_manager
 
         manager = get_browser_sandbox_manager()
         session = await manager.get_session(
@@ -337,7 +361,7 @@ async def browser_click(
     logger.info("browser_click_invoked", x=x, y=y, button=button)
 
     try:
-        from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+        from app.sandbox import get_browser_sandbox_manager
 
         manager = get_browser_sandbox_manager()
         session = await manager.get_session(
@@ -350,6 +374,9 @@ async def browser_click(
                 "success": False,
                 "error": "No active browser sandbox session. Use browser_navigate first.",
             })
+
+        # Ensure stream is ready before visible action
+        await manager.ensure_stream_ready(session)
 
         await session.executor.click(x, y, button)
 
@@ -411,7 +438,7 @@ async def browser_type(
     logger.info("browser_type_invoked", text_length=len(text))
 
     try:
-        from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+        from app.sandbox import get_browser_sandbox_manager
 
         manager = get_browser_sandbox_manager()
         session = await manager.get_session(
@@ -424,6 +451,9 @@ async def browser_type(
                 "success": False,
                 "error": "No active browser sandbox session. Use browser_navigate first.",
             })
+
+        # Ensure stream is ready before visible action
+        await manager.ensure_stream_ready(session)
 
         # Use clipboard paste for text to avoid xdotool multi-byte issues
         await session.executor.type_text_via_clipboard(text)
@@ -488,7 +518,7 @@ async def browser_press_key(
     logger.info("browser_press_key_invoked", key=key)
 
     try:
-        from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+        from app.sandbox import get_browser_sandbox_manager
 
         manager = get_browser_sandbox_manager()
         session = await manager.get_session(
@@ -501,6 +531,9 @@ async def browser_press_key(
                 "success": False,
                 "error": "No active browser sandbox session. Use browser_navigate first.",
             })
+
+        # Ensure stream is ready before visible action
+        await manager.ensure_stream_ready(session)
 
         # Handle key combinations with + separator
         if "+" in key:
@@ -572,7 +605,7 @@ async def browser_scroll(
     logger.info("browser_scroll_invoked", direction=direction, amount=amount)
 
     try:
-        from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+        from app.sandbox import get_browser_sandbox_manager
 
         manager = get_browser_sandbox_manager()
         session = await manager.get_session(
@@ -585,6 +618,9 @@ async def browser_scroll(
                 "success": False,
                 "error": "No active browser sandbox session. Use browser_navigate first.",
             })
+
+        # Ensure stream is ready before visible action
+        await manager.ensure_stream_ready(session)
 
         await session.executor.scroll(direction, amount)
 
@@ -643,7 +679,7 @@ async def browser_get_stream_url(
     logger.info("browser_get_stream_url_invoked")
 
     try:
-        from app.agents.tools.browser_sandbox_manager import get_browser_sandbox_manager
+        from app.sandbox import get_browser_sandbox_manager
 
         manager = get_browser_sandbox_manager()
         session = await manager.get_session(

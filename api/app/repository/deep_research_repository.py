@@ -1,4 +1,4 @@
-"""Storage service for research task persistence."""
+"""Deep research repository for research task persistence."""
 
 from datetime import datetime, timezone
 from typing import Any
@@ -13,8 +13,8 @@ from app.db.models import ResearchSource, ResearchStep, ResearchTask
 logger = get_logger(__name__)
 
 
-class StorageService:
-    """Service for persisting research tasks to PostgreSQL."""
+class DeepResearchRepository:
+    """Repository for persisting research tasks to PostgreSQL."""
 
     async def create_task(
         self,
@@ -360,4 +360,4 @@ class StorageService:
 
 
 # Global instance
-storage_service = StorageService()
+deep_research_repository = DeepResearchRepository()

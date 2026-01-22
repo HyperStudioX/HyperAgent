@@ -9,7 +9,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
-from app.services.vision import vision_service
+from app.ai.vision import vision_service
 
 logger = get_logger(__name__)
 

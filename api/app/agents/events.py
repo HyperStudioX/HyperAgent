@@ -45,6 +45,7 @@ class EventType(str, Enum):
 
     # Browser/sandbox events
     BROWSER_STREAM = "browser_stream"
+    BROWSER_ACTION = "browser_action"
 
 
 class StageStatus(str, Enum):
@@ -179,6 +180,17 @@ class BrowserStreamEvent(BaseModel):
     stream_url: str = Field(..., description="URL to view the browser stream")
     sandbox_id: str = Field(..., description="Sandbox identifier")
     auth_key: str | None = Field(default=None, description="Authentication key if required")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class BrowserActionEvent(BaseModel):
+    """Event indicating a browser action is being performed."""
+
+    type: Literal["browser_action"] = "browser_action"
+    action: str = Field(..., description="Action being performed (navigate, click, type, scroll, etc.)")
+    description: str = Field(..., description="Human-readable description of the action")
+    target: str | None = Field(default=None, description="Target of the action (URL, coordinates, text)")
+    status: str = Field(default="running", description="Action status (running, completed)")
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
@@ -434,4 +446,32 @@ def browser_stream(
         stream_url=stream_url,
         sandbox_id=sandbox_id,
         auth_key=auth_key,
+    ).model_dump()
+
+
+def browser_action(
+    action: str,
+    description: str,
+    target: str | None = None,
+    status: str = "running",
+) -> dict[str, Any]:
+    """Create a browser action event dictionary.
+
+    This event indicates a browser action is being performed,
+    helping sync the UI progress with what's visible in the browser stream.
+
+    Args:
+        action: Action type (navigate, click, type, scroll, screenshot, etc.)
+        description: Human-readable description
+        target: Target of the action (URL, coordinates, text)
+        status: Action status (running, completed)
+
+    Returns:
+        Browser action event dictionary
+    """
+    return BrowserActionEvent(
+        action=action,
+        description=description,
+        target=target,
+        status=status,
     ).model_dump()

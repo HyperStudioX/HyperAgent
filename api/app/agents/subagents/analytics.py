@@ -24,7 +24,7 @@ from app.agents.tools import (
     get_react_config,
 )
 from app.agents.tools.code_execution import execute_code_with_context
-from app.agents.tools.sandbox_file import sandbox_file_with_context
+from app.sandbox import sandbox_file_with_context
 from app.agents.tools.tool_gate import should_enable_tools
 from app.agents.utils import (
     append_history,
@@ -40,8 +40,8 @@ from app.core.logging import get_logger
 from app.db.base import async_session_maker
 from app.db.models import File as FileModel
 from app.services.file_storage import file_storage_service
-from app.services.llm import llm_service, extract_text_from_content
-from app.services.model_tiers import ModelTier
+from app.ai.llm import llm_service, extract_text_from_content
+from app.ai.model_tiers import ModelTier
 from app.models.schemas import LLMProvider
 
 logger = get_logger(__name__)

@@ -204,7 +204,7 @@ async def generate_conversation_title(
             return ConversationResponse(**conversation.to_dict(include_messages=True))
 
         # Generate title using LLM
-        from app.services.llm import llm_service
+        from app.ai.llm import llm_service
 
         new_title = await llm_service.generate_title(first_user_message.content)
 

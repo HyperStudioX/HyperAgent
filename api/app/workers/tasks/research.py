@@ -10,7 +10,7 @@ from app.agents import agent_supervisor
 from app.core.logging import get_logger
 from app.db.base import async_session_maker
 from app.models.schemas import ResearchDepth, ResearchScenario
-from app.services.storage import storage_service
+from app.repository import deep_research_repository
 from app.workers.progress import ProgressReporter
 
 logger = get_logger(__name__)
@@ -86,7 +86,7 @@ async def run_research_task(
                 if row is not None:
                     # Task exists in DB, now get the full ORM object
                     db.expire_all()  # Clear any cached state
-                    task = await storage_service.get_task(db, task_id)
+                    task = await deep_research_repository.get_task(db, task_id)
                     if task is not None:
                         break
 
@@ -107,13 +107,13 @@ async def run_research_task(
                 )
 
             # Clear any existing data from previous runs (retry scenario)
-            await storage_service.clear_task_steps(db, task_id)
-            await storage_service.clear_task_sources(db, task_id)
-            await storage_service.update_task_report(db, task_id, "")
+            await deep_research_repository.clear_task_steps(db, task_id)
+            await deep_research_repository.clear_task_sources(db, task_id)
+            await deep_research_repository.update_task_report(db, task_id, "")
 
             # Update task status to running
-            await storage_service.update_task_status(db, task_id, "running")
-            await storage_service.update_task_worker_info(db, task_id, job_id, worker_name)
+            await deep_research_repository.update_task_status(db, task_id, "running")
+            await deep_research_repository.update_task_worker_info(db, task_id, job_id, worker_name)
             await db.commit()
 
             # Emit progress: starting
@@ -142,7 +142,7 @@ async def run_research_task(
                         if status == "running":
                             # Create new step in database
                             step_id = str(uuid.uuid4())
-                            await storage_service.add_step(
+                            await deep_research_repository.add_step(
                                 db=db,
                                 task_id=task_id,
                                 step_id=step_id,
@@ -162,7 +162,7 @@ async def run_research_task(
                         else:
                             # Update existing step status
                             if step_type in step_ids:
-                                await storage_service.update_step_status(
+                                await deep_research_repository.update_step_status(
                                     db, step_ids[step_type], status
                                 )
                                 await progress.emit_step(
@@ -174,7 +174,7 @@ async def run_research_task(
 
                         # Update progress percentage based on step
                         if step_type in STEP_PROGRESS:
-                            await storage_service.update_task_progress(
+                            await deep_research_repository.update_task_progress(
                                 db, task_id, STEP_PROGRESS[step_type]
                             )
                             await progress.emit_progress(STEP_PROGRESS[step_type], step_type)
@@ -201,7 +201,7 @@ async def run_research_task(
                     # Create source in database
                     source_id = str(uuid.uuid4())
                     try:
-                        await storage_service.add_source(
+                        await deep_research_repository.add_source(
                             db=db,
                             task_id=task_id,
                             source_id=source_id,
@@ -260,9 +260,9 @@ async def run_research_task(
 
             # Save final report
             full_report = "".join(report_content)
-            await storage_service.update_task_report(db, task_id, full_report)
-            await storage_service.update_task_status(db, task_id, "completed")
-            await storage_service.update_task_progress(db, task_id, 100)
+            await deep_research_repository.update_task_report(db, task_id, full_report)
+            await deep_research_repository.update_task_status(db, task_id, "completed")
+            await deep_research_repository.update_task_progress(db, task_id, 100)
             await db.commit()
 
             await progress.emit_complete()
@@ -288,7 +288,7 @@ async def run_research_task(
                 error=str(e),
             )
 
-            await storage_service.update_task_status(
+            await deep_research_repository.update_task_status(
                 db, task_id, "failed", error=str(e)
             )
             await db.commit()

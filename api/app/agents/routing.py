@@ -7,8 +7,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.state import AgentType, SupervisorState
 from app.core.logging import get_logger
-from app.services.llm import llm_service
-from app.services.model_tiers import ModelTier
+from app.ai.llm import llm_service
+from app.ai.model_tiers import ModelTier
 
 logger = get_logger(__name__)
 
@@ -22,9 +22,10 @@ Available agents:
 4. writing - For long-form content creation like articles, documentation, essays, and creative writing
 5. data - For data analysis, CSV/JSON processing, statistics, and data visualization
 6. image - For image generation, creating pictures, artwork, illustrations, and visual content
+7. computer - For tasks requiring visual desktop interaction, browser automation, form filling, clicking buttons, or interacting with web applications as a human would
 
 Analyze the user's query and respond with a JSON object containing:
-- "agent": The agent name (chat, research, code, writing, data, or image)
+- "agent": The agent name (chat, research, code, writing, data, image, or computer)
 - "confidence": Your confidence level (0.0 to 1.0)
 - "reason": Brief explanation for your choice
 
@@ -50,7 +51,19 @@ Query: "Generate an image of a sunset over mountains"
 {"agent": "image", "confidence": 0.95, "reason": "Image generation request"}
 
 Query: "Create a picture of a cute robot"
-{"agent": "image", "confidence": 0.95, "reason": "Requesting visual content creation"}"""
+{"agent": "image", "confidence": 0.95, "reason": "Requesting visual content creation"}
+
+Query: "Go to amazon.com and find the price of iPhone 15"
+{"agent": "computer", "confidence": 0.95, "reason": "Requires browsing a website and interacting with it"}
+
+Query: "Fill out the contact form on example.com"
+{"agent": "computer", "confidence": 0.95, "reason": "Requires form interaction on a website"}
+
+Query: "Take a screenshot of the Google homepage"
+{"agent": "computer", "confidence": 0.9, "reason": "Requires visual browser interaction"}
+
+Query: "Click the login button and sign in to my account"
+{"agent": "computer", "confidence": 0.95, "reason": "Requires clicking and typing in a browser"}"""
 
 # Fallback prompt for legacy parsing (backward compatibility)
 ROUTER_PROMPT_LEGACY = """You are a routing assistant that determines which specialized agent should handle a user query.
@@ -62,8 +75,9 @@ Available agents:
 4. WRITING - For long-form content creation like articles, documentation, essays, and creative writing
 5. DATA - For data analysis, CSV/JSON processing, statistics, and data visualization
 6. IMAGE - For image generation, creating pictures, artwork, illustrations, and visual content
+7. COMPUTER - For tasks requiring visual desktop interaction, browser automation, form filling, or clicking buttons
 
-Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, CODE, WRITING, DATA, or IMAGE) followed by a brief reason.
+Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, CODE, WRITING, DATA, IMAGE, or COMPUTER) followed by a brief reason.
 
 Format your response exactly as:
 AGENT: <agent_name>
@@ -92,12 +106,14 @@ AGENT_NAME_MAP = {
     "writing": AgentType.WRITING,
     "data": AgentType.DATA,
     "image": AgentType.IMAGE,
+    "computer": AgentType.COMPUTER,
     "CHAT": AgentType.CHAT,
     "RESEARCH": AgentType.RESEARCH,
     "CODE": AgentType.CODE,
     "WRITING": AgentType.WRITING,
     "DATA": AgentType.DATA,
     "IMAGE": AgentType.IMAGE,
+    "COMPUTER": AgentType.COMPUTER,
 }
 
 

@@ -204,7 +204,6 @@
             "detailCount": "{count, plural, =1 {1 detail} other {# details}}",
             "routedTo": "Routed to {agent}",
             "lowConfidence": "Low confidence routing - try rephrasing if needed",
-            "handoffTo": "Delegating to {target}",
             "sourceFound": "Source found",
             "codeExecuted": "Code executed successfully",
             "codeError": "Error: {error}",
@@ -362,6 +361,46 @@
                     "running": "Executing code...",
                     "completed": "Code executed",
                     "failed": "Code execution failed"
+                },
+                "browser_launch": {
+                    "running": "Launching browser",
+                    "completed": "Browser ready",
+                    "failed": "Browser launch failed"
+                },
+                "browser_navigate": {
+                    "running": "Navigating",
+                    "completed": "Navigation complete",
+                    "failed": "Navigation failed"
+                },
+                "browser_click": {
+                    "running": "Clicking",
+                    "completed": "Click complete",
+                    "failed": "Click failed"
+                },
+                "browser_type": {
+                    "running": "Typing",
+                    "completed": "Typing complete",
+                    "failed": "Typing failed"
+                },
+                "browser_screenshot": {
+                    "running": "Taking screenshot",
+                    "completed": "Screenshot taken",
+                    "failed": "Screenshot failed"
+                },
+                "browser_scroll": {
+                    "running": "Scrolling",
+                    "completed": "Scroll complete",
+                    "failed": "Scroll failed"
+                },
+                "browser_key": {
+                    "running": "Pressing key",
+                    "completed": "Key press complete",
+                    "failed": "Key press failed"
+                },
+                "browser_computer": {
+                    "running": "Performing desktop action",
+                    "completed": "Desktop action complete",
+                    "failed": "Desktop action failed"
                 },
                 "default": {
                     "running": "Processing...",

@@ -11,7 +11,7 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.core.logging import get_logger
 from app.models.schemas import ImageGenerationResult
-from app.services.circuit_breaker import CircuitBreakerOpen, get_gemini_breaker
+from app.middleware.circuit_breaker import CircuitBreakerOpen, get_gemini_breaker
 
 logger = get_logger(__name__)
 

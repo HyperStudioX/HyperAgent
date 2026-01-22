@@ -10,10 +10,20 @@ from app.agents.tools.browser import (
     browser_scroll,
     browser_type,
 )
-from app.agents.tools.browser_sandbox_manager import (
+from app.sandbox import (
     BrowserSandboxManager,
     BrowserSandboxSession,
     get_browser_sandbox_manager,
+    CodeSandboxManager,
+    CodeSandboxSession,
+    get_code_sandbox_manager,
+    sandbox_file,
+    sandbox_file_with_context,
+)
+from app.agents.tools.computer_use import (
+    COMPUTER_TOOLS,
+    computer_bash,
+    computer_use,
 )
 from app.agents.tools.handoff import (
     AGENT_DESCRIPTIONS,
@@ -72,12 +82,6 @@ from app.agents.tools.registry import (
     register_tool,
     unregister_tool,
 )
-from app.agents.tools.sandbox_file import sandbox_file, sandbox_file_with_context
-from app.agents.tools.sandbox_manager import (
-    SandboxManager,
-    SandboxSession,
-    get_sandbox_manager,
-)
 from app.agents.tools.tool_gate import (
     SemanticRule,
     ToolEnablementResult,
@@ -127,14 +131,18 @@ __all__ = [
     "execute_code_with_context",
     "sandbox_file",
     "sandbox_file_with_context",
-    # Sandbox management
-    "SandboxSession",
-    "SandboxManager",
-    "get_sandbox_manager",
+    # Code sandbox management
+    "CodeSandboxSession",
+    "CodeSandboxManager",
+    "get_code_sandbox_manager",
     # Browser sandbox management
     "BrowserSandboxSession",
     "BrowserSandboxManager",
     "get_browser_sandbox_manager",
+    # Computer use tools (autonomous desktop control)
+    "computer_use",
+    "computer_bash",
+    "COMPUTER_TOOLS",
     # Handoff types
     "HandoffInfo",
     "SharedAgentMemory",

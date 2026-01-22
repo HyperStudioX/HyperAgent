@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { useAgentProgressStore, type TimestampedEvent } from "@/lib/stores/agent-progress-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { BrowserStreamViewer } from "@/components/ui/browser-stream-viewer";
+import { ComputerViewer } from "@/components/ui/computer-viewer";
 import type { Source } from "@/lib/types";
 
 // Stage group containing a stage and its child tools
@@ -136,7 +136,10 @@ const KNOWN_STAGES = [
     "research", "plan", "generate", "execute", "summarize", "finalize",
     "outline", "data", "source", "code_result", "config", "search_tools",
     "collect", "report", "thinking", "routing", "refine", "present",
-    "analyze_image", "generate_image"
+    "analyze_image", "generate_image",
+    // Browser action stages
+    "browser_launch", "browser_navigate", "browser_click", "browser_type",
+    "browser_screenshot", "browser_scroll", "browser_key", "browser_computer"
 ];
 
 // Get translated stage description based on stage name, status, and agent type
@@ -176,7 +179,8 @@ function getTranslatedStageDescription(
         }
     }
 
-    // For known stages, always try to use translation - never use hardcoded descriptions
+    // For known stages, always prioritize translation lookup over backend description
+    // This ensures i18n support even if backend sends untranslated descriptions
     if (KNOWN_STAGES.includes(stageName)) {
         try {
             const key = `${stageName}.${status}` as Parameters<typeof tStages>[0];
@@ -194,14 +198,20 @@ function getTranslatedStageDescription(
                 return translated;
             }
         } catch (e) {
-            // Translation not found, will fall back to formatted name
+            // Translation not found, will fall back to description or formatted name
             if (process.env.NODE_ENV === "development") {
                 console.warn(`[getTranslatedStageDescription] Translation not found for ${stageName}.${status}:`, e);
             }
         }
     }
     
-    // Fall back to formatted stage name (for i18n) instead of hardcoded descriptions
+    // Fall back to stage description if provided (e.g., "processing" from sidebar.progress)
+    // Only use this for unknown stages or when translation lookup fails
+    if (stage.description) {
+        return stage.description;
+    }
+    
+    // Final fallback: formatted stage name (for i18n) instead of hardcoded descriptions
     // This ensures we don't show untranslated English strings from backend
     const formattedName = stageName.charAt(0).toUpperCase() + stageName.slice(1).replace(/_/g, " ");
     return formattedName;
@@ -642,9 +652,9 @@ export function AgentProgressPanel() {
                     </div>
                 )}
 
-                {/* Browser Stream Viewer */}
+                {/* Computer Stream Viewer */}
                 {activeProgress?.browserStream && (
-                    <BrowserStreamViewer
+                    <ComputerViewer
                         stream={activeProgress.browserStream}
                         onClose={() => setBrowserStream(null)}
                         defaultExpanded={showBrowserStream}

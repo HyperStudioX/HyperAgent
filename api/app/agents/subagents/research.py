@@ -33,7 +33,7 @@ from app.agents.utils import (
 from app.agents import events
 from app.core.logging import get_logger
 from app.models.schemas import LLMProvider, ResearchDepth, ResearchScenario
-from app.services.llm import llm_service, extract_text_from_content
+from app.ai.llm import llm_service, extract_text_from_content
 from app.services.search import SearchResult
 
 logger = get_logger(__name__)
@@ -343,6 +343,8 @@ async def search_tools_node(state: ResearchState) -> dict:
     """
     lc_messages = state.get("lc_messages", [])
     sources = list(state.get("sources", []))
+    user_id = state.get("user_id")
+    task_id = state.get("task_id")
 
     event_list = []
 
@@ -350,6 +352,52 @@ async def search_tools_node(state: ResearchState) -> dict:
     last_message = lc_messages[-1] if lc_messages else None
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {"lc_messages": lc_messages, "events": event_list}
+
+    # Pre-execution: Check for browser tools and emit stream event BEFORE execution
+    browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot"}
+    has_browser_tool = any(
+        tc.get("name") in browser_tools for tc in last_message.tool_calls
+    )
+
+    if has_browser_tool:
+        try:
+            from app.sandbox import get_browser_sandbox_manager
+
+            manager = get_browser_sandbox_manager()
+            session = await manager.get_or_create_sandbox(
+                user_id=user_id,
+                task_id=task_id,
+                launch_browser=True,
+            )
+
+            # Get stream URL and emit event immediately
+            try:
+                stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
+                event_list.append(events.browser_stream(
+                    stream_url=stream_url,
+                    sandbox_id=session.sandbox_id,
+                    auth_key=auth_key,
+                ))
+                logger.info("research_browser_stream_emitted", sandbox_id=session.sandbox_id)
+            except Exception as stream_err:
+                if "already running" in str(stream_err).lower():
+                    import asyncio
+                    if session.executor.sandbox and session.executor.sandbox.stream:
+                        auth_key = await asyncio.to_thread(session.executor.sandbox.stream.get_auth_key)
+                        stream_url = await asyncio.to_thread(
+                            session.executor.sandbox.stream.get_url,
+                            auth_key=auth_key,
+                        )
+                        event_list.append(events.browser_stream(
+                            stream_url=stream_url,
+                            sandbox_id=session.sandbox_id,
+                            auth_key=auth_key,
+                        ))
+                        logger.info("research_browser_stream_emitted_reused", sandbox_id=session.sandbox_id)
+                else:
+                    logger.warning("research_browser_stream_failed", error=str(stream_err))
+        except Exception as e:
+            logger.warning("research_browser_pre_execution_failed", error=str(e))
 
     # Get all tools for research agent (includes browser, search, image, handoffs)
     all_tools = get_tools_for_agent("research", include_handoffs=True)

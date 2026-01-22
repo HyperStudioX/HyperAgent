@@ -18,9 +18,9 @@ from app.config import settings
 from app.core.logging import get_logger
 from app.models.schemas import LLMProvider
 from app.services.file_storage import file_storage_service
-from app.services.image_generation import ImageProvider, image_generation_service
-from app.services.llm import llm_service
-from app.services.model_tiers import ModelTier
+from app.ai.image import ImageProvider, image_generation_service
+from app.ai.llm import llm_service
+from app.ai.model_tiers import ModelTier
 
 logger = get_logger(__name__)
 

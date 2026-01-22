@@ -655,6 +655,19 @@ export function ChatInterface() {
                                     console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
                                     addAgentEvent(event);
                                 }
+                            } else if (event.type === "browser_action") {
+                                // Handle browser action events - sync progress with browser stream
+                                const action = event.action as string;
+                                const description = event.description as string;
+                                const target = event.target as string | undefined;
+                                const status = (event.status as string) || "running";
+                                // Transform to stage event for progress display
+                                addAgentEvent({
+                                    type: "stage",
+                                    name: `browser_${action}`,
+                                    description: target ? `${description}: ${target}` : description,
+                                    status: status === "completed" ? "completed" : "running",
+                                });
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
@@ -930,6 +943,19 @@ export function ChatInterface() {
                                     console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
                                     addAgentEvent(event);
                                 }
+                            } else if (event.type === "browser_action") {
+                                // Handle browser action events - sync progress with browser stream
+                                const action = event.action as string;
+                                const description = event.description as string;
+                                const target = event.target as string | undefined;
+                                const status = (event.status as string) || "running";
+                                // Transform to stage event for progress display
+                                addAgentEvent({
+                                    type: "stage",
+                                    name: `browser_${action}`,
+                                    description: target ? `${description}: ${target}` : description,
+                                    status: status === "completed" ? "completed" : "running",
+                                });
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);

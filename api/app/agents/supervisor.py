@@ -1,5 +1,6 @@
 """Supervisor/orchestrator for the multi-agent system with handoff support."""
 
+import asyncio
 from typing import Any, AsyncGenerator, Literal
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -10,6 +11,7 @@ from app.agents.state import AgentType, SupervisorState
 from app.agents.subagents.chat import chat_subgraph
 from app.agents.subagents.code import code_subgraph
 from app.agents.subagents.analytics import data_subgraph
+from app.agents.subagents.computer import computer_subgraph
 from app.agents.subagents.image import image_subgraph
 from app.agents.subagents.research import research_subgraph
 from app.agents.subagents.writing import writing_subgraph
@@ -47,6 +49,8 @@ STREAMING_CONFIG = {
     "research_post": False,
     "init_config": False,
     "collect_sources": False,
+    # Computer agent - stream final response
+    "computer": True,
 }
 
 
@@ -104,10 +108,12 @@ async def chat_node(state: SupervisorState) -> dict:
         Dict with chat response, events, and potential handoff
     """
     # Build input state with handoff context if present
+    # Include task_id so browser tools use the same sandbox session as the stream viewer
     input_state = {
         "query": _build_query_with_context(state),
         "messages": state.get("messages") or [],
         "user_id": state.get("user_id"),
+        "task_id": state.get("task_id"),
         "attachment_ids": state.get("attachment_ids") or [],
         "image_attachments": state.get("image_attachments") or [],
         "system_prompt": state.get("system_prompt"),
@@ -220,6 +226,7 @@ async def code_node(state: SupervisorState) -> dict:
         "query": _build_query_with_context(state),
         "messages": state.get("messages") or [],
         "user_id": state.get("user_id"),
+        "task_id": state.get("task_id"),
         "attachment_ids": state.get("attachment_ids") or [],
         "provider": state.get("provider"),
         "model": state.get("model"),
@@ -265,6 +272,7 @@ async def writing_node(state: SupervisorState) -> dict:
         "query": _build_query_with_context(state),
         "messages": state.get("messages") or [],
         "user_id": state.get("user_id"),
+        "task_id": state.get("task_id"),
         "attachment_ids": state.get("attachment_ids") or [],
         "image_attachments": state.get("image_attachments") or [],
         "provider": state.get("provider"),
@@ -312,6 +320,7 @@ async def image_node(state: SupervisorState) -> dict:
         "query": _build_query_with_context(state),
         "messages": state.get("messages") or [],
         "user_id": state.get("user_id"),
+        "task_id": state.get("task_id"),
         "provider": state.get("provider"),
         "model": state.get("model"),
         "image_model": state.get("image_model"),
@@ -373,6 +382,7 @@ async def data_node(state: SupervisorState) -> dict:
         "data_source": state.get("data_source", ""),
         "attachment_ids": state.get("attachment_ids") or [],
         "user_id": state.get("user_id"),
+        "task_id": state.get("task_id"),
         "provider": state.get("provider"),
         "model": state.get("model"),
         "shared_memory": state.get("shared_memory") or {},
@@ -399,6 +409,50 @@ async def data_node(state: SupervisorState) -> dict:
         output["pending_handoff"] = handoff
         output["handoff_count"] = state.get("handoff_count", 0) + 1
         _update_handoff_history(output, state, handoff)
+
+    return output
+
+
+async def computer_node(state: SupervisorState) -> dict:
+    """Execute the computer/desktop control subagent.
+
+    Args:
+        state: Current supervisor state
+
+    Returns:
+        Dict with computer task results and events
+    """
+    logger.info("computer_task_started", query=state.get("query", "")[:50])
+
+    input_state = {
+        "query": _build_query_with_context(state),
+        "messages": state.get("messages") or [],
+        "user_id": state.get("user_id"),
+        "task_id": state.get("task_id"),
+        "provider": state.get("provider"),
+        "model": state.get("model"),
+        "shared_memory": state.get("shared_memory") or {},
+    }
+
+    result = await computer_subgraph.ainvoke(input_state)
+
+    output = {
+        "response": result.get("response", ""),
+        "events": result.get("events", []),
+    }
+
+    # Update shared memory with computer task results
+    shared_memory = state.get("shared_memory") or {}
+    if result.get("task_result"):
+        shared_memory["computer_task_result"] = result.get("task_result", "")
+    if result.get("extracted_content"):
+        shared_memory["extracted_content"] = result.get("extracted_content", "")
+    output["shared_memory"] = shared_memory
+
+    logger.info(
+        "computer_task_completed",
+        task_complete=result.get("task_complete", False),
+    )
 
     return output
 
@@ -545,6 +599,7 @@ def create_supervisor_graph(checkpointer=None):
     graph.add_node("writing", writing_node)
     graph.add_node("data", data_node)
     graph.add_node("image", image_node)
+    graph.add_node("computer", computer_node)
 
     # Research agent uses prep -> subgraph -> post pattern for real-time streaming
     # Adding the subgraph directly (not wrapped) allows internal events to propagate
@@ -566,6 +621,7 @@ def create_supervisor_graph(checkpointer=None):
             AgentType.WRITING.value: "writing",
             AgentType.DATA.value: "data",
             AgentType.IMAGE.value: "image",
+            AgentType.COMPUTER.value: "computer",
         },
     )
 
@@ -574,7 +630,7 @@ def create_supervisor_graph(checkpointer=None):
     graph.add_edge("research", "research_post")
 
     # After each agent (or research_post), check for handoff or end
-    for agent in ["chat", "research_post", "code", "writing", "data", "image"]:
+    for agent in ["chat", "research_post", "code", "writing", "data", "image", "computer"]:
         graph.add_conditional_edges(
             agent,
             check_for_handoff,
@@ -652,9 +708,14 @@ class AgentSupervisor:
         for key, value in kwargs.items():
             initial_state[key] = value
 
-        # Create config with thread_id for checkpointing
+        # Create config with thread_id for checkpointing and recursion limit
+        from app.config import settings
+
         thread_id = task_id or str(uuid.uuid4())
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": settings.langgraph_recursion_limit,
+        }
 
         logger.info(
             "supervisor_run_started",
@@ -681,8 +742,75 @@ class AgentSupervisor:
         emitted_stage_keys = set()
         emitted_image_indices = set()  # Track yielded image events by index
         streamed_tokens = False
+        browser_stream_emitted = False  # Track if browser stream event has been emitted
         # Track tool calls by ID for matching with results
         pending_tool_calls: dict[str, dict] = {}
+
+        # Pre-create browser sandbox for computer mode to avoid race conditions
+        # For other modes, sandbox is created on-demand when browser tools are called
+        pre_created_session = None
+        should_pre_create_browser = (
+            mode == "computer" or
+            (query and any(kw in query.lower() for kw in ["browse", "website", "open browser", "navigate to", "go to http"]))
+        )
+
+        if should_pre_create_browser and user_id:
+            try:
+                from app.sandbox import get_browser_sandbox_manager
+                from app.agents import events as agent_events
+
+                manager = get_browser_sandbox_manager()
+                effective_task_id = task_id or str(uuid.uuid4())
+                session_key = manager.make_session_key(user_id, effective_task_id)
+                logger.info("pre_creating_browser_sandbox", session_key=session_key, mode=mode)
+
+                # Emit launching status
+                yield agent_events.browser_action(
+                    action="launch",
+                    description="Launching browser",
+                    target=None,
+                    status="running",
+                )
+
+                # Create sandbox and launch browser
+                pre_created_session = await manager.get_or_create_sandbox(
+                    user_id=user_id,
+                    task_id=effective_task_id,
+                    launch_browser=True,
+                )
+
+                # Use ensure_stream_ready to start stream and wait for connection
+                # This properly tracks stream state on the session
+                stream_url, auth_key = await manager.ensure_stream_ready(pre_created_session)
+                browser_stream_emitted = True
+
+                # Emit stream event so frontend can show the browser
+                yield {
+                    "type": "browser_stream",
+                    "stream_url": stream_url,
+                    "sandbox_id": pre_created_session.sandbox_id,
+                    "auth_key": auth_key,
+                    "stream_ready": pre_created_session.is_stream_ready,
+                }
+
+                # Emit browser ready
+                yield agent_events.browser_action(
+                    action="launch",
+                    description="Browser ready",
+                    target=None,
+                    status="completed",
+                )
+
+                logger.info(
+                    "browser_sandbox_pre_created",
+                    session_key=session_key,
+                    sandbox_id=pre_created_session.sandbox_id,
+                    stream_ready=pre_created_session.is_stream_ready,
+                )
+
+            except Exception as e:
+                logger.warning("browser_sandbox_pre_creation_failed", error=str(e))
+                # Continue without pre-created session - tools will create on demand
 
         try:
             # Stream events from the graph
@@ -936,6 +1064,15 @@ class AgentSupervisor:
                                             mime_type=e.get("mime_type"),
                                             index=image_index,
                                         )
+                                    # Deduplicate browser_stream events (already emitted in on_tool_start)
+                                    if e.get("type") == "browser_stream":
+                                        if browser_stream_emitted:
+                                            logger.debug(
+                                                "skipping_duplicate_browser_stream_event",
+                                                node_name=node_name,
+                                            )
+                                            continue
+                                        browser_stream_emitted = True
                                     # Log token events from image node for debugging
                                     if e.get("type") == "token" and "image" in node_name.lower():
                                         logger.info(
@@ -995,7 +1132,7 @@ class AgentSupervisor:
                     if should_stream:
                         chunk = (event.get("data") or {}).get("chunk")
                         if chunk and hasattr(chunk, "content") and chunk.content:
-                            from app.services.llm import extract_text_from_content
+                            from app.ai.llm import extract_text_from_content
                             content = extract_text_from_content(chunk.content)
                             if content:
                                 streamed_tokens = True
@@ -1032,6 +1169,32 @@ class AgentSupervisor:
                             "id": tool_call_id,
                         }
 
+                    # Emit browser_action events for browser tools
+                    # Note: Sandbox is pre-created at the start of run() to avoid race conditions
+                    # Here we just emit action events for progress display
+                    browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot", "computer_use"}
+                    from app.agents import events as agent_events
+
+                    # Emit browser_action event with description of the action about to happen
+                    if tool_name in browser_tools:
+                        action_descriptions = {
+                            "browser_navigate": ("navigate", "Navigating to URL", tool_input.get("url", "") if isinstance(tool_input, dict) else ""),
+                            "browser_click": ("click", "Clicking on element", f"({tool_input.get('x', '?')}, {tool_input.get('y', '?')})" if isinstance(tool_input, dict) else ""),
+                            "browser_type": ("type", "Typing text", tool_input.get("text", "")[:50] if isinstance(tool_input, dict) else ""),
+                            "browser_screenshot": ("screenshot", "Taking screenshot", None),
+                            "browser_scroll": ("scroll", "Scrolling page", tool_input.get("direction", "down") if isinstance(tool_input, dict) else "down"),
+                            "browser_press_key": ("key", "Pressing key", tool_input.get("key", "") if isinstance(tool_input, dict) else ""),
+                            "computer_use": ("computer", "Performing desktop action", tool_input.get("action", "") if isinstance(tool_input, dict) else ""),
+                        }
+                        if tool_name in action_descriptions:
+                            action, desc, target = action_descriptions[tool_name]
+                            yield agent_events.browser_action(
+                                action=action,
+                                description=desc,
+                                target=target,
+                                status="running",
+                            )
+
                 # Handle tool execution end - emit tool_result event
                 elif event_type == "on_tool_end":
                     run_id = event.get("run_id", "")
@@ -1058,6 +1221,25 @@ class AgentSupervisor:
                     # If no match found, use run_id as the ID
                     if not tool_call_id:
                         tool_call_id = str(run_id) if run_id else str(uuid.uuid4())
+
+                    # Emit browser_action "completed" event for browser tools
+                    browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot", "browser_scroll", "browser_press_key", "computer_use"}
+                    if tool_name in browser_tools:
+                        from app.agents import events as agent_events
+                        action_names = {
+                            "browser_navigate": "navigate",
+                            "browser_click": "click",
+                            "browser_type": "type",
+                            "browser_screenshot": "screenshot",
+                            "browser_scroll": "scroll",
+                            "browser_press_key": "key",
+                            "computer_use": "computer",
+                        }
+                        yield agent_events.browser_action(
+                            action=action_names.get(tool_name, tool_name),
+                            description=f"{tool_name.replace('browser_', '').replace('_', ' ').title()} completed",
+                            status="completed",
+                        )
 
                     # Emit tool_result event
                     content = str(output)[:500] if output else ""
@@ -1124,7 +1306,12 @@ class AgentSupervisor:
             **kwargs,
         }
 
-        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+        from app.config import settings
+
+        config = {
+            "configurable": {"thread_id": str(uuid.uuid4())},
+            "recursion_limit": settings.langgraph_recursion_limit,
+        }
 
         result = await self.graph.ainvoke(initial_state, config=config)
         return result

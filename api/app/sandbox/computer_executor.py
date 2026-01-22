@@ -10,7 +10,7 @@ from typing import Literal
 
 from app.config import settings
 from app.core.logging import get_logger
-from app.services.circuit_breaker import CircuitBreakerOpen, get_e2b_breaker
+from app.middleware.circuit_breaker import CircuitBreakerOpen, get_e2b_breaker
 
 logger = get_logger(__name__)
 
@@ -49,6 +49,7 @@ class E2BDesktopExecutor:
         self.default_browser = default_browser or settings.e2b_desktop_default_browser
         self.sandbox: DesktopSandbox | None = None
         self._browser_launched: bool = False
+        self._stream_started: bool = False
 
     async def __aenter__(self):
         """Context manager entry - creates sandbox."""
@@ -386,8 +387,16 @@ class E2BDesktopExecutor:
 
         await asyncio.to_thread(self.sandbox.wait, milliseconds)
 
+    @property
+    def stream_started(self) -> bool:
+        """Check if the stream has been started."""
+        return self._stream_started
+
     async def get_stream_url(self, require_auth: bool = True) -> tuple[str, str | None]:
         """Get the desktop stream URL.
+
+        Starts the stream if not already running. If stream is already running,
+        just retrieves the URL without error.
 
         Args:
             require_auth: Whether to require authentication for the stream
@@ -401,11 +410,24 @@ class E2BDesktopExecutor:
         if not self.sandbox:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
-        # Start stream
-        await asyncio.to_thread(
-            self.sandbox.stream.start,
-            require_auth=require_auth,
-        )
+        # Only start stream if not already started
+        if not self._stream_started:
+            try:
+                await asyncio.to_thread(
+                    self.sandbox.stream.start,
+                    require_auth=require_auth,
+                )
+                self._stream_started = True
+                logger.info("stream_started", require_auth=require_auth)
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "already running" in error_msg or "already started" in error_msg:
+                    # Stream was started externally, mark as started
+                    self._stream_started = True
+                    logger.debug("stream_already_running", message=str(e))
+                else:
+                    # Re-raise unexpected errors
+                    raise
 
         auth_key = None
         if require_auth:
@@ -542,19 +564,39 @@ except Exception as e:
             return f"Error extracting content: {str(e)}"
 
     async def cleanup(self) -> None:
-        """Clean up sandbox resources."""
+        """Clean up sandbox resources.
+
+        Explicitly stops the stream before killing the sandbox to ensure
+        proper resource cleanup.
+        """
         if self.sandbox:
+            sandbox_id = self.sandbox.sandbox_id
             try:
+                # Stop the stream first (if started)
+                try:
+                    await asyncio.to_thread(self.sandbox.stream.stop)
+                    logger.debug("desktop_stream_stopped", sandbox_id=sandbox_id)
+                except Exception as e:
+                    # Stream may not have been started, ignore errors
+                    logger.debug(
+                        "desktop_stream_stop_skipped",
+                        sandbox_id=sandbox_id,
+                        reason=str(e),
+                    )
+
+                # Now kill the sandbox
                 await asyncio.to_thread(self.sandbox.kill)
-                logger.info(
-                    "desktop_sandbox_cleaned_up",
-                    sandbox_id=self.sandbox.sandbox_id,
-                )
+                logger.info("desktop_sandbox_cleaned_up", sandbox_id=sandbox_id)
             except Exception as e:
-                logger.warning("desktop_sandbox_cleanup_failed", error=str(e))
+                logger.warning(
+                    "desktop_sandbox_cleanup_failed",
+                    sandbox_id=sandbox_id,
+                    error=str(e),
+                )
             finally:
                 self.sandbox = None
                 self._browser_launched = False
+                self._stream_started = False
 
 
 def get_screenshot_as_base64(screenshot_bytes: bytes) -> dict:

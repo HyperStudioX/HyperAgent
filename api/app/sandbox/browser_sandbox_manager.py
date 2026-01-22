@@ -9,13 +9,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.config import settings
 from app.core.logging import get_logger
-from app.services.computer_executor import E2BDesktopExecutor
+from app.sandbox.computer_executor import E2B_DESKTOP_AVAILABLE, E2BDesktopExecutor
 
 logger = get_logger(__name__)
 
-# Default session timeout (15 minutes - longer for browser startup)
-DEFAULT_BROWSER_SESSION_TIMEOUT = timedelta(minutes=15)
+
+def get_default_browser_session_timeout() -> timedelta:
+    """Get default browser session timeout from settings."""
+    return timedelta(minutes=settings.e2b_desktop_session_timeout_minutes)
 
 # Cleanup interval for expired sessions (60 seconds)
 CLEANUP_INTERVAL_SECONDS = 60
@@ -29,7 +32,12 @@ class BrowserSandboxSession:
     session_key: str
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_accessed: datetime = field(default_factory=datetime.utcnow)
-    timeout: timedelta = field(default=DEFAULT_BROWSER_SESSION_TIMEOUT)
+    timeout: timedelta = field(default_factory=get_default_browser_session_timeout)
+    # Stream state tracking
+    _stream_url: str | None = field(default=None, repr=False)
+    _stream_auth_key: str | None = field(default=None, repr=False)
+    _stream_started: bool = field(default=False, repr=False)
+    _stream_ready: bool = field(default=False, repr=False)
 
     @property
     def sandbox_id(self) -> str | None:
@@ -42,6 +50,26 @@ class BrowserSandboxSession:
         return self.executor.browser_launched
 
     @property
+    def stream_url(self) -> str | None:
+        """Get the stream URL if available."""
+        return self._stream_url
+
+    @property
+    def stream_auth_key(self) -> str | None:
+        """Get the stream auth key if available."""
+        return self._stream_auth_key
+
+    @property
+    def is_stream_started(self) -> bool:
+        """Check if the stream has been started."""
+        return self._stream_started
+
+    @property
+    def is_stream_ready(self) -> bool:
+        """Check if the stream is ready for viewing."""
+        return self._stream_ready
+
+    @property
     def is_expired(self) -> bool:
         """Check if the session has expired."""
         return datetime.utcnow() > (self.last_accessed + self.timeout)
@@ -49,6 +77,21 @@ class BrowserSandboxSession:
     def touch(self) -> None:
         """Update last accessed time to prevent expiry."""
         self.last_accessed = datetime.utcnow()
+
+    def set_stream_info(self, stream_url: str, auth_key: str | None) -> None:
+        """Set the stream information after starting.
+
+        Args:
+            stream_url: The URL to view the stream
+            auth_key: Optional authentication key
+        """
+        self._stream_url = stream_url
+        self._stream_auth_key = auth_key
+        self._stream_started = True
+
+    def mark_stream_ready(self) -> None:
+        """Mark the stream as ready for viewing."""
+        self._stream_ready = True
 
 
 class BrowserSandboxManager:
@@ -67,6 +110,11 @@ class BrowserSandboxManager:
         self._sessions: dict[str, BrowserSandboxSession] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._session_lock = asyncio.Lock()
+        # Metrics counters
+        self._total_created: int = 0
+        self._total_cleaned: int = 0
+        self._total_reused: int = 0
+        self._health_check_failures: int = 0
 
     @classmethod
     def get_instance(cls) -> "BrowserSandboxManager":
@@ -109,16 +157,32 @@ class BrowserSandboxManager:
 
         Returns:
             BrowserSandboxSession with active executor
+
+        Raises:
+            ValueError: If E2B Desktop not available or API key not configured
         """
+        # Validate prerequisites at manager level (fail fast)
+        if not E2B_DESKTOP_AVAILABLE:
+            raise ValueError(
+                "E2B Desktop not available. Install with: pip install e2b-desktop"
+            )
+
+        if not settings.e2b_api_key:
+            raise ValueError(
+                "E2B API key not configured. Set E2B_API_KEY environment variable."
+            )
+
         session_key = self.make_session_key(user_id, task_id)
-        session_timeout = timeout or DEFAULT_BROWSER_SESSION_TIMEOUT
+        session_timeout = timeout or get_default_browser_session_timeout()
 
         async with self._session_lock:
             # Check for existing valid session
             if session_key in self._sessions:
                 session = self._sessions[session_key]
-                if not session.is_expired and session.executor.sandbox:
+                # Perform health check: not expired and sandbox still alive
+                if not session.is_expired and await self._is_sandbox_healthy(session):
                     session.touch()
+                    self._total_reused += 1
                     logger.info(
                         "browser_sandbox_session_reused",
                         session_key=session_key,
@@ -127,7 +191,7 @@ class BrowserSandboxManager:
                     )
                     return session
                 else:
-                    # Clean up expired session
+                    # Clean up unhealthy or expired session
                     await self._cleanup_session_internal(session_key)
 
             # Create new session
@@ -144,6 +208,7 @@ class BrowserSandboxManager:
                 timeout=session_timeout,
             )
             self._sessions[session_key] = session
+            self._total_created += 1
 
             logger.info(
                 "browser_sandbox_session_created",
@@ -175,10 +240,103 @@ class BrowserSandboxManager:
 
         async with self._session_lock:
             session = self._sessions.get(session_key)
-            if session and not session.is_expired and session.executor.sandbox:
+            if session and not session.is_expired and await self._is_sandbox_healthy(session):
                 session.touch()
                 return session
             return None
+
+    async def ensure_stream_ready(
+        self,
+        session: BrowserSandboxSession,
+        wait_ms: int | None = None,
+    ) -> tuple[str, str | None]:
+        """Ensure the browser stream is started and ready for viewing.
+
+        This method should be called before performing any browser actions to ensure
+        the user can see the actions in the live stream. It:
+        1. Starts the stream if not already started
+        2. Waits for the configured time to allow frontend to connect
+        3. Marks the session as stream-ready
+
+        Args:
+            session: The browser session
+            wait_ms: Optional wait time in ms (defaults to settings.e2b_desktop_stream_ready_wait_ms)
+
+        Returns:
+            Tuple of (stream_url, auth_key)
+        """
+        # If stream is already ready, just return the existing info
+        if session.is_stream_ready and session.stream_url:
+            logger.debug(
+                "stream_already_ready",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+            )
+            return session.stream_url, session.stream_auth_key
+
+        # Start stream if not started
+        if not session.is_stream_started:
+            logger.info(
+                "starting_browser_stream",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+            )
+            stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
+            session.set_stream_info(stream_url, auth_key)
+            logger.info(
+                "browser_stream_started",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+            )
+
+        # Wait for stream to be ready (allow frontend to connect)
+        stream_wait = wait_ms or settings.e2b_desktop_stream_ready_wait_ms
+        logger.info(
+            "waiting_for_stream_ready",
+            session_key=session.session_key,
+            sandbox_id=session.sandbox_id,
+            wait_ms=stream_wait,
+        )
+        await session.executor.wait(stream_wait)
+
+        # Mark as ready
+        session.mark_stream_ready()
+        logger.info(
+            "browser_stream_ready",
+            session_key=session.session_key,
+            sandbox_id=session.sandbox_id,
+        )
+
+        return session.stream_url, session.stream_auth_key
+
+    async def _is_sandbox_healthy(self, session: BrowserSandboxSession) -> bool:
+        """Check if a sandbox session is still healthy and responsive.
+
+        Args:
+            session: The session to check
+
+        Returns:
+            True if sandbox is healthy, False otherwise
+        """
+        if not session.executor.sandbox:
+            return False
+
+        try:
+            # Perform a lightweight health check by running a simple command
+            stdout, stderr, exit_code = await session.executor.run_command(
+                "echo 'health_check'",
+                timeout_ms=5000,  # 5 second timeout for health check
+            )
+            return exit_code == 0 and "health_check" in stdout
+        except Exception as e:
+            self._health_check_failures += 1
+            logger.warning(
+                "browser_sandbox_health_check_failed",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+                error=str(e),
+            )
+            return False
 
     async def cleanup_session(
         self,
@@ -212,6 +370,7 @@ class BrowserSandboxManager:
         if session:
             try:
                 await session.executor.cleanup()
+                self._total_cleaned += 1
                 logger.info(
                     "browser_sandbox_session_cleaned",
                     session_key=session_key,
@@ -290,6 +449,27 @@ class BrowserSandboxManager:
         """Get the number of active sessions."""
         return len(self._sessions)
 
+    def get_metrics(self) -> dict[str, Any]:
+        """Get sandbox manager metrics.
+
+        Returns:
+            Dict with metrics including:
+                - active_sessions: Current number of active sessions
+                - total_created: Total sessions created since startup
+                - total_cleaned: Total sessions cleaned up since startup
+                - total_reused: Total session reuses since startup
+                - health_check_failures: Total health check failures
+                - e2b_desktop_available: Whether E2B Desktop SDK is available
+        """
+        return {
+            "active_sessions": len(self._sessions),
+            "total_created": self._total_created,
+            "total_cleaned": self._total_cleaned,
+            "total_reused": self._total_reused,
+            "health_check_failures": self._health_check_failures,
+            "e2b_desktop_available": E2B_DESKTOP_AVAILABLE,
+        }
+
     def get_session_info(self) -> list[dict[str, Any]]:
         """Get information about all active sessions for debugging.
 
@@ -301,6 +481,8 @@ class BrowserSandboxManager:
                 "session_key": session.session_key,
                 "sandbox_id": session.sandbox_id,
                 "browser_launched": session.browser_launched,
+                "stream_started": session.is_stream_started,
+                "stream_ready": session.is_stream_ready,
                 "created_at": session.created_at.isoformat(),
                 "last_accessed": session.last_accessed.isoformat(),
                 "is_expired": session.is_expired,
