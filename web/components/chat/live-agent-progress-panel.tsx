@@ -491,7 +491,7 @@ export function LiveAgentProgressPanel({
 
     return (
         <div className={cn(
-            "mb-4 rounded-xl border border-border/60 bg-card/50 overflow-hidden max-w-md",
+            "mb-4 rounded-xl border-2 border-border/80 bg-card/50 overflow-hidden max-w-md",
             className
         )}>
             {/* Header */}

@@ -281,7 +281,7 @@ export function AgentProgressPanel({ events, className }: AgentProgressPanelProp
     const summaryText = summaryParts.join(" · ") || t("completedStages", { count: 0 });
 
     return (
-        <div className={cn("mt-4 rounded-xl border border-border/60 bg-card/50 overflow-hidden max-w-md", className)}>
+        <div className={cn("mt-4 rounded-xl border-2 border-border/80 bg-card/50 overflow-hidden max-w-md", className)}>
             {/* Header button */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
