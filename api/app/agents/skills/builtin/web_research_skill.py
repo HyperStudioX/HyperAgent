@@ -18,7 +18,7 @@ class WebResearchSkill(Skill):
     metadata = SkillMetadata(
         id="web_research",
         name="Web Research",
-        version="1.0.0",
+        version="2.0.0",
         description="Performs focused web research on a topic and provides summarized findings with sources",
         category="research",
         parameters=[
@@ -67,6 +67,13 @@ class WebResearchSkill(Skill):
     def create_graph(self) -> StateGraph:
         """Create the LangGraph subgraph for web research."""
         graph = StateGraph(SkillState)
+        
+        from pydantic import BaseModel, Field
+
+        class ResearchSummaryResponse(BaseModel):
+            """Structured response for research summary."""
+            summary: str = Field(description="Comprehensive summary of the research findings based on sources")
+            key_findings: list[str] = Field(description="List of 3-5 key insights or findings as bullet points")
 
         async def search_node(state: SkillState) -> dict:
             """Search for information on the topic."""
@@ -148,50 +155,25 @@ Sources:
 
 Based on the above sources, provide:
 1. A comprehensive summary of the findings
-2. 3-5 key insights or findings as bullet points
-
-Format your response as:
-
-SUMMARY:
-[Your summary here]
-
-KEY FINDINGS:
-- Finding 1
-- Finding 2
-- Finding 3
-"""
+2. 3-5 key insights or findings"""
 
                 # Get LLM for summarization
                 llm = llm_service.get_llm_for_tier(ModelTier.PRO)
-
+                
+                # Use structured output
+                structured_llm = llm.with_structured_output(ResearchSummaryResponse)
+                
                 # Generate summary
-                response = await llm.ainvoke(prompt)
-                content = response.content
-
-                # Parse response
-                summary = ""
-                key_findings = []
-
-                if "SUMMARY:" in content and "KEY FINDINGS:" in content:
-                    parts = content.split("KEY FINDINGS:")
-                    summary = parts[0].replace("SUMMARY:", "").strip()
-                    findings_text = parts[1].strip()
-                    key_findings = [
-                        f.strip().lstrip("- ").lstrip("• ")
-                        for f in findings_text.split("\n")
-                        if f.strip() and f.strip().startswith(("-", "•", "*"))
-                    ]
-                else:
-                    summary = content.strip()
+                result: ResearchSummaryResponse = await structured_llm.ainvoke(prompt)
 
                 return {
                     "output": {
-                        "summary": summary,
+                        "summary": result.summary,
                         "sources": [
                             {"title": s["title"], "url": s["url"], "snippet": s.get("snippet", "")}
                             for s in sources
                         ],
-                        "key_findings": key_findings,
+                        "key_findings": result.key_findings,
                     },
                     "iterations": state["iterations"] + 1,
                 }

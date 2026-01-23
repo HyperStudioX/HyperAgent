@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, memo } from "react";
+import React, { useState, memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -154,10 +156,38 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
     const t = useTranslations("chat");
+    
+    // Check if progress panel will actually render (has events that create stage groups)
+    // The panel returns null if stageGroups.length === 0, so we need to check if events will create groups
+    const willProgressPanelRender = useMemo(() => {
+        if (!streamingEvents || streamingEvents.length === 0) return false;
+        
+        // Check if we have events that will create stage groups
+        // Stage events create groups (unless hidden)
+        // Tool_call events create groups (implicit "processing" if no current group)
+        // Browser_action events create groups
+        const HIDDEN_STAGES = new Set(["thinking", "routing"]);
+        
+        for (const event of streamingEvents) {
+            if (event.type === "stage") {
+                const stageName = event.name;
+                if (stageName && !HIDDEN_STAGES.has(stageName)) {
+                    return true; // This will create a stage group
+                }
+            } else if (event.type === "tool_call") {
+                return true; // Tool calls create groups (implicit processing if no current group)
+            } else if ((event as any).type === "browser_action") {
+                return true; // Browser actions create groups
+            }
+        }
+        
+        return false;
+    }, [streamingEvents]);
     // Strip image placeholders from content - we render images separately now
     const normalizedContent = message.content
         .replace(/!\[generated-image:\d+\]\(placeholder\)/g, "") // Remove full placeholders
         .replace(/!\[generated-image:\d+\]/g, ""); // Remove placeholders without url
+    const hasVisibleContent = normalizedContent.trim().length > 0;
     const parsedMetadata: ParsedMetadata | undefined = (() => {
         if (!message.metadata || typeof message.metadata !== "string") {
             return message.metadata as ParsedMetadata | undefined;
@@ -239,7 +269,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                     </div>
                 </div>
             ) : (
-                <div className="max-w-full animate-in slide-in-from-left-2 fade-in duration-300">
+                <div className="w-full max-w-[95%] md:max-w-[80%] animate-in slide-in-from-left-2 fade-in duration-300">
                     {/* Assistant header with icon and name */}
                     <div className="flex items-center gap-2.5 mb-4">
                         <div className="w-6 h-6 flex items-center justify-center">
@@ -263,13 +293,14 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                         <span className="text-[15px] font-bold text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                     </div>
 
-                    {/* Show typing indicator when no content yet */}
-                    {!message.content && isStreaming && (
+                    {/* Show typing indicator at the very beginning when streaming starts */}
+                    {/* It will be replaced by progress panel once it actually renders */}
+                    {isStreaming && !hasVisibleContent && !willProgressPanelRender && (
                         <TypingIndicator />
                     )}
 
-                    {/* Show live agent progress inline during streaming */}
-                    {isStreaming && streamingEvents && streamingEvents.length > 0 && (
+                    {/* Show live agent progress inline during streaming - replaces typing indicator */}
+                    {isStreaming && willProgressPanelRender && (
                         <LiveAgentProgressPanel
                             events={streamingEvents}
                             sources={streamingSources}
@@ -285,14 +316,21 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                             "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
                         )}
                     >
-                        <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                                p: ({ children }) => (
-                                    <p className="mb-4 last:mb-0 text-base leading-relaxed text-foreground/90">
-                                        {children}
-                                    </p>
-                                ),
+                        {normalizedContent && (
+                            isStreaming ? (
+                                <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/90">
+                                    {normalizedContent}
+                                </div>
+                            ) : (
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm, remarkMath]}
+                                    rehypePlugins={[rehypeKatex]}
+                                    components={{
+                                    p: ({ children }) => (
+                                        <p className="mb-4 last:mb-0 text-base leading-relaxed text-foreground/90">
+                                            {children}
+                                        </p>
+                                    ),
                                 ul: ({ children }) => (
                                     <ul className="my-4 ml-1 space-y-2 list-none">
                                         {React.Children.map(children, (child) =>
@@ -442,9 +480,11 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                     </td>
                                 ),
                             }}
-                        >
-                            {normalizedContent}
-                        </ReactMarkdown>
+                                >
+                                    {normalizedContent}
+                                </ReactMarkdown>
+                            )
+                    )}
                         {/* Show streaming cursor at the end of content */}
                         {isStreaming && message.content && <StreamingCursor />}
                     </div>
@@ -549,6 +589,21 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
 
             {/* File preview is now handled by the layout level via usePreviewStore */}
         </div>
+    );
+}, (prevProps, nextProps) => {
+    // During streaming, always re-render to show updates
+    if (nextProps.isStreaming || prevProps.isStreaming) {
+        return false; // Re-render
+    }
+    // For non-streaming messages, use default shallow comparison
+    return (
+        prevProps.message.id === nextProps.message.id &&
+        prevProps.message.content === nextProps.message.content &&
+        prevProps.message.role === nextProps.message.role &&
+        prevProps.isStreaming === nextProps.isStreaming &&
+        prevProps.images === nextProps.images &&
+        prevProps.streamingEvents === nextProps.streamingEvents &&
+        prevProps.streamingSources === nextProps.streamingSources
     );
 });
 

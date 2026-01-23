@@ -231,6 +231,41 @@ async def route_query(state: SupervisorState) -> dict:
         Dict with selected_agent and routing_reason
     """
     query = state.get("query", "")
+
+    # Honor explicit mode if provided and valid
+    explicit_mode = state.get("mode")
+    if explicit_mode:
+        # Normalize mode string
+        mode_lower = explicit_mode.lower().strip()
+
+        # Map deprecated modes to chat
+        if mode_lower in {"code", "writing", "image"}:
+            mode_lower = "chat"
+
+        # Check if it's a valid agent type
+        valid_modes = {"chat", "research", "data"}
+        if mode_lower in valid_modes:
+            agent_type = AGENT_NAME_MAP.get(mode_lower, AgentType.CHAT)
+            logger.info(
+                "routing_explicit_mode",
+                query=query[:50],
+                mode=mode_lower,
+            )
+            return {
+                "selected_agent": agent_type.value,
+                "routing_reason": f"Explicit mode: {explicit_mode}",
+                "routing_confidence": 1.0,
+                "events": [
+                    {
+                        "type": "routing",
+                        "agent": agent_type.value,
+                        "reason": f"User specified mode: {explicit_mode}",
+                        "confidence": 1.0,
+                    }
+                ],
+            }
+
+    # Use LLM-based routing
     provider = state.get("provider")
     llm = llm_service.get_llm_for_tier(ModelTier.FLASH, provider=provider)
 

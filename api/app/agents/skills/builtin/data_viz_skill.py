@@ -17,7 +17,7 @@ class DataVisualizationSkill(Skill):
     metadata = SkillMetadata(
         id="data_visualization",
         name="Data Visualization",
-        version="1.0.0",
+        version="2.0.0",
         description="Generates Python code for creating charts and visualizations from data using matplotlib",
         category="data",
         parameters=[
@@ -67,6 +67,14 @@ class DataVisualizationSkill(Skill):
     def create_graph(self) -> StateGraph:
         """Create the LangGraph subgraph for data visualization."""
         graph = StateGraph(SkillState)
+        
+        from pydantic import BaseModel, Field
+
+        class DataVizResponse(BaseModel):
+            """Structured data visualization response."""
+            chart_type: str = Field(description="The chart type chosen (e.g., bar, line, scatter)")
+            code: str = Field(description="Complete Python code to generate the chart using matplotlib")
+            explanation: str = Field(description="Brief explanation of why this chart type was chosen and what it shows")
 
         async def generate_viz_code_node(state: SkillState) -> dict:
             """Generate visualization code."""
@@ -97,81 +105,35 @@ Requirements:
 3. Create a clear, well-labeled chart
 4. Use appropriate colors and styling
 5. Save the figure to 'visualization.png'
-6. If chart_type is 'auto', choose the most appropriate visualization
-
-Provide your response in the following format:
-
-CHART_TYPE: [The chart type you chose: bar/line/scatter/pie/histogram/etc]
-
-CODE:
-```python
-# Your Python code here
-```
-
-EXPLANATION:
-Brief explanation of why this visualization approach was chosen and what it shows.
-"""
+6. If chart_type is 'auto', choose the most appropriate visualization"""
 
                 # Get LLM for code generation
                 llm = llm_service.get_llm_for_tier(ModelTier.PRO)
-
+                
+                # Use structured output
+                structured_llm = llm.with_structured_output(DataVizResponse)
+                
                 # Generate code
-                response = await llm.ainvoke(prompt)
-                content = response.content
+                result: DataVizResponse = await structured_llm.ainvoke(prompt)
 
-                # Parse response
-                code = ""
-                chart_type_result = chart_type
-                explanation = ""
-
-                # Extract chart type
-                if "CHART_TYPE:" in content:
-                    try:
-                        chart_line = [l for l in content.split("\n") if "CHART_TYPE:" in l][0]
-                        chart_type_result = chart_line.split("CHART_TYPE:")[1].strip()
-                    except (IndexError, ValueError):
-                        pass
-
-                # Extract code block
-                if "```python" in content:
-                    try:
-                        code_start = content.index("```python") + 9
-                        code_end = content.index("```", code_start)
-                        code = content[code_start:code_end].strip()
-                    except (ValueError, IndexError):
-                        # Try generic code block
-                        if "```" in content:
-                            try:
-                                code_blocks = content.split("```")
-                                if len(code_blocks) >= 3:
-                                    code = code_blocks[1].strip()
-                                    if code.startswith("python"):
-                                        code = code[6:].strip()
-                            except (ValueError, IndexError):
-                                pass
-
-                # Extract explanation
-                if "EXPLANATION:" in content:
-                    try:
-                        explanation = content.split("EXPLANATION:")[1].strip()
-                    except (IndexError, ValueError):
-                        pass
-
-                if not code:
-                    # Fallback: try to extract any code block
-                    code = content.strip()
+                # Clean up code block markers if LLM still includes them despite structured output request
+                code = result.code
+                if "```python" in code:
+                    code = code.split("```python")[1].split("```")[0].strip()
+                elif "```" in code:
+                    code = code.split("```")[1].strip()
 
                 logger.info(
                     "data_viz_skill_completed",
-                    chart_type=chart_type_result,
+                    chart_type=result.chart_type,
                     code_length=len(code),
                 )
 
                 return {
                     "output": {
                         "code": code,
-                        "chart_type": chart_type_result,
-                        "explanation": explanation,
+                        "chart_type": result.chart_type,
+                        "explanation": result.explanation,
                     },
                     "iterations": state["iterations"] + 1,
                 }

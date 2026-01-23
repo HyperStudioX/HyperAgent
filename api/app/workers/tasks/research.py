@@ -7,6 +7,7 @@ from typing import Any
 from redis.asyncio import Redis
 
 from app.agents import agent_supervisor
+from app.config import settings
 from app.core.logging import get_logger
 from app.db.base import async_session_maker
 from app.models.schemas import ResearchDepth, ResearchScenario
@@ -14,6 +15,9 @@ from app.repository import deep_research_repository
 from app.workers.progress import ProgressReporter
 
 logger = get_logger(__name__)
+
+# Configuration constants
+TOKEN_BATCH_SIZE = 10  # Number of tokens to batch before emitting
 
 # Progress percentages for each step
 STEP_PROGRESS = {
@@ -123,136 +127,137 @@ async def run_research_task(
             step_ids: dict[str, str] = {}
             token_buffer: list[str] = []
 
-            # Run the research agent via supervisor
-            async for event in agent_supervisor.run(
-                query=query,
-                mode="research",
-                depth=ResearchDepth(depth),
-                scenario=ResearchScenario(scenario),
-                locale=locale,
-            ):
-                # Handle stage events (supervisor uses "stage", not "step")
-                if event["type"] == "stage":
-                    step_type = event.get("name", "")
-                    status = event.get("status", "running")
+            # Run the research agent via supervisor with timeout protection
+            async with asyncio.timeout(settings.research_task_timeout):
+                async for event in agent_supervisor.run(
+                    query=query,
+                    mode="research",
+                    depth=ResearchDepth(depth),
+                    scenario=ResearchScenario(scenario),
+                    locale=locale,
+                ):
+                    # Handle stage events (supervisor uses "stage", not "step")
+                    if event["type"] == "stage":
+                        step_type = event.get("name", "")
+                        status = event.get("status", "running")
 
-                    description = event.get("description", step_type)
+                        description = event.get("description", step_type)
 
-                    try:
-                        if status == "running":
-                            # Create new step in database
-                            step_id = str(uuid.uuid4())
-                            await deep_research_repository.add_step(
-                                db=db,
-                                task_id=task_id,
-                                step_id=step_id,
-                                step_type=step_type,
-                                description=description,
-                                status="running",
-                            )
-                            step_ids[step_type] = step_id
-
-                            # Emit progress event
-                            await progress.emit_step(
-                                step_type=step_type,
-                                description=description,
-                                status="running",
-                                step_id=step_id,
-                            )
-                        else:
-                            # Update existing step status
-                            if step_type in step_ids:
-                                await deep_research_repository.update_step_status(
-                                    db, step_ids[step_type], status
+                        try:
+                            if status == "running":
+                                # Create new step in database
+                                step_id = str(uuid.uuid4())
+                                await deep_research_repository.add_step(
+                                    db=db,
+                                    task_id=task_id,
+                                    step_id=step_id,
+                                    step_type=step_type,
+                                    description=description,
+                                    status="running",
                                 )
+                                step_ids[step_type] = step_id
+
+                                # Emit progress event
                                 await progress.emit_step(
                                     step_type=step_type,
                                     description=description,
-                                    status=status,
-                                    step_id=step_ids[step_type],
+                                    status="running",
+                                    step_id=step_id,
                                 )
+                            else:
+                                # Update existing step status
+                                if step_type in step_ids:
+                                    await deep_research_repository.update_step_status(
+                                        db, step_ids[step_type], status
+                                    )
+                                    await progress.emit_step(
+                                        step_type=step_type,
+                                        description=description,
+                                        status=status,
+                                        step_id=step_ids[step_type],
+                                    )
 
-                        # Update progress percentage based on step
-                        if step_type in STEP_PROGRESS:
-                            await deep_research_repository.update_task_progress(
-                                db, task_id, STEP_PROGRESS[step_type]
+                            # Update progress percentage based on step
+                            if step_type in STEP_PROGRESS:
+                                await deep_research_repository.update_task_progress(
+                                    db, task_id, STEP_PROGRESS[step_type]
+                                )
+                                await progress.emit_progress(STEP_PROGRESS[step_type], step_type)
+
+                            await db.commit()
+                        except Exception as step_error:
+                            # Handle FK violation or other DB errors gracefully
+                            logger.error(
+                                "step_insert_failed",
+                                task_id=task_id,
+                                step_type=step_type,
+                                error=str(step_error),
                             )
-                            await progress.emit_progress(STEP_PROGRESS[step_type], step_type)
+                            await db.rollback()
+                            # Continue processing - emit progress even if DB insert fails
+                            await progress.emit_step(
+                                step_type=step_type,
+                                description=description,
+                                status=status,
+                                step_id=step_ids.get(step_type, str(uuid.uuid4())),
+                            )
 
-                        await db.commit()
-                    except Exception as step_error:
-                        # Handle FK violation or other DB errors gracefully
-                        logger.error(
-                            "step_insert_failed",
-                            task_id=task_id,
-                            step_type=step_type,
-                            error=str(step_error),
-                        )
-                        await db.rollback()
-                        # Continue processing - emit progress even if DB insert fails
-                        await progress.emit_step(
-                            step_type=step_type,
-                            description=description,
-                            status=status,
-                            step_id=step_ids.get(step_type, str(uuid.uuid4())),
-                        )
+                    elif event["type"] == "source":
+                        # Create source in database
+                        source_id = str(uuid.uuid4())
+                        try:
+                            await deep_research_repository.add_source(
+                                db=db,
+                                task_id=task_id,
+                                source_id=source_id,
+                                title=event["title"],
+                                url=event["url"],
+                                snippet=event.get("snippet"),
+                                relevance_score=event.get("relevance_score"),
+                            )
+                            await db.commit()
+                        except Exception as source_error:
+                            # Handle FK violation or other DB errors gracefully
+                            logger.error(
+                                "source_insert_failed",
+                                task_id=task_id,
+                                source_id=source_id,
+                                error=str(source_error),
+                            )
+                            await db.rollback()
 
-                elif event["type"] == "source":
-                    # Create source in database
-                    source_id = str(uuid.uuid4())
-                    try:
-                        await deep_research_repository.add_source(
-                            db=db,
-                            task_id=task_id,
+                        # Emit source event regardless of DB success
+                        await progress.emit_source(
                             source_id=source_id,
                             title=event["title"],
                             url=event["url"],
                             snippet=event.get("snippet"),
-                            relevance_score=event.get("relevance_score"),
                         )
-                        await db.commit()
-                    except Exception as source_error:
-                        # Handle FK violation or other DB errors gracefully
-                        logger.error(
-                            "source_insert_failed",
-                            task_id=task_id,
-                            source_id=source_id,
-                            error=str(source_error),
+
+                    elif event["type"] == "tool_call":
+                        # Forward tool call events to frontend
+                        await progress.emit_tool_call(
+                            tool=event.get("tool", ""),
+                            args=event.get("args", {}),
+                            tool_id=event.get("id"),
                         )
-                        await db.rollback()
 
-                    # Emit source event regardless of DB success
-                    await progress.emit_source(
-                        source_id=source_id,
-                        title=event["title"],
-                        url=event["url"],
-                        snippet=event.get("snippet"),
-                    )
+                    elif event["type"] == "tool_result":
+                        # Forward tool result events to frontend
+                        await progress.emit_tool_result(
+                            tool=event.get("tool", ""),
+                            output=str(event.get("content", "")),
+                            tool_id=event.get("id"),
+                        )
 
-                elif event["type"] == "tool_call":
-                    # Forward tool call events to frontend
-                    await progress.emit_tool_call(
-                        tool=event.get("tool", ""),
-                        args=event.get("args", {}),
-                        tool_id=event.get("id"),
-                    )
+                    elif event["type"] == "token":
+                        report_content.append(event["content"])
+                        token_buffer.append(event["content"])
 
-                elif event["type"] == "tool_result":
-                    # Forward tool result events to frontend
-                    await progress.emit_tool_result(
-                        tool=event.get("tool", ""),
-                        output=str(event.get("content", "")),
-                        tool_id=event.get("id"),
-                    )
-
-                elif event["type"] == "token":
-                    report_content.append(event["content"])
-                    token_buffer.append(event["content"])
-
-                    # Batch token updates to reduce Redis calls (every 10 tokens)
-                    if len(token_buffer) >= 10:
-                        await progress.emit_token_batch("".join(token_buffer))
-                        token_buffer.clear()
+                        # Batch token updates to reduce Redis calls
+                        if len(token_buffer) >= TOKEN_BATCH_SIZE:
+                            await progress.emit_token_batch("".join(token_buffer))
+                            token_buffer.clear()
 
             # Flush remaining tokens
             if token_buffer:
@@ -279,6 +284,25 @@ async def run_research_task(
                 "status": "completed",
                 "report_length": len(full_report),
             }
+
+        except asyncio.TimeoutError:
+            timeout_minutes = settings.research_task_timeout // 60
+            error_msg = f"Research task timed out after {timeout_minutes} minutes"
+            logger.error(
+                "research_task_timeout",
+                task_id=task_id,
+                job_id=job_id,
+                timeout_seconds=settings.research_task_timeout,
+            )
+
+            await deep_research_repository.update_task_status(
+                db, task_id, "failed", error=error_msg
+            )
+            await db.commit()
+
+            await progress.emit_error(error_msg)
+
+            raise
 
         except Exception as e:
             logger.error(

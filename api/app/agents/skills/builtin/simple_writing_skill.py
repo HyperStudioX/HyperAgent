@@ -17,7 +17,7 @@ class SimpleWritingSkill(Skill):
     metadata = SkillMetadata(
         id="simple_writing",
         name="Simple Writing",
-        version="1.0.0",
+        version="2.0.0",
         description="Creates written content including documents, emails, articles, summaries, and more with specified tone and style",
         category="creative",
         parameters=[
@@ -81,6 +81,13 @@ class SimpleWritingSkill(Skill):
     def create_graph(self) -> StateGraph:
         """Create the LangGraph subgraph for writing."""
         graph = StateGraph(SkillState)
+        
+        from pydantic import BaseModel, Field
+
+        class WritingResponse(BaseModel):
+            """Structured writing response."""
+            title: str = Field(description="A suitable title or subject line for the content")
+            content: str = Field(description="The main generated content, well-structured and formatted")
 
         async def write_node(state: SkillState) -> dict:
             """Generate written content."""
@@ -120,42 +127,19 @@ Length: {length_desc}{context_section}
 Please provide:
 1. A suitable title or subject line
 2. Well-structured content that fulfills the task
-3. Proper formatting with paragraphs and sections as needed
-
-Format your response as:
-
-TITLE:
-[Your title/subject line here]
-
-CONTENT:
-[Your written content here]
-"""
+3. Proper formatting with paragraphs and sections as needed"""
 
                 # Get LLM for writing
                 llm = llm_service.get_llm_for_tier(ModelTier.PRO)
-
+                
+                # Use structured output
+                structured_llm = llm.with_structured_output(WritingResponse)
+                
                 # Generate content
-                response = await llm.ainvoke(prompt)
-                content_text = response.content
-
-                # Parse response
-                title = ""
-                content = content_text
-
-                if "TITLE:" in content_text and "CONTENT:" in content_text:
-                    parts = content_text.split("CONTENT:", 1)
-                    title_part = parts[0].replace("TITLE:", "").strip()
-                    content = parts[1].strip()
-                    title = title_part
-                else:
-                    # Try to extract first line as title
-                    lines = content_text.split("\n", 1)
-                    if len(lines) > 1:
-                        title = lines[0].strip().lstrip("#").strip()
-                        content = lines[1].strip()
+                result: WritingResponse = await structured_llm.ainvoke(prompt)
 
                 # Count words
-                word_count = len(content.split())
+                word_count = len(result.content.split())
 
                 logger.info(
                     "simple_writing_skill_completed",
@@ -165,8 +149,8 @@ CONTENT:
 
                 return {
                     "output": {
-                        "content": content,
-                        "title": title,
+                        "content": result.content,
+                        "title": result.title,
                         "word_count": word_count,
                     },
                     "iterations": state["iterations"] + 1,

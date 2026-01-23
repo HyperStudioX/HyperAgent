@@ -17,7 +17,7 @@ class CodeGenerationSkill(Skill):
     metadata = SkillMetadata(
         id="code_generation",
         name="Code Generation",
-        version="1.0.0",
+        version="2.0.0",
         description="Generates well-structured code snippets, functions, classes, or small programs in any programming language",
         category="code",
         parameters=[
@@ -86,6 +86,15 @@ class CodeGenerationSkill(Skill):
         """Create the LangGraph subgraph for code generation."""
         graph = StateGraph(SkillState)
 
+        from pydantic import BaseModel, Field
+
+        class CodeGenerationResponse(BaseModel):
+            """Structured response for code generation."""
+            code: str = Field(description="The generated code snippet or program")
+            explanation: str = Field(description="Brief explanation of implementation details and design choices")
+            tests: str | None = Field(default=None, description="Unit tests for the code, if requested")
+            language: str = Field(description="The programming language used (e.g., python, typescript)")
+
         async def generate_node(state: SkillState) -> dict:
             """Generate code based on requirements."""
             task = state["input_params"]["task"]
@@ -112,7 +121,7 @@ class CodeGenerationSkill(Skill):
                 style_desc = style_guidance.get(style, style_guidance["clean"])
 
                 context_section = f"\n\nAdditional Context:\n{context}" if context else ""
-                tests_section = "\n\nAlso provide unit tests for the code." if include_tests else ""
+                tests_section = "\n\nAlso provide unit tests for the code in the 'tests' field." if include_tests else ""
 
                 prompt = f"""Generate {language} code for the following task:
 
@@ -121,105 +130,30 @@ Task: {task}
 Requirements:
 - Language: {language}
 - Style: {style_desc}
-- Follow best practices for {language}{tests_section}{context_section}
-
-Format your response as:
-
-CODE:
-```{language}
-[Your code here]
-```
-
-EXPLANATION:
-[Brief explanation of what the code does and key implementation details]
-{
-"TESTS:" + '''
-```''' + language + '''
-[Unit tests here]
-```''' if include_tests else ""
-}"""
+- Follow best practices for {language}{tests_section}{context_section}"""
 
                 # Get LLM for code generation
                 llm = llm_service.get_llm_for_tier(ModelTier.PRO)
-
+                
+                # Use structured output
+                structured_llm = llm.with_structured_output(CodeGenerationResponse)
+                
                 # Generate code
-                response = await llm.ainvoke(prompt)
-                content = response.content
-
-                # Parse response
-                code = ""
-                explanation = ""
-                tests = ""
-
-                # Extract code block
-                if f"```{language}" in content:
-                    try:
-                        # Get first code block
-                        code_start = content.index(f"```{language}") + len(f"```{language}")
-                        code_end = content.index("```", code_start)
-                        code = content[code_start:code_end].strip()
-                    except (ValueError, IndexError):
-                        pass
-                elif "```" in content:
-                    # Try generic code block
-                    try:
-                        code_blocks = content.split("```")
-                        if len(code_blocks) >= 3:
-                            code = code_blocks[1].strip()
-                            if code.startswith(language):
-                                code = code[len(language):].strip()
-                    except (ValueError, IndexError):
-                        pass
-
-                # Extract explanation
-                if "EXPLANATION:" in content:
-                    try:
-                        explanation_start = content.index("EXPLANATION:") + 12
-                        # Look for next section or end
-                        if "TESTS:" in content[explanation_start:]:
-                            explanation_end = content.index("TESTS:", explanation_start)
-                            explanation = content[explanation_start:explanation_end].strip()
-                        else:
-                            explanation = content[explanation_start:].strip()
-                            # Remove trailing code blocks
-                            if "```" in explanation:
-                                explanation = explanation[:explanation.index("```")].strip()
-                    except (ValueError, IndexError):
-                        pass
-
-                # Extract tests if requested
-                if include_tests and "TESTS:" in content:
-                    try:
-                        tests_start_idx = content.index("TESTS:")
-                        tests_content = content[tests_start_idx + 6:]
-                        if f"```{language}" in tests_content:
-                            test_code_start = tests_content.index(f"```{language}") + len(f"```{language}")
-                            test_code_end = tests_content.index("```", test_code_start)
-                            tests = tests_content[test_code_start:test_code_end].strip()
-                        elif "```" in tests_content:
-                            # Generic code block
-                            test_blocks = tests_content.split("```")
-                            if len(test_blocks) >= 3:
-                                tests = test_blocks[1].strip()
-                    except (ValueError, IndexError):
-                        pass
-
-                if not code:
-                    code = content  # Fallback: use entire response
+                result: CodeGenerationResponse = await structured_llm.ainvoke(prompt)
 
                 logger.info(
                     "code_generation_skill_completed",
-                    language=language,
-                    code_length=len(code),
-                    has_tests=bool(tests),
+                    language=result.language,
+                    code_length=len(result.code),
+                    has_tests=bool(result.tests),
                 )
 
                 return {
                     "output": {
-                        "code": code,
-                        "language": language,
-                        "explanation": explanation,
-                        "tests": tests if include_tests else None,
+                        "code": result.code,
+                        "language": result.language,
+                        "explanation": result.explanation,
+                        "tests": result.tests if include_tests else None,
                     },
                     "iterations": state["iterations"] + 1,
                 }

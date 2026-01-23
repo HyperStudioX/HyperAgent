@@ -138,3 +138,68 @@ class DataAnalysisState(SupervisorState, total=False):
     images: list[dict[str, str]] | None  # List of {data: str, type: str, path: str}
 
 
+# =============================================================================
+# Node Output Types (for type-safe node returns)
+# =============================================================================
+
+
+class RouterOutput(TypedDict, total=False):
+    """Return type for router_node."""
+
+    selected_agent: str
+    routing_reason: str
+    routing_confidence: float
+    active_agent: str
+    delegated_task: str | None
+    handoff_context: str | None
+    pending_handoff: HandoffInfo | None
+    events: list[dict[str, Any]]
+
+
+class ChatOutput(TypedDict, total=False):
+    """Return type for chat_node."""
+
+    response: str
+    events: list[dict[str, Any]]
+    pending_handoff: HandoffInfo | None
+    handoff_count: int
+    handoff_history: list[HandoffInfo]
+
+
+class ResearchPrepOutput(TypedDict, total=False):
+    """Return type for research_prep_node."""
+
+    query: str
+    depth: Any  # ResearchDepth
+    scenario: Any  # ResearchScenario
+
+
+class ResearchPostOutput(TypedDict, total=False):
+    """Return type for research_post_node."""
+
+    shared_memory: SharedAgentMemory
+    pending_handoff: HandoffInfo | None
+    handoff_count: int
+    handoff_history: list[HandoffInfo]
+    response: str
+
+
+class DataOutput(TypedDict, total=False):
+    """Return type for data_node."""
+
+    response: str
+    events: list[dict[str, Any]]
+    shared_memory: SharedAgentMemory
+    pending_handoff: HandoffInfo | None
+    handoff_count: int
+    handoff_history: list[HandoffInfo]
+
+
+class ErrorOutput(TypedDict, total=False):
+    """Return type for error cases in nodes."""
+
+    response: str
+    events: list[dict[str, Any]]
+    has_error: bool
+
+

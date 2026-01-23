@@ -87,7 +87,10 @@ class Settings(BaseSettings):
     local_storage_path: str = "./uploads"  # For local development
 
     # LangGraph Configuration
-    langgraph_recursion_limit: int = 25  # Maximum recursion depth for graph execution
+    langgraph_recursion_limit: int = 50  # Maximum recursion depth for graph execution (increased for handoff-heavy workflows)
+    subgraph_timeout: int = 300  # Timeout in seconds for subgraph invocations (5 minutes)
+    routing_timeout: int = 30  # Timeout in seconds for routing decisions
+    research_task_timeout: int = 1800  # Timeout in seconds for research tasks (30 minutes)
 
     # E2B Code Sandbox
     e2b_api_key: str = ""

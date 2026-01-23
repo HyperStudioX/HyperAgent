@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { BookOpen, FileText, List, ChevronRight } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -49,6 +51,10 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
     useEffect(() => {
         // If not streaming, update immediately
         if (!isStreaming) {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+                debounceTimerRef.current = null;
+            }
             setDebouncedToc(extractedToc);
             lastTocLengthRef.current = extractedToc.length;
             return;
@@ -136,9 +142,16 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                         {/* Content Body */}
                         <div className="px-6 py-10 md:px-10 md:py-12">
                             <div className="prose prose-sm md:prose-base max-w-none text-foreground font-sans">
-                                <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
+                                {content && (
+                                    isStreaming ? (
+                                        <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/90">
+                                            {content}
+                                        </div>
+                                    ) : (
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm, remarkMath]}
+                                            rehypePlugins={[rehypeKatex]}
+                                            components={{
                                         h1: ({ children }) => {
                                             const id = String(children).toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
                                             return (
@@ -254,9 +267,11 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                                             </a>
                                         ),
                                     }}
-                                >
-                                    {content}
-                                </ReactMarkdown>
+                                        >
+                                            {content}
+                                        </ReactMarkdown>
+                                    )
+                            )}
 
                                 {isStreaming && (
                                     <div className="mt-10 flex flex-col gap-3 p-6 rounded-xl bg-secondary/20 border border-border border-dashed">

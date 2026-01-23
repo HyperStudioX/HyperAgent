@@ -491,12 +491,12 @@ export function LiveAgentProgressPanel({
 
     return (
         <div className={cn(
-            "mb-4 rounded-xl border-2 border-border/80 bg-card/50 overflow-hidden max-w-md",
+            "mt-4 rounded-xl border-2 border-border/80 bg-card/50 overflow-hidden max-w-full",
             className
         )}>
             {/* Header */}
             <button
-                className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+                className="flex items-center gap-3 !w-full px-4 py-3 text-left hover:bg-muted/30 transition-colors"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 {/* Status icon */}

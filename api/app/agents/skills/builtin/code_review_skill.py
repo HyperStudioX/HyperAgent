@@ -17,7 +17,7 @@ class CodeReviewSkill(Skill):
     metadata = SkillMetadata(
         id="code_review",
         name="Code Review",
-        version="1.0.0",
+        version="2.0.0",
         description="Reviews code for bugs, style issues, security vulnerabilities, and best practices",
         category="code",
         parameters=[
@@ -80,6 +80,22 @@ class CodeReviewSkill(Skill):
     def create_graph(self) -> StateGraph:
         """Create the LangGraph subgraph for code review."""
         graph = StateGraph(SkillState)
+        
+        from pydantic import BaseModel, Field
+
+        class CodeIssue(BaseModel):
+            """Represents a single issue found in the code."""
+            severity: str = Field(description="Severity of the issue: Critical, High, Medium, or Low")
+            category: str = Field(description="Category: Bug, Style, Security, Performance, or Best Practice")
+            description: str = Field(description="Detailed description of the issue")
+            line: int | None = Field(default=None, description="Line number where the issue occurs, if applicable")
+
+        class CodeReviewResponse(BaseModel):
+            """Structured code review response."""
+            issues: list[CodeIssue] = Field(description="List of issues identified in the code")
+            suggestions: list[str] = Field(description="List of specific improvement suggestions")
+            rating: str = Field(description="Overall rating: Excellent, Good, Fair, or Needs Improvement")
+            summary: str = Field(description="Overall assessment summary of the code quality")
 
         async def review_node(state: SkillState) -> dict:
             """Perform code review."""
@@ -108,128 +124,41 @@ Code:
 {code}
 ```
 
-Provide a detailed code review in the following format:
-
-ISSUES:
-- [SEVERITY: Critical/High/Medium/Low] [CATEGORY: Bug/Style/Security/Performance] Line X: Description
-
-SUGGESTIONS:
-- Specific improvement suggestion 1
-- Specific improvement suggestion 2
-- Specific improvement suggestion 3
-
-RATING: [Excellent/Good/Fair/Needs Improvement]
-
-SUMMARY:
-Overall assessment of the code quality and main recommendations.
-"""
+Provide a detailed structured code review."""
 
                 # Get LLM for code review
                 llm = llm_service.get_llm_for_tier(ModelTier.PRO)
-
+                
+                # Use structured output
+                structured_llm = llm.with_structured_output(CodeReviewResponse)
+                
                 # Generate review
-                response = await llm.ainvoke(prompt)
-                content = response.content
+                result: CodeReviewResponse = await structured_llm.ainvoke(prompt)
 
-                # Parse response
-                issues = []
-                suggestions = []
-                rating = "Good"
-                summary = ""
-
-                sections = {
-                    "ISSUES:": "",
-                    "SUGGESTIONS:": "",
-                    "RATING:": "",
-                    "SUMMARY:": "",
-                }
-
-                # Extract sections
-                current_section = None
-                for line in content.split("\n"):
-                    line = line.strip()
-                    if line in sections:
-                        current_section = line
-                        continue
-                    if current_section and line:
-                        sections[current_section] += line + "\n"
-
-                # Parse issues
-                issues_text = sections.get("ISSUES:", "")
-                for line in issues_text.split("\n"):
-                    line = line.strip()
-                    if line.startswith("-") or line.startswith("•"):
-                        # Try to parse: [SEVERITY: X] [CATEGORY: Y] Line Z: Description
-                        line = line.lstrip("-").lstrip("•").strip()
-                        severity = "Medium"
-                        category = "General"
-                        line_num = None
-                        description = line
-
-                        if "[SEVERITY:" in line.upper():
-                            try:
-                                severity_end = line.index("]", line.upper().index("[SEVERITY:"))
-                                severity = line[line.upper().index("[SEVERITY:") + 10:severity_end].strip()
-                                line = line[severity_end + 1:].strip()
-                            except (ValueError, IndexError):
-                                pass
-
-                        if "[CATEGORY:" in line.upper():
-                            try:
-                                category_end = line.index("]", line.upper().index("[CATEGORY:"))
-                                category = line[line.upper().index("[CATEGORY:") + 10:category_end].strip()
-                                line = line[category_end + 1:].strip()
-                            except (ValueError, IndexError):
-                                pass
-
-                        if "LINE" in line.upper():
-                            try:
-                                parts = line.split(":", 1)
-                                if len(parts) == 2:
-                                    line_part = parts[0].strip()
-                                    if "LINE" in line_part.upper():
-                                        line_num_str = "".join(c for c in line_part if c.isdigit())
-                                        if line_num_str:
-                                            line_num = int(line_num_str)
-                                    description = parts[1].strip()
-                            except (ValueError, IndexError):
-                                pass
-
-                        issues.append({
-                            "severity": severity,
-                            "category": category,
-                            "line": line_num,
-                            "description": description,
-                        })
-
-                # Parse suggestions
-                suggestions_text = sections.get("SUGGESTIONS:", "")
-                for line in suggestions_text.split("\n"):
-                    line = line.strip()
-                    if line.startswith("-") or line.startswith("•"):
-                        suggestions.append(line.lstrip("-").lstrip("•").strip())
-
-                # Parse rating
-                rating_text = sections.get("RATING:", "").strip()
-                if rating_text:
-                    rating = rating_text
-
-                # Parse summary
-                summary = sections.get("SUMMARY:", "").strip()
+                # Convert Pydantic models to dicts for output schema compliance
+                issues_list = [
+                    {
+                        "severity": issue.severity,
+                        "category": issue.category,
+                        "description": issue.description,
+                        "line": issue.line,
+                    }
+                    for issue in result.issues
+                ]
 
                 logger.info(
                     "code_review_skill_completed",
-                    issues_count=len(issues),
-                    suggestions_count=len(suggestions),
-                    rating=rating,
+                    issues_count=len(issues_list),
+                    suggestions_count=len(result.suggestions),
+                    rating=result.rating,
                 )
 
                 return {
                     "output": {
-                        "issues": issues,
-                        "suggestions": suggestions,
-                        "rating": rating,
-                        "summary": summary,
+                        "issues": issues_list,
+                        "suggestions": result.suggestions,
+                        "rating": result.rating,
+                        "summary": result.summary,
                     },
                     "iterations": state["iterations"] + 1,
                 }

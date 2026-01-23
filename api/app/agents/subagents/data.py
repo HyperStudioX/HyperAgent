@@ -101,7 +101,6 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
         messages = [SystemMessage(content=PLANNING_SYSTEM_PROMPT)]
         append_history(messages, state.get("messages", []))
         messages.append(HumanMessage(content=planning_prompt))
-        history = state.get("messages", [])
 
         # Always enable tools - let the LLM decide when to use them
         enable_tools = True
@@ -112,18 +111,7 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
         if enable_tools and all_tools:
             llm_with_tools = llm.bind_tools(all_tools)
 
-            # Define callbacks for tool events
-            def on_tool_call(tool_name: str, args: dict, tool_id: str):
-                event_list.append(create_tool_call_event(tool_name, args, tool_id))
-
-            def on_tool_result(tool_name: str, result: str, tool_id: str):
-                # Note: generate_image visualization is handled in react_tool.py
-                event_list.append(create_tool_result_event(tool_name, result, tool_id))
-
-            def on_handoff(source: str, target: str, task: str):
-                event_list.append(events.handoff(source=source, target=target, task=task))
-
-            # Execute the canonical ReAct loop
+            # Execute the canonical ReAct loop (StreamProcessor handles events)
             extra_tool_args = {
                 "user_id": user_id,
                 "task_id": task_id,
@@ -135,9 +123,6 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
                 query=query,
                 config=config,
                 source_agent="data",
-                on_tool_call=on_tool_call,
-                on_tool_result=on_tool_result,
-                on_handoff=on_handoff,
                 extra_tool_args=extra_tool_args,
             )
 
@@ -223,6 +208,7 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
     analysis_plan = state.get("analysis_plan", "")
     attachment_ids = state.get("attachment_ids", [])
     user_id = state.get("user_id")
+    task_id = state.get("task_id")
 
     event_list = []
 
@@ -273,7 +259,6 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
         messages = [SystemMessage(content=DATA_ANALYSIS_SYSTEM_PROMPT)]
         append_history(messages, state.get("messages", []))
         messages.append(HumanMessage(content=code_generation_prompt))
-        history = state.get("messages", [])
 
         # Always enable tools - let the LLM decide when to use them
         enable_tools = True
@@ -284,18 +269,7 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
         if enable_tools and all_tools:
             llm_with_tools = llm.bind_tools(all_tools)
 
-            # Define callbacks for tool events
-            def on_tool_call(tool_name: str, args: dict, tool_id: str):
-                event_list.append(create_tool_call_event(tool_name, args, tool_id))
-
-            def on_tool_result(tool_name: str, result: str, tool_id: str):
-                # Note: generate_image visualization is handled in react_tool.py
-                event_list.append(create_tool_result_event(tool_name, result, tool_id))
-
-            def on_handoff(source: str, target: str, task: str):
-                event_list.append(events.handoff(source=source, target=target, task=task))
-
-            # Execute the canonical ReAct loop
+            # Execute the canonical ReAct loop (StreamProcessor handles events)
             extra_tool_args = {
                 "user_id": user_id,
                 "task_id": task_id,
@@ -307,9 +281,6 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
                 query=query,
                 config=config,
                 source_agent="data",
-                on_tool_call=on_tool_call,
-                on_tool_result=on_tool_result,
-                on_handoff=on_handoff,
                 extra_tool_args=extra_tool_args,
             )
 

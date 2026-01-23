@@ -122,9 +122,6 @@ async def search_agent_node(state: ResearchState) -> dict:
     tool_iterations = state.get("tool_iterations") or 0
     max_searches = depth_config.get("max_searches", 5)
 
-    # Check for deferred handoff from previous iteration
-    # This occurs when LLM returned both search tools and handoff - we execute
-    # search tools first, then return the handoff on the next iteration
     deferred_handoff = state.get("deferred_handoff")
     if deferred_handoff:
         logger.info(
@@ -383,52 +380,6 @@ async def search_tools_node(state: ResearchState) -> dict:
             tool_calls=updated_tool_calls,
         )
 
-    # Pre-execution: Check for browser tools and emit stream event BEFORE execution
-    browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot"}
-    has_browser_tool = any(
-        tc.get("name") in browser_tools for tc in effective_message.tool_calls
-    )
-
-    if has_browser_tool:
-        try:
-            from app.sandbox import get_desktop_sandbox_manager
-
-            manager = get_desktop_sandbox_manager()
-            session = await manager.get_or_create_sandbox(
-                user_id=user_id,
-                task_id=task_id,
-                launch_browser=True,
-            )
-
-            # Get stream URL and emit event immediately
-            try:
-                stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
-                event_list.append(events.browser_stream(
-                    stream_url=stream_url,
-                    sandbox_id=session.sandbox_id,
-                    auth_key=auth_key,
-                ))
-                logger.info("research_browser_stream_emitted", sandbox_id=session.sandbox_id)
-            except Exception as stream_err:
-                if "already running" in str(stream_err).lower():
-                    import asyncio
-                    if session.executor.sandbox and session.executor.sandbox.stream:
-                        auth_key = await asyncio.to_thread(session.executor.sandbox.stream.get_auth_key)
-                        stream_url = await asyncio.to_thread(
-                            session.executor.sandbox.stream.get_url,
-                            auth_key=auth_key,
-                        )
-                        event_list.append(events.browser_stream(
-                            stream_url=stream_url,
-                            sandbox_id=session.sandbox_id,
-                            auth_key=auth_key,
-                        ))
-                        logger.info("research_browser_stream_emitted_reused", sandbox_id=session.sandbox_id)
-                else:
-                    logger.warning("research_browser_stream_failed", error=str(stream_err))
-        except Exception as e:
-            logger.warning("research_browser_pre_execution_failed", error=str(e))
-
     # Get all tools for research agent (includes browser, search, image, handoffs)
     all_tools = get_tools_for_agent("research", include_handoffs=True)
 
@@ -442,8 +393,6 @@ async def search_tools_node(state: ResearchState) -> dict:
         if isinstance(msg, ToolMessage):
             # Emit tool result event
             event_list.append(create_tool_result_event(msg.name, msg.content, msg.tool_call_id))
-
-            # Note: generate_image visualization is handled in react_tool.py
 
             # Parse structured results from tool output (web_search results)
             new_sources = parse_search_results(msg.content)

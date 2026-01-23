@@ -220,93 +220,31 @@ async def act_node(state: ChatState) -> dict:
     all_tools = get_tools_for_agent("chat", include_handoffs=True)
     tool_map = {tool.name: tool for tool in all_tools}
 
-    # Get browser tool names from registry (centralized, not hardcoded)
+    # Get browser tool names for context but don't handle side effects here
     BROWSER_TOOLS = {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
-
-    def _browser_action_descriptions(tn: str, args: dict) -> tuple[str, str, str | None]:
-        if tn == "browser_navigate":
-            return ("navigate", "Navigating to URL", args.get("url", ""))
-        if tn == "browser_click":
-            return ("click", "Clicking on element", f"({args.get('x', '?')}, {args.get('y', '?')})")
-        if tn == "browser_type":
-            return ("type", "Typing text", (args.get("text") or "")[:50])
-        if tn == "browser_screenshot":
-            return ("screenshot", "Taking screenshot", None)
-        if tn == "browser_scroll":
-            return ("scroll", "Scrolling page", args.get("direction", "down"))
-        if tn == "browser_press_key":
-            return ("key", "Pressing key", args.get("key", ""))
-        return (tn.replace("browser_", ""), tn, None)
 
     # Execute pending tool calls (excluding already-processed ones)
     tool_results: list[ToolMessage] = []
-    image_event_count = 0  # For generate_image index deduplication
-    browser_stream_emitted = False
-
-    logger.info(
-        "act_node_executing_tools",
-        pending_count=len(pending_tool_calls),
-        existing_results=len(existing_tool_result_ids),
-    )
+    image_event_count = 0  # Track image events for indexing
 
     for tool_call in pending_tool_calls:
         tool_name = tool_call.get("name", "")
-        raw_args = tool_call.get("args") or {}
-        tool_args = dict(raw_args) if isinstance(raw_args, dict) else {}
         tool_call_id = tool_call.get("id", "")
-
-        # Inject user_id and task_id for session management
-        tool_args = {**tool_args, "user_id": user_id, "task_id": task_id}
+        args = tool_call.get("args", {})
 
         # Emit tool call event
-        event_list.append(create_tool_call_event(tool_name, tool_args, tool_call_id))
+        event_list.append(create_tool_call_event(tool_name, args, tool_call_id))
 
-        # Browser tools: emit browser_stream (first only) and browser_action for live viewer
-        if tool_name in BROWSER_TOOLS:
-            from app.sandbox import (
-                get_desktop_sandbox_manager,
-                is_desktop_sandbox_available,
-            )
-
-            if is_desktop_sandbox_available() and not browser_stream_emitted:
-                try:
-                    manager = get_desktop_sandbox_manager()
-                    session = await manager.get_or_create_sandbox(
-                        user_id=user_id,
-                        task_id=task_id,
-                        launch_browser=True,
-                    )
-                    stream_url, auth_key = await manager.ensure_stream_ready(session)
-                    event_list.append(
-                        events.browser_stream(
-                            stream_url=stream_url,
-                            sandbox_id=session.sandbox_id,
-                            auth_key=auth_key,
-                        )
-                    )
-                    browser_stream_emitted = True
-                except Exception as e:
-                    logger.warning(
-                        "chat_browser_stream_emit_failed",
-                        tool=tool_name,
-                        error=str(e),
-                    )
-
-            action, desc, target = _browser_action_descriptions(tool_name, tool_args)
-            event_list.append(
-                events.browser_action(
-                    action=action,
-                    description=desc,
-                    target=target or None,
-                    status="running",
-                )
-            )
-
-        # Find and execute tool
-        tool = tool_map.get(tool_name)
-        if tool:
+        if tool_name in tool_map:
+            tool = tool_map[tool_name]
             try:
-                result = await tool.ainvoke(tool_args)
+                # Add context args for tools that need them
+                if tool_name in BROWSER_TOOLS:
+                    args["user_id"] = user_id
+                    args["task_id"] = task_id
+
+                # Execute the tool
+                result = await tool.ainvoke(args)
                 result_str = str(result) if result is not None else ""
 
                 # Emit tool result event (use preview, not full result)
@@ -327,17 +265,6 @@ async def act_node(state: ChatState) -> dict:
                 config = get_react_config("chat")
                 result_str = truncate_tool_result(result_str, config.tool_result_max_chars)
 
-                if tool_name in BROWSER_TOOLS:
-                    _action, _, _ = _browser_action_descriptions(tool_name, tool_args)
-                    _label = tool_name.replace("browser_", "").replace("_", " ").title()
-                    event_list.append(
-                        events.browser_action(
-                            action=_action,
-                            description=f"{_label} completed",
-                            status="completed",
-                        )
-                    )
-
                 tool_results.append(
                     ToolMessage(
                         content=result_str,
@@ -349,14 +276,6 @@ async def act_node(state: ChatState) -> dict:
                 logger.error("tool_execution_failed", tool=tool_name, error=str(e))
                 error_msg = f"Error executing {tool_name}: {e}"
                 event_list.append(create_tool_result_event(tool_name, error_msg, tool_call_id))
-                if tool_name in BROWSER_TOOLS:
-                    event_list.append(
-                        events.browser_action(
-                            action=_browser_action_descriptions(tool_name, tool_args)[0],
-                            description=f"{tool_name} failed",
-                            status="completed",
-                        )
-                    )
                 tool_results.append(
                     ToolMessage(
                         content=error_msg,
@@ -367,14 +286,6 @@ async def act_node(state: ChatState) -> dict:
         else:
             error_msg = f"Tool not found: {tool_name}"
             event_list.append(create_tool_result_event(tool_name, error_msg, tool_call_id))
-            if tool_name in BROWSER_TOOLS:
-                event_list.append(
-                    events.browser_action(
-                        action=_browser_action_descriptions(tool_name, tool_args)[0],
-                        description=f"{tool_name} not found",
-                        status="completed",
-                    )
-                )
             tool_results.append(
                 ToolMessage(
                     content=error_msg,
