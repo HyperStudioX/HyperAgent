@@ -178,7 +178,7 @@ async def search_agent_node(state: ResearchState) -> dict:
     provider = state.get("provider") or LLMProvider.ANTHROPIC
     tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
+    llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     llm_with_tools = llm.bind_tools(all_tools)
 
     try:
@@ -353,17 +353,47 @@ async def search_tools_node(state: ResearchState) -> dict:
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {"lc_messages": lc_messages, "events": event_list}
 
+    context_tool_names = {
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_press_key",
+        "browser_screenshot",
+        "browser_get_stream_url",
+        "execute_code",
+        "sandbox_file",
+    }
+    effective_message = last_message
+    if user_id or task_id:
+        updated_tool_calls = []
+        for tool_call in last_message.tool_calls:
+            tool_name = tool_call.get("name") or ""
+            tool_args = tool_call.get("args") or {}
+            if tool_name in context_tool_names:
+                tool_args = dict(tool_args)
+                if user_id is not None:
+                    tool_args["user_id"] = user_id
+                if task_id is not None:
+                    tool_args["task_id"] = task_id
+                tool_call = {**tool_call, "args": tool_args}
+            updated_tool_calls.append(tool_call)
+        effective_message = AIMessage(
+            content=last_message.content,
+            tool_calls=updated_tool_calls,
+        )
+
     # Pre-execution: Check for browser tools and emit stream event BEFORE execution
     browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot"}
     has_browser_tool = any(
-        tc.get("name") in browser_tools for tc in last_message.tool_calls
+        tc.get("name") in browser_tools for tc in effective_message.tool_calls
     )
 
     if has_browser_tool:
         try:
-            from app.sandbox import get_browser_sandbox_manager
+            from app.sandbox import get_desktop_sandbox_manager
 
-            manager = get_browser_sandbox_manager()
+            manager = get_desktop_sandbox_manager()
             session = await manager.get_or_create_sandbox(
                 user_id=user_id,
                 task_id=task_id,
@@ -404,7 +434,7 @@ async def search_tools_node(state: ResearchState) -> dict:
 
     # Execute tools
     tool_executor = ToolNode(all_tools)
-    tool_results = await tool_executor.ainvoke({"messages": [last_message]})
+    tool_results = await tool_executor.ainvoke({"messages": [effective_message]})
 
     # Process results
     for msg in tool_results.get("messages", []):
@@ -525,7 +555,7 @@ async def analyze_node(state: ResearchState) -> dict:
     provider = state.get("provider") or LLMProvider.ANTHROPIC
     tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
+    llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     sources_text = _format_sources(sources)
 
     analysis_prompt = get_analysis_prompt(
@@ -582,7 +612,7 @@ async def synthesize_node(state: ResearchState) -> dict:
     provider = state.get("provider") or LLMProvider.ANTHROPIC
     tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
+    llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     synthesis_prompt = get_synthesis_prompt(
         query=query,
         analysis_text=analysis_text,
@@ -653,7 +683,7 @@ async def write_node(state: ResearchState) -> dict:
     provider = state.get("provider") or LLMProvider.ANTHROPIC
     tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
+    llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     report_chunks = []
 
     try:

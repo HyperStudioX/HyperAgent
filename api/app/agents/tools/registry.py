@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from app.agents.state import AgentType
 from app.agents.tools.handoff import get_handoff_tools_for_agent
 from app.agents.tools.web_search import web_search
-from app.agents.tools.browser import (
+from app.agents.tools.browser_use import (
     browser_navigate,
     browser_screenshot,
     browser_click,
@@ -22,10 +22,10 @@ from app.agents.tools.browser import (
     browser_scroll,
     browser_get_stream_url,
 )
-from app.agents.tools.computer_use import computer_use, computer_bash
 from app.agents.tools.image_generation import generate_image
 from app.agents.tools.vision import analyze_image
 from app.agents.tools.code_execution import execute_code
+from app.agents.tools.skill_invocation import get_skill_tools
 from app.sandbox import sandbox_file
 from app.core.logging import get_logger
 
@@ -38,10 +38,10 @@ class ToolCategory(str, Enum):
     SEARCH = "search"  # Web search capabilities
     IMAGE = "image"  # Image generation and analysis
     BROWSER = "browser"  # Browser automation (E2B Desktop sandbox)
-    COMPUTER = "computer"  # Autonomous computer/desktop control (E2B Desktop)
     CODE_EXEC = "code_exec"  # Code execution in sandbox
     DATA = "data"  # Data processing and analysis
     HANDOFF = "handoff"  # Agent-to-agent delegation
+    SKILL = "skill"  # Skill invocation
 
 
 # Tool instances by category
@@ -58,14 +58,12 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
         browser_scroll,
         browser_get_stream_url,
     ],
-    ToolCategory.COMPUTER: [
-        computer_use,
-        computer_bash,
-    ],
     ToolCategory.CODE_EXEC: [execute_code],
     ToolCategory.DATA: [sandbox_file],
     # HANDOFF tools are created dynamically per agent
     ToolCategory.HANDOFF: [],
+    # SKILL tools for invoking skills
+    ToolCategory.SKILL: get_skill_tools(),
 }
 
 
@@ -75,32 +73,25 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
         ToolCategory.BROWSER,
+        ToolCategory.CODE_EXEC,  # For execute_code tool
+        ToolCategory.SKILL,
         ToolCategory.HANDOFF,
     ],
     AgentType.RESEARCH.value: [
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
         ToolCategory.BROWSER,
+        ToolCategory.SKILL,
         ToolCategory.HANDOFF,
     ],
-    AgentType.CODE.value: [
-        ToolCategory.SEARCH,
-        ToolCategory.CODE_EXEC,
-        ToolCategory.HANDOFF,
-    ],
-    AgentType.WRITING.value: [
-        ToolCategory.SEARCH,
-        ToolCategory.IMAGE,
-        ToolCategory.HANDOFF,
-    ],
+    # Data agent needs IMAGE for visualization generation and SEARCH for web data
     AgentType.DATA.value: [
+        ToolCategory.SEARCH,  # For fetching web data for analysis
+        ToolCategory.IMAGE,   # For generating visualization images
         ToolCategory.CODE_EXEC,
         ToolCategory.DATA,
+        ToolCategory.SKILL,
         ToolCategory.HANDOFF,
-    ],
-    AgentType.COMPUTER.value: [
-        ToolCategory.COMPUTER,
-        # Computer agent has full desktop control, no handoffs needed
     ],
 }
 
@@ -120,23 +111,15 @@ def get_tools_by_category(category: ToolCategory) -> list[BaseTool]:
 def get_tools_for_agent(
     agent_type: str,
     include_handoffs: bool = True,
-    enable_search: bool = True,
-    enable_image: bool = True,
-    enable_browser: bool = True,
-    enable_computer: bool = True,
 ) -> list[BaseTool]:
     """Get all tools available to a specific agent type.
 
-    This function retrieves tools based on the agent's allowed categories
-    and optional feature flags for runtime control.
+    This function retrieves tools based on the agent's allowed categories.
+    All tools are enabled - the LLM decides when to use them.
 
     Args:
         agent_type: The agent type (e.g., "chat", "research")
         include_handoffs: Whether to include handoff tools
-        enable_search: Whether to enable search tools (for gating)
-        enable_image: Whether to enable image tools (for gating)
-        enable_browser: Whether to enable browser tools (E2B Desktop)
-        enable_computer: Whether to enable computer use tools (E2B Desktop autonomous)
 
     Returns:
         List of tools available to the agent
@@ -145,15 +128,6 @@ def get_tools_for_agent(
     tools: list[BaseTool] = []
     seen_names: set[str] = set()
 
-    # Feature flag mapping for categories
-    category_enabled = {
-        ToolCategory.SEARCH: enable_search,
-        ToolCategory.IMAGE: enable_image,
-        ToolCategory.BROWSER: enable_browser,
-        ToolCategory.COMPUTER: enable_computer,
-        ToolCategory.HANDOFF: False,  # Handled separately
-    }
-
     def add_tools(tool_list: list[BaseTool]) -> None:
         """Add tools to the result list, avoiding duplicates."""
         for tool in tool_list:
@@ -161,11 +135,11 @@ def get_tools_for_agent(
                 tools.append(tool)
                 seen_names.add(tool.name)
 
+    # Add all tools from allowed categories
     for category in allowed_categories:
-        # Skip disabled categories (defaults to enabled if not in map)
-        if not category_enabled.get(category, True):
+        # Skip handoff category (handled separately)
+        if category == ToolCategory.HANDOFF:
             continue
-
         add_tools(TOOL_CATALOG.get(category, []))
 
     # Add handoff tools if enabled

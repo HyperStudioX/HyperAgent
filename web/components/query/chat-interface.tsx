@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback, memo } from "react";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
@@ -12,13 +11,11 @@ import {
     TrendingUp,
     Code2,
     Newspaper,
-    PenTool,
     BarChart3,
     Search,
     Check,
     Zap,
     Layers,
-    ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
@@ -30,16 +27,24 @@ import { AttachmentPreview } from "@/components/chat/attachment-preview";
 import { Button } from "@/components/ui/button";
 import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { useGoogleDrivePicker } from "@/lib/hooks/use-google-drive-picker";
-import type { AgentType, ResearchScenario, ResearchDepth, FileAttachment } from "@/lib/types";
+import type {
+    AgentType,
+    ResearchScenario,
+    ResearchDepth,
+    FileAttachment,
+    Message,
+    AgentEvent,
+    GeneratedImage,
+    Source,
+} from "@/lib/types";
+import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
 
 // Larger icons for better visual presence
-const AGENT_ICONS: Record<AgentType, React.ReactNode> = {
-    chat: <Search className="w-5 h-5" />,
+const AGENT_KEYS = ["research", "data"] as const;
+type VisibleAgent = (typeof AGENT_KEYS)[number];
+const AGENT_ICONS: Record<VisibleAgent, React.ReactNode> = {
     research: <Search className="w-5 h-5" />,
-    code: <Code2 className="w-5 h-5" />,
-    writing: <PenTool className="w-5 h-5" />,
     data: <BarChart3 className="w-5 h-5" />,
-    image: <ImageIcon className="w-5 h-5" />,
 };
 
 const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
@@ -49,7 +54,6 @@ const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
     news: <Newspaper className="w-5 h-5" />,
 };
 
-const AGENT_KEYS: AgentType[] = ["research", "code", "writing", "data", "image"];
 const SCENARIO_KEYS: ResearchScenario[] = ["academic", "market", "technical", "news"];
 const DEPTH_KEYS: ResearchDepth[] = ["fast", "deep"];
 
@@ -58,12 +62,31 @@ const DEPTH_ICONS: Record<ResearchDepth, React.ReactNode> = {
     deep: <Layers className="w-4 h-4" />,
 };
 
+type StreamEvent = AgentEvent & {
+    content?: string;
+    data?: string;
+    index?: number;
+    url?: string;
+    storage_key?: string;
+    file_id?: string;
+    stream_url?: string;
+    sandbox_id?: string;
+    auth_key?: string;
+    action?: string;
+    target?: string;
+    skill_id?: string;
+    output?: Record<string, unknown>;
+};
+
 // Memoized message list to prevent re-renders on input changes
 interface MessageListProps {
-    messages: any[];
+    messages: Message[];
     streamingContent: string;
     isLoading: boolean;
-    streamingImages: any[];
+    streamingImages: GeneratedImage[];
+    streamingEvents: TimestampedEvent[];
+    streamingSources: Source[];
+    streamingAgentType?: string;
     streamingStartTime: Date;
     onRegenerate: (messageId: string) => void;
     messagesEndRef: React.RefObject<HTMLDivElement>;
@@ -74,6 +97,9 @@ const MessageList = memo(function MessageList({
     streamingContent,
     isLoading,
     streamingImages,
+    streamingEvents,
+    streamingSources,
+    streamingAgentType,
     streamingStartTime,
     onRegenerate,
     messagesEndRef,
@@ -105,6 +131,9 @@ const MessageList = memo(function MessageList({
                         }}
                         isStreaming={true}
                         images={streamingImages}
+                        streamingEvents={streamingEvents}
+                        streamingSources={streamingSources}
+                        agentType={streamingAgentType}
                     />
                 </div>
             )}
@@ -158,14 +187,10 @@ export function ChatInterface() {
     const [submenuPosition, setSubmenuPosition] = useState<{ x: 'left' | 'right'; y: 'top' | 'bottom' }>({ x: 'right', y: 'bottom' });
     const submenuRef = useRef<HTMLDivElement>(null);
     const [streamingContent, setStreamingContent] = useState("");
-    const [streamingImages, setStreamingImages] = useState<{
-        index?: number;
-        data?: string; // Base64 for immediate display
-        url?: string; // Persistent URL from storage
-        storageKey?: string;
-        fileId?: string;
-        mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html";
-    }[]>([]);
+    const [streamingImages, setStreamingImages] = useState<GeneratedImage[]>([]);
+    const [streamingEvents, setStreamingEvents] = useState<TimestampedEvent[]>([]);
+    const [streamingSources, setStreamingSources] = useState<Source[]>([]);
+    const [streamingAgentType, setStreamingAgentType] = useState<string | undefined>(undefined);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const researchRef = useRef<HTMLDivElement>(null);
@@ -210,19 +235,22 @@ export function ChatInterface() {
         // Only update if content actually changed
         if (streamingContentRef.current === content) return;
         streamingContentRef.current = content;
-        if (!updateScheduledRef.current) {
-            updateScheduledRef.current = true;
-            // Use requestAnimationFrame for smooth updates
-            requestAnimationFrame(() => {
-                updateScheduledRef.current = false;
-                // Only set state if we're still streaming (component not unmounted)
-                setStreamingContent(prev => {
-                    // Prevent unnecessary updates
-                    if (prev === streamingContentRef.current) return prev;
-                    return streamingContentRef.current;
-                });
+        
+        // Cancel any pending update to prevent multiple queued updates
+        if (updateScheduledRef.current) return;
+        
+        updateScheduledRef.current = true;
+        // Use requestAnimationFrame for smooth updates
+        requestAnimationFrame(() => {
+            updateScheduledRef.current = false;
+            const currentContent = streamingContentRef.current;
+            // Only set state if content actually changed to prevent unnecessary updates
+            setStreamingContent(prev => {
+                // Prevent unnecessary updates that could cause loops
+                if (prev === currentContent) return prev;
+                return currentContent;
             });
-        }
+        });
     }, []);
 
     // Batch tokens and flush periodically for smoother rendering
@@ -342,6 +370,9 @@ export function ChatInterface() {
         addEvent: addAgentEvent,
         updateStage: updateAgentStage,
         endProgress: endAgentProgress,
+        clearProgress: clearAgentProgress,
+        setBrowserStream,
+        activeProgress,
     } = useAgentProgressStore();
 
     const activeConversation = hasHydrated ? getActiveConversation() : undefined;
@@ -382,6 +413,30 @@ export function ChatInterface() {
             }
         }
     }, [activeConversationId, hasHydrated, getActiveConversation, loadConversation, sessionStatus]);
+
+    // Clear agent progress when switching to a different conversation or page
+    // This ensures the progress panel only shows progress for the current conversation
+    useEffect(() => {
+        if (!hasHydrated) return;
+        if (!activeProgress) return;
+
+        // Check if the progress belongs to a different conversation
+        const progressBelongsToDifferentConversation =
+            activeProgress.conversationId !== null &&
+            activeProgress.conversationId !== activeConversationId;
+
+        // Check if we navigated away from conversations entirely (no active conversation)
+        const navigatedAwayFromConversations =
+            !activeConversationId && activeProgress.conversationId !== null;
+
+        if (progressBelongsToDifferentConversation || navigatedAwayFromConversations) {
+            // Only clear if the progress is completed (not currently streaming)
+            // If still streaming, the user might want to see it finish
+            if (!activeProgress.isStreaming) {
+                clearAgentProgress();
+            }
+        }
+    }, [activeConversationId, hasHydrated, activeProgress, clearAgentProgress]);
 
     const scrollToBottomRef = useRef<number | null>(null);
     const scrollToBottom = useCallback(() => {
@@ -429,9 +484,9 @@ export function ChatInterface() {
 
         if (selectedAgent === "research" && selectedScenario) {
             handleResearch(userMessage);
-        } else if (selectedAgent && selectedAgent !== "chat") {
+        } else if (selectedAgent === "data") {
             await handleAgentTask(userMessage, selectedAgent, attachmentIds, messageAttachments);
-        } else if (!selectedAgent && activeConversation?.type && activeConversation.type !== "chat") {
+        } else if (!selectedAgent && activeConversation?.type === "data") {
             await handleAgentTask(
                 userMessage,
                 activeConversation.type as AgentType,
@@ -452,9 +507,11 @@ export function ChatInterface() {
         setStreamingContent("");
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
-        // Status shown in sidebar
-        // Events managed in sidebar panel
+        // Clear inline streaming state
         setStreamingImages([]);
+        setStreamingEvents([]);
+        setStreamingSources([]);
+        setStreamingAgentType("chat");
 
         let conversationId = activeConversationId;
         if (!conversationId || activeConversation?.type !== "chat") {
@@ -463,8 +520,9 @@ export function ChatInterface() {
 
         // Get conversation messages for context BEFORE adding the new message
         // The backend will add the current message separately
+        // Use getActiveConversation() to get fresh state, not cached activeConversation
         const conversationForHistory =
-            conversations.find((conversation) => conversation.id === conversationId) || activeConversation;
+            conversations.find((conversation) => conversation.id === conversationId) || getActiveConversation();
         const conversationMessages = conversationForHistory?.messages || [];
         const history = conversationMessages
             .filter(msg => msg.role === "user" || msg.role === "assistant")
@@ -473,6 +531,15 @@ export function ChatInterface() {
                 content: msg.content,
                 metadata: msg.metadata || null,
             }));
+
+        // Debug: Log conversation history being sent
+        console.log('[Chat] Sending request with history:', {
+            conversationId,
+            messageCount: conversationMessages.length,
+            historyCount: history.length,
+            historyPreview: history.slice(-3).map(m => ({ role: m.role, content: m.content.substring(0, 30) }))
+        });
+
         const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
         const combinedAttachmentIds = Array.from(new Set([...historyAttachmentIds, ...attachmentIds]));
 
@@ -492,14 +559,14 @@ export function ChatInterface() {
         startAgentProgress(conversationId, "chat");
 
         // Add initial thinking event immediately for instant feedback
-        const thinkingEvent = {
+        const thinkingEvent: AgentEvent = {
             type: "stage",
             name: "thinking",
             description: tChat("agent.thinking"),
             status: "running",
         };
         // Events managed in sidebar panel
-        addAgentEvent(thinkingEvent as any);
+        addAgentEvent(thinkingEvent);
 
         let fullContent = "";
         const mergeTokenContent = (tokenContent: string) => {
@@ -510,8 +577,53 @@ export function ChatInterface() {
             }
             updateStreamingContent(fullContent);
         };
-        const collectedEvents: any[] = [thinkingEvent];
-        const collectedImages: { index?: number; data?: string; url?: string; storageKey?: string; fileId?: string; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html" }[] = [];
+        const collectedEvents: AgentEvent[] = [thinkingEvent];
+        const collectedImages: GeneratedImage[] = [];
+        const collectedSources: Source[] = [];
+        const seenEventKeys = new Set<string>();
+
+        // Helper to generate a unique key for deduplication
+        const getEventKey = (event: AgentEvent): string => {
+            if (event.type === "tool_call") {
+                if (event.id) return `tool_call:${event.id}`;
+                const toolName = (event.tool || event.name || "").toLowerCase();
+                const argsStr = JSON.stringify(event.args || {});
+                return `tool_call:${toolName}:${argsStr}`;
+            } else if (event.type === "tool_result") {
+                return event.id ? `tool_result:${event.id}` : `tool_result:${Date.now()}`;
+            } else if (event.type === "stage") {
+                return `stage:${event.name}:${event.status}`;
+            }
+            return `${event.type}:${Date.now()}`;
+        };
+
+        // Helper to add event and update streaming state (with deduplication)
+        const addStreamingEvent = (event: AgentEvent) => {
+            const timestamp = Date.now();
+            const timestampedEvent: TimestampedEvent = { ...event, timestamp };
+            const eventKey = getEventKey(event);
+
+            // Check if we've seen this event before
+            if (seenEventKeys.has(eventKey)) {
+                return; // Skip duplicate
+            }
+            seenEventKeys.add(eventKey);
+
+            // Add to store (has its own deduplication)
+            addAgentEvent(event);
+
+            // Add to local state
+            setStreamingEvents(prev => [...prev, timestampedEvent]);
+
+            // Add to collectedEvents for saving
+            collectedEvents.push(event);
+        };
+
+        // Helper to add source and update streaming state
+        const addStreamingSource = (source: Source) => {
+            collectedSources.push(source);
+            setStreamingSources(prev => [...prev, source]);
+        };
 
         try {
 
@@ -555,11 +667,10 @@ export function ChatInterface() {
                         if (jsonStr === "[DONE]" || !jsonStr) continue;
 
                         try {
-                            const event = JSON.parse(jsonStr);
+                            const event = JSON.parse(jsonStr) as StreamEvent;
 
                             if (event.type === "token" && (event.data || event.content)) {
                                 const tokenContent = event.data || event.content;
-                                console.log("[Token Event] Received token, length:", tokenContent.length, "total so far:", fullContent.length);
                                 // Handle both delta and full-content token payloads.
                                 mergeTokenContent(tokenContent);
                                 // Status now shown in sidebar panel
@@ -567,52 +678,41 @@ export function ChatInterface() {
                                 // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
                                 const stageDescription = event.description || event.data?.description;
-                                // Stage status shown in sidebar
                                 updateAgentStage(stageDescription);
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Stage events managed in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "tool_call") {
                                 // Handle both flat structure and legacy data wrapper
                                 const toolName = event.tool || event.data?.tool || "web";
                                 const args = event.args || event.data?.args || {};
                                 if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
-                                    // Search status shown in sidebar
                                     updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
                                 } else {
-                                    // Tool execution status shown in sidebar
                                     updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
                                 }
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "tool_result") {
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "routing") {
-                                // Handle routing decision events
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "handoff") {
-                                // Handle agent handoff events
                                 const target = event.target || "";
-                                // Handoff status shown in sidebar
                                 updateAgentStage(tChat("agent.handoffTo", { target }));
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "source") {
-                                // Handle source events from search
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                // Handle source events from search - also update inline sources
+                                addStreamingEvent(event);
+                                const sourceData = event.data as Record<string, unknown> | undefined;
+                                if (sourceData) {
+                                    const newSource: Source = {
+                                        id: (sourceData.id as string) || `source-${collectedSources.length}`,
+                                        title: (sourceData.title as string) || event.name || "Source",
+                                        url: (sourceData.url as string) || "",
+                                        snippet: sourceData.snippet as string | undefined,
+                                    };
+                                    addStreamingSource(newSource);
+                                }
                             } else if (event.type === "code_result") {
-                                // Handle code execution results
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "image") {
                                 // Handle image event - images rendered inline via placeholder
                                 // Accept images with either data (base64) or url
@@ -650,9 +750,12 @@ export function ChatInterface() {
                                 // Handle browser stream event - show live browser view
                                 const streamUrl = event.stream_url as string;
                                 const sandboxId = event.sandbox_id as string;
-                                const authKey = event.auth_key as string | undefined;
                                 if (streamUrl && sandboxId) {
                                     console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
+                                    setBrowserStream({
+                                        streamUrl,
+                                        sandboxId,
+                                    });
                                     addAgentEvent(event);
                                 }
                             } else if (event.type === "browser_action") {
@@ -662,12 +765,18 @@ export function ChatInterface() {
                                 const target = event.target as string | undefined;
                                 const status = (event.status as string) || "running";
                                 // Transform to stage event for progress display
-                                addAgentEvent({
+                                const browserStageEvent: AgentEvent = {
                                     type: "stage",
                                     name: `browser_${action}`,
                                     description: target ? `${description}: ${target}` : description,
                                     status: status === "completed" ? "completed" : "running",
-                                });
+                                };
+                                addStreamingEvent(browserStageEvent);
+                            } else if (event.type === "skill_output") {
+                                // Handle skill output events
+                                const skillId = event.skill_id as string;
+                                addStreamingEvent(event);
+                                updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
@@ -688,19 +797,26 @@ export function ChatInterface() {
             if (fullContent || collectedImages.length > 0) {
                 const sanitizedContent = fullContent;
                 // Clear streaming state BEFORE saving to prevent duplicate rendering
-                // (streaming bubble + persisted message showing simultaneously)
                 flushTokenBatch();
                 setStreamingContent("");
                 streamingContentRef.current = "";
                 setStreamingImages([]);
+                setStreamingEvents([]);
+                setStreamingSources([]);
                 setLoading(false);
+
+                // Filter events to only save important ones (stages, tool_calls, sources)
+                const savedEvents = collectedEvents.filter(
+                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call"
+                );
 
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: collectedImages.length ? {
-                        images: collectedImages,
-                    } : undefined,
+                    metadata: {
+                        ...(collectedImages.length ? { images: collectedImages } : {}),
+                        ...(savedEvents.length ? { agentEvents: savedEvents } : {}),
+                    },
                 });
             }
         } catch (error) {
@@ -712,6 +828,8 @@ export function ChatInterface() {
             setStreamingContent("");
             streamingContentRef.current = "";
             setStreamingImages([]);
+            setStreamingEvents([]);
+            setStreamingSources([]);
             setLoading(false);
             setStreaming(false);
             endAgentProgress();
@@ -727,9 +845,11 @@ export function ChatInterface() {
         setStreamingContent("");
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
-        // Status shown in sidebar
-        // Events managed in sidebar panel
+        // Clear inline streaming state
         setStreamingImages([]);
+        setStreamingEvents([]);
+        setStreamingSources([]);
+        setStreamingAgentType(agentType);
 
         // Determine the conversation type based on agent
         const conversationType = agentType === "research" ? "research" : agentType;
@@ -752,8 +872,9 @@ export function ChatInterface() {
 
         // Get conversation messages for context BEFORE adding the new message
         // The backend will add the current message separately
+        // Use getActiveConversation() to get fresh state, not cached activeConversation
         const conversationForHistory =
-            conversations.find((conversation) => conversation.id === conversationId) || activeConversation;
+            conversations.find((conversation) => conversation.id === conversationId) || getActiveConversation();
         const conversationMessages = conversationForHistory?.messages || [];
         const history = conversationMessages
             .filter(msg => msg.role === "user" || msg.role === "assistant")
@@ -762,6 +883,15 @@ export function ChatInterface() {
                 content: msg.content,
                 metadata: msg.metadata || null,
             }));
+
+        // Debug: Log conversation history being sent
+        console.log('[Chat] Sending request with history:', {
+            conversationId,
+            messageCount: conversationMessages.length,
+            historyCount: history.length,
+            historyPreview: history.slice(-3).map(m => ({ role: m.role, content: m.content.substring(0, 30) }))
+        });
+
         const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
         const combinedAttachmentIds = agentType === "research"
             ? attachmentIds
@@ -780,14 +910,14 @@ export function ChatInterface() {
         startAgentProgress(conversationId, agentType);
 
         // Add initial thinking event immediately for instant feedback
-        const thinkingEvent = {
+        const thinkingEvent: AgentEvent = {
             type: "stage",
             name: "thinking",
             description: tChat("agent.thinking"),
             status: "running",
         };
         // Events managed in sidebar panel
-        addAgentEvent(thinkingEvent as any);
+        addAgentEvent(thinkingEvent);
 
         let fullContent = "";
         const mergeTokenContent = (tokenContent: string) => {
@@ -798,8 +928,53 @@ export function ChatInterface() {
             }
             updateStreamingContent(fullContent);
         };
-        const collectedEvents: any[] = [thinkingEvent];
-        const collectedImages: { index?: number; data?: string; url?: string; storageKey?: string; fileId?: string; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html" }[] = [];
+        const collectedEvents: AgentEvent[] = [thinkingEvent];
+        const collectedImages: GeneratedImage[] = [];
+        const collectedSources: Source[] = [];
+        const seenEventKeys = new Set<string>();
+
+        // Helper to generate a unique key for deduplication
+        const getEventKey = (event: AgentEvent): string => {
+            if (event.type === "tool_call") {
+                if (event.id) return `tool_call:${event.id}`;
+                const toolName = (event.tool || event.name || "").toLowerCase();
+                const argsStr = JSON.stringify(event.args || {});
+                return `tool_call:${toolName}:${argsStr}`;
+            } else if (event.type === "tool_result") {
+                return event.id ? `tool_result:${event.id}` : `tool_result:${Date.now()}`;
+            } else if (event.type === "stage") {
+                return `stage:${event.name}:${event.status}`;
+            }
+            return `${event.type}:${Date.now()}`;
+        };
+
+        // Helper to add event and update streaming state (with deduplication)
+        const addStreamingEvent = (event: AgentEvent) => {
+            const timestamp = Date.now();
+            const timestampedEvent: TimestampedEvent = { ...event, timestamp };
+            const eventKey = getEventKey(event);
+
+            // Check if we've seen this event before
+            if (seenEventKeys.has(eventKey)) {
+                return; // Skip duplicate
+            }
+            seenEventKeys.add(eventKey);
+
+            // Add to store (has its own deduplication)
+            addAgentEvent(event);
+
+            // Add to local state
+            setStreamingEvents(prev => [...prev, timestampedEvent]);
+
+            // Add to collectedEvents for saving
+            collectedEvents.push(event);
+        };
+
+        // Helper to add source and update streaming state
+        const addStreamingSource = (source: Source) => {
+            collectedSources.push(source);
+            setStreamingSources(prev => [...prev, source]);
+        };
 
         try {
 
@@ -843,11 +1018,10 @@ export function ChatInterface() {
                         if (jsonStr === "[DONE]" || !jsonStr) continue;
 
                         try {
-                            const event = JSON.parse(jsonStr);
+                            const event = JSON.parse(jsonStr) as StreamEvent;
 
                             if (event.type === "token" && (event.data || event.content)) {
                                 const tokenContent = event.data || event.content;
-                                console.log("[Token Event] Received token, length:", tokenContent.length, "total so far:", fullContent.length);
                                 // Handle both delta and full-content token payloads.
                                 mergeTokenContent(tokenContent);
                                 // Status now shown in sidebar panel
@@ -855,52 +1029,41 @@ export function ChatInterface() {
                                 // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
                                 const stageDescription = event.description || event.data?.description;
-                                // Stage status shown in sidebar
                                 updateAgentStage(stageDescription);
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Stage events managed in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "tool_call") {
                                 // Handle both flat structure and legacy data wrapper
                                 const toolName = event.tool || event.data?.tool || "tool";
                                 const args = event.args || event.data?.args || {};
                                 if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
-                                    // Search status shown in sidebar
                                     updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
                                 } else {
-                                    // Tool execution status shown in sidebar
                                     updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
                                 }
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "tool_result") {
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "routing") {
-                                // Handle routing decision events
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "handoff") {
-                                // Handle agent handoff events
                                 const target = event.target || "";
-                                // Handoff status shown in sidebar
                                 updateAgentStage(tChat("agent.handoffTo", { target }));
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "source") {
-                                // Handle source events from search
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                // Handle source events from search - also update inline sources
+                                addStreamingEvent(event);
+                                const sourceData = event.data as Record<string, unknown> | undefined;
+                                if (sourceData) {
+                                    const newSource: Source = {
+                                        id: (sourceData.id as string) || `source-${collectedSources.length}`,
+                                        title: (sourceData.title as string) || event.name || "Source",
+                                        url: (sourceData.url as string) || "",
+                                        snippet: sourceData.snippet as string | undefined,
+                                    };
+                                    addStreamingSource(newSource);
+                                }
                             } else if (event.type === "code_result") {
-                                // Handle code execution results
-                                collectedEvents.push(event);
-                                addAgentEvent(event);
-                                // Events batched in sidebar panel
+                                addStreamingEvent(event);
                             } else if (event.type === "image") {
                                 // Handle image event - images rendered inline via placeholder
                                 // Accept images with either data (base64) or url
@@ -941,6 +1104,11 @@ export function ChatInterface() {
                                 const authKey = event.auth_key as string | undefined;
                                 if (streamUrl && sandboxId) {
                                     console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
+                                    setBrowserStream({
+                                        streamUrl,
+                                        sandboxId,
+                                        authKey,
+                                    });
                                     addAgentEvent(event);
                                 }
                             } else if (event.type === "browser_action") {
@@ -950,12 +1118,18 @@ export function ChatInterface() {
                                 const target = event.target as string | undefined;
                                 const status = (event.status as string) || "running";
                                 // Transform to stage event for progress display
-                                addAgentEvent({
+                                const browserStageEvent: AgentEvent = {
                                     type: "stage",
                                     name: `browser_${action}`,
                                     description: target ? `${description}: ${target}` : description,
                                     status: status === "completed" ? "completed" : "running",
-                                });
+                                };
+                                addStreamingEvent(browserStageEvent);
+                            } else if (event.type === "skill_output") {
+                                // Handle skill output events
+                                const skillId = event.skill_id as string;
+                                addStreamingEvent(event);
+                                updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
@@ -980,19 +1154,26 @@ export function ChatInterface() {
                     console.log("[Message Save] Saving agent message with images:", collectedImages.length);
                 }
                 // Clear streaming state BEFORE saving to prevent duplicate rendering
-                // (streaming bubble + persisted message showing simultaneously)
                 flushTokenBatch();
                 setStreamingContent("");
                 streamingContentRef.current = "";
                 setStreamingImages([]);
+                setStreamingEvents([]);
+                setStreamingSources([]);
                 setLoading(false);
+
+                // Filter events to only save important ones (stages, tool_calls, sources)
+                const savedEvents = collectedEvents.filter(
+                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call"
+                );
 
                 await addMessage(conversationId, {
                     role: "assistant",
                     content: sanitizedContent,
-                    metadata: collectedImages.length ? {
-                        images: collectedImages,
-                    } : undefined,
+                    metadata: {
+                        ...(collectedImages.length ? { images: collectedImages } : {}),
+                        ...(savedEvents.length ? { agentEvents: savedEvents } : {}),
+                    },
                 });
             }
         } catch (error) {
@@ -1004,6 +1185,8 @@ export function ChatInterface() {
             setStreamingContent("");
             streamingContentRef.current = "";
             setStreamingImages([]);
+            setStreamingEvents([]);
+            setStreamingSources([]);
             setLoading(false);
             setStreaming(false);
             endAgentProgress();
@@ -1041,8 +1224,7 @@ export function ChatInterface() {
 
         // Check conversation type and call the appropriate handler
         const conversationType = activeConversation?.type;
-        if (conversationType && conversationType !== "chat" && conversationType !== "research") {
-            // For task-type agents (code, writing, data, image), use handleAgentTask
+        if (conversationType === "data") {
             await handleAgentTask(userMessage, conversationType as AgentType, attachmentIds, userMessageAttachments);
         } else {
             // For chat type, use handleChat
@@ -1105,10 +1287,7 @@ export function ChatInterface() {
         if (selectedAgent === "research" && selectedScenario) {
             return t("researchPlaceholder", { scenario: tResearch(`${selectedScenario}.name`) });
         }
-        if (selectedAgent === "code") return t("codePlaceholder");
-        if (selectedAgent === "writing") return t("writingPlaceholder");
         if (selectedAgent === "data") return t("dataPlaceholder");
-        if (selectedAgent === "image") return t("imagePlaceholder");
         return t("inputPlaceholder");
     };
 
@@ -1123,6 +1302,9 @@ export function ChatInterface() {
                             streamingContent={streamingContent}
                             isLoading={isLoading}
                             streamingImages={streamingImages}
+                            streamingEvents={streamingEvents}
+                            streamingSources={streamingSources}
+                            streamingAgentType={streamingAgentType}
                             streamingStartTime={streamingStartTimeRef.current}
                             onRegenerate={handleRegenerate}
                             messagesEndRef={messagesEndRef}
@@ -1372,6 +1554,7 @@ export function ChatInterface() {
                     )}
                 </div>
             </div>
+
         </div>
     );
 }

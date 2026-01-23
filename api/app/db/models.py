@@ -35,6 +35,9 @@ class User(Base):
     files: Mapped[list["File"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    skill_executions: Mapped[list["SkillExecution"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
@@ -411,4 +414,116 @@ class MessageAttachment(Base):
             "id": self.id,
             "message_id": self.message_id,
             "file_id": self.file_id,
+        }
+
+
+class SkillDefinition(Base):
+    """Skill definition model for dynamic skills."""
+
+    __tablename__ = "skill_definitions"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    version: Mapped[str] = mapped_column(String(20), default="1.0.0")
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+
+    # Skill code and configuration
+    module_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Dynamic skills (marketplace)
+    source_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Status
+    enabled: Mapped[bool] = mapped_column(default=True, index=True)
+    is_builtin: Mapped[bool] = mapped_column(default=False)
+
+    # Metadata
+    author: Mapped[str] = mapped_column(String(255), default="hyperagent")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Usage tracking
+    invocation_count: Mapped[int] = mapped_column(default=0)
+    last_invoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    executions: Mapped[list["SkillExecution"]] = relationship(
+        back_populates="skill", cascade="all, delete-orphan"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "category": self.category,
+            "enabled": self.enabled,
+            "is_builtin": self.is_builtin,
+            "author": self.author,
+            "invocation_count": self.invocation_count,
+            "last_invoked_at": self.last_invoked_at.isoformat() if self.last_invoked_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class SkillExecution(Base):
+    """Execution history for skills."""
+
+    __tablename__ = "skill_executions"
+    __table_args__ = (
+        # Composite indexes for common query patterns
+        Index("ix_skill_executions_user_status", "user_id", "status"),
+        Index("ix_skill_executions_skill_status", "skill_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(ForeignKey("skill_definitions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Execution details
+    input_params: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    output_data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Timing
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    execution_time_ms: Mapped[int | None] = mapped_column(nullable=True)
+
+    # Context
+    agent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # Relationships
+    skill: Mapped["SkillDefinition"] = relationship(back_populates="executions")
+    user: Mapped["User"] = relationship(back_populates="skill_executions")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "skill_id": self.skill_id,
+            "user_id": self.user_id,
+            "status": self.status,
+            "error": self.error,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "execution_time_ms": self.execution_time_ms,
+            "agent_type": self.agent_type,
+            "task_id": self.task_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }

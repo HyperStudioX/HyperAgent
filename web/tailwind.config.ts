@@ -10,15 +10,20 @@ const config: Config = {
   theme: {
     extend: {
       fontSize: {
-        'xs': ['0.6875rem', { lineHeight: '0.9375rem', letterSpacing: '0' }],    // 11px/15px - labels, badges
-        'sm': ['0.75rem', { lineHeight: '1rem', letterSpacing: '0' }],           // 12px/16px - secondary text
-        'base': ['0.8125rem', { lineHeight: '1.125rem', letterSpacing: '0' }],   // 13px/18px - primary UI
-        'md': ['0.875rem', { lineHeight: '1.25rem', letterSpacing: '0' }],       // 14px/20px - emphasized
-        'lg': ['1rem', { lineHeight: '1.5rem', letterSpacing: '-0.01em' }],      // 16px/24px - headings
-        'xl': ['1.125rem', { lineHeight: '1.75rem', letterSpacing: '-0.01em' }], // 18px/28px
-        '2xl': ['1.25rem', { lineHeight: '1.875rem', letterSpacing: '-0.02em' }], // 20px/30px
-        '3xl': ['1.5rem', { lineHeight: '2rem', letterSpacing: '-0.02em' }],     // 24px/32px
-        '4xl': ['2rem', { lineHeight: '2.5rem', letterSpacing: '-0.03em' }],     // 32px/40px
+        // UI Scale
+        'xs': ['0.75rem', { lineHeight: '1rem', letterSpacing: '0.01em' }],        // 12px - labels, badges
+        'sm': ['0.8125rem', { lineHeight: '1.25rem', letterSpacing: '0' }],        // 13px - secondary text
+        'base': ['0.875rem', { lineHeight: '1.375rem', letterSpacing: '0' }],      // 14px - primary UI
+        'md': ['0.9375rem', { lineHeight: '1.5rem', letterSpacing: '0' }],         // 15px - emphasized UI
+        // Reading Scale - comfortable for prose
+        'lg': ['1rem', { lineHeight: '1.625rem', letterSpacing: '-0.01em' }],      // 16px - prose body
+        'xl': ['1.125rem', { lineHeight: '1.75rem', letterSpacing: '-0.01em' }],   // 18px - lead text
+        // Heading Scale - dramatic jumps for hierarchy
+        '2xl': ['1.375rem', { lineHeight: '1.875rem', letterSpacing: '-0.02em' }], // 22px - h4
+        '3xl': ['1.75rem', { lineHeight: '2.25rem', letterSpacing: '-0.025em' }],  // 28px - h3
+        '4xl': ['2.5rem', { lineHeight: '3rem', letterSpacing: '-0.03em' }],       // 40px - h2
+        '5xl': ['3.5rem', { lineHeight: '4rem', letterSpacing: '-0.035em' }],      // 56px - h1 hero
+        '6xl': ['4.5rem', { lineHeight: '5rem', letterSpacing: '-0.04em' }],       // 72px - display
       },
       colors: {
         background: "hsl(var(--background))",
@@ -79,6 +84,12 @@ const config: Config = {
           "Roboto",
           "Helvetica Neue",
           "Arial",
+          "sans-serif",
+        ],
+        display: [
+          "var(--font-bricolage)",
+          "var(--font-plus-jakarta-sans)",
+          "system-ui",
           "sans-serif",
         ],
         mono: [

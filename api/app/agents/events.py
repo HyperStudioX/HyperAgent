@@ -47,6 +47,9 @@ class EventType(str, Enum):
     BROWSER_STREAM = "browser_stream"
     BROWSER_ACTION = "browser_action"
 
+    # Skill events
+    SKILL_OUTPUT = "skill_output"
+
 
 class StageStatus(str, Enum):
     """Stage lifecycle statuses."""
@@ -191,6 +194,15 @@ class BrowserActionEvent(BaseModel):
     description: str = Field(..., description="Human-readable description of the action")
     target: str | None = Field(default=None, description="Target of the action (URL, coordinates, text)")
     status: str = Field(default="running", description="Action status (running, completed)")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class SkillOutputEvent(BaseModel):
+    """Event containing skill execution output."""
+
+    type: Literal["skill_output"] = "skill_output"
+    skill_id: str = Field(..., description="Skill identifier")
+    output: dict[str, Any] = Field(..., description="Skill execution output")
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
@@ -474,4 +486,23 @@ def browser_action(
         description=description,
         target=target,
         status=status,
+    ).model_dump()
+
+
+def skill_output(
+    skill_id: str,
+    output: dict[str, Any],
+) -> dict[str, Any]:
+    """Create a skill output event dictionary.
+
+    Args:
+        skill_id: Skill identifier
+        output: Skill execution output
+
+    Returns:
+        Skill output event dictionary
+    """
+    return SkillOutputEvent(
+        skill_id=skill_id,
+        output=output,
     ).model_dump()

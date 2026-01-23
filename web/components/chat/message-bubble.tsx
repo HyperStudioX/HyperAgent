@@ -12,7 +12,10 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { usePreviewStore } from "@/lib/stores/preview-store";
 import { GeneratedMedia } from "@/components/chat/generated-media";
-import type { Message, FileAttachment, GeneratedImage, AgentEvent } from "@/lib/types";
+import { AgentProgressPanel } from "@/components/ui/agent-progress-panel";
+import { LiveAgentProgressPanel } from "@/components/chat/live-agent-progress-panel";
+import type { Message, FileAttachment, GeneratedImage, AgentEvent, Source } from "@/lib/types";
+import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
 
 // Normalized image structure for consistent handling
 interface NormalizedImage {
@@ -48,29 +51,16 @@ interface ParsedMetadata {
 }
 
 /**
- * Typing indicator with animated dots
+ * Thinking indicator - clean pill with pulsing dot
  */
 function TypingIndicator({ message }: { message?: string }) {
     const t = useTranslations("chat");
     const displayMessage = message || t("agent.thinking");
 
     return (
-        <div className="flex items-center gap-3 py-2 mb-2">
-            <div className="flex items-center gap-1.5 px-3 py-2 bg-muted/50 rounded-full">
-                <span
-                    className="w-2 h-2 bg-primary/60 rounded-full typing-dot"
-                    style={{ animationDelay: "0ms" }}
-                />
-                <span
-                    className="w-2 h-2 bg-primary/60 rounded-full typing-dot"
-                    style={{ animationDelay: "200ms" }}
-                />
-                <span
-                    className="w-2 h-2 bg-primary/60 rounded-full typing-dot"
-                    style={{ animationDelay: "400ms" }}
-                />
-            </div>
-            <span className="text-sm text-muted-foreground animate-pulse">{displayMessage}</span>
+        <div className="inline-flex items-center gap-2.5 px-3.5 py-2 mb-3 rounded-full bg-muted/60 border border-border/40">
+            <span className="w-2 h-2 rounded-full bg-primary/80 animate-pulse" />
+            <span className="text-[13px] font-medium text-muted-foreground">{displayMessage}</span>
         </div>
     );
 }
@@ -109,6 +99,9 @@ interface MessageBubbleProps {
     onRegenerate?: () => void;
     isStreaming?: boolean;
     images?: GeneratedImage[]; // For charts and generated images
+    streamingEvents?: TimestampedEvent[]; // Live agent events during streaming
+    streamingSources?: Source[]; // Live sources during streaming
+    agentType?: string; // Agent type for i18n
 }
 
 function MessageAttachments({
@@ -155,7 +148,8 @@ function MessageAttachments({
     );
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, onRegenerate, isStreaming = false, images }: MessageBubbleProps) {
+
+export const MessageBubble = memo(function MessageBubble({ message, onRegenerate, isStreaming = false, images, streamingEvents, streamingSources, agentType }: MessageBubbleProps) {
     const isUser = message.role === "user";
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
@@ -266,12 +260,22 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                 style={{ opacity: 0.9 }}
                             />
                         </div>
-                        <span className="text-[15px] font-medium text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
+                        <span className="text-[15px] font-bold text-foreground tracking-[-0.01em] opacity-90">HyperAgent</span>
                     </div>
 
                     {/* Show typing indicator when no content yet */}
                     {!message.content && isStreaming && (
                         <TypingIndicator />
+                    )}
+
+                    {/* Show live agent progress inline during streaming */}
+                    {isStreaming && streamingEvents && streamingEvents.length > 0 && (
+                        <LiveAgentProgressPanel
+                            events={streamingEvents}
+                            sources={streamingSources}
+                            isStreaming={isStreaming}
+                            agentType={agentType}
+                        />
                     )}
 
                     <div
@@ -487,6 +491,11 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                             </div>
                         );
                     })()}
+
+                    {/* Show saved agent events (progress steps) if available - only when not streaming */}
+                    {!isStreaming && parsedMetadata?.agentEvents && parsedMetadata.agentEvents.length > 0 && (
+                        <AgentProgressPanel events={parsedMetadata.agentEvents} />
+                    )}
 
                     {/* Action buttons for assistant message - only show when not streaming */}
                     {!isStreaming && (

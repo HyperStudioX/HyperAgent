@@ -5,6 +5,7 @@ to eliminate code duplication and ensure consistent behavior.
 """
 
 import json
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -141,6 +142,8 @@ def extract_and_add_image_events(
         for i, img in enumerate(images):
             base64_data = img.get("base64_data")
             if base64_data:
+                # Remove whitespace/newlines to keep SSE payloads single-line JSON.
+                base64_data = re.sub(r"\s+", "", base64_data)
                 # Detect mime type from base64 signature
                 mime_type = "image/png"
                 if base64_data.startswith("/9j/"):

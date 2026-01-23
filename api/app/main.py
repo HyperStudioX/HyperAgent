@@ -9,7 +9,7 @@ from app.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.base import close_db, init_db
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.api import conversations, files, health, query, tasks
+from app.api import conversations, files, health, query, skills, tasks
 
 # Initialize logging first
 setup_logging(
@@ -46,6 +46,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("task_queue_init_failed", error=str(e))
         # Continue without queue in development
+
+    # Initialize skill registry
+    from app.services.skill_registry import skill_registry
+    from app.db.base import get_db_session
+
+    try:
+        async with get_db_session() as db:
+            await skill_registry.initialize(db)
+            logger.info("skill_registry_ready")
+    except Exception as e:
+        logger.error("skill_registry_init_failed", error=str(e))
+        # Continue without skills in development
 
     yield
 
@@ -107,3 +119,4 @@ app.include_router(query.router, prefix=settings.api_prefix, tags=["query"])
 app.include_router(tasks.router, prefix=settings.api_prefix, tags=["tasks"])
 app.include_router(conversations.router, prefix=settings.api_prefix, tags=["conversations"])
 app.include_router(files.router, prefix=settings.api_prefix, tags=["files"])
+app.include_router(skills.router, prefix=settings.api_prefix, tags=["skills"])

@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { BookOpen, FileText, List, ChevronRight } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 interface ResearchResultViewProps {
@@ -31,11 +32,14 @@ const extractHeadings = (content: string): TocItem[] => {
     });
 };
 
-export function ResearchResultView({ content, isStreaming = false, title = "Analysis Report" }: ResearchResultViewProps) {
+export function ResearchResultView({ content, isStreaming = false, title }: ResearchResultViewProps) {
+    const t = useTranslations("report");
     const [isTocCollapsed, setIsTocCollapsed] = useState(false);
     const [debouncedToc, setDebouncedToc] = useState<TocItem[]>([]);
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
     const lastTocLengthRef = useRef(0);
+    
+    const reportTitle = title || t("defaultTitle");
 
     // Extract headings with useMemo for non-streaming content
     // During streaming, we debounce updates to prevent excessive re-renders
@@ -91,13 +95,13 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
                         {!isTocCollapsed && (
                             <div className="flex items-center gap-2 text-foreground font-semibold text-xs uppercase tracking-wider animate-in fade-in duration-300">
                                 <List className="w-4 h-4" />
-                                <span>Table of Contents</span>
+                                <span>{t("tableOfContents")}</span>
                             </div>
                         )}
                         <button
                             onClick={() => setIsTocCollapsed(!isTocCollapsed)}
                             className="p-1.5 hover:bg-secondary/50 rounded-md text-muted-foreground hover:text-foreground transition-colors ml-auto"
-                            title={isTocCollapsed ? "Expand outline" : "Collapse outline"}
+                            title={isTocCollapsed ? t("expandOutline") : t("collapseOutline")}
                         >
                             <ChevronRight className={cn("w-4 h-4 transition-transform duration-300", isTocCollapsed ? "" : "rotate-180")} />
                         </button>
@@ -262,7 +266,7 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
                                                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse [animation-delay:0.2s]" />
                                                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse [animation-delay:0.4s]" />
                                             </div>
-                                            <span className="text-xs tracking-widest uppercase">Refining analysis...</span>
+                                            <span className="text-xs tracking-widest uppercase">{t("refiningAnalysis")}</span>
                                         </div>
                                     </div>
                                 )}
@@ -273,13 +277,13 @@ export function ResearchResultView({ content, isStreaming = false, title = "Anal
                     {/* Footer Metadata */}
                     <div className="mt-8 flex flex-wrap items-center justify-between gap-4 text-muted-foreground text-xs font-medium px-2 uppercase tracking-widest border-t border-border/50 pt-6">
                         <div className="flex items-center gap-4">
-                            <span>HyperAgent Synthetic</span>
+                            <span>{t("synthetic")}</span>
                             <span className="w-1 h-1 rounded-full bg-border" />
                             <span>v0.1.0</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <BookOpen className="w-3.5 h-3.5" />
-                            <span>Verified Report</span>
+                            <span>{t("verifiedReport")}</span>
                         </div>
                     </div>
                 </div>
@@ -294,11 +298,12 @@ interface CodeBlockProps {
 }
 
 function CodeBlock({ language, children }: CodeBlockProps) {
+    const t = useTranslations("report");
     return (
         <div className="my-8 rounded-xl overflow-hidden border border-border bg-muted">
             <div className="flex items-center bg-secondary px-5 py-3 border-b border-border">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                    {language || "code"}
+                    {language || t("code")}
                 </span>
             </div>
             <div className="relative overflow-x-auto">

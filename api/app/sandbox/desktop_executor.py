@@ -143,6 +143,22 @@ class E2BDesktopExecutor:
         await asyncio.to_thread(self.sandbox.launch, browser_name)
         await asyncio.to_thread(self.sandbox.wait, wait_ms)
 
+        # Focus and maximize the browser window to ensure it's visible in the stream
+        # Click near the center of the screen to focus the browser window
+        try:
+            # Click in the center of the screen to focus the browser window
+            await asyncio.to_thread(self.sandbox.move_mouse, 512, 384)  # Center of 1024x768
+            await asyncio.to_thread(self.sandbox.left_click)
+            await asyncio.to_thread(self.sandbox.wait, 500)
+            
+            # Maximize the window using Alt+F10 (Linux window manager shortcut)
+            await asyncio.to_thread(self.sandbox.press, ["alt", "F10"])
+            await asyncio.to_thread(self.sandbox.wait, 500)
+            logger.debug("browser_window_focused_and_maximized", browser=browser_name)
+        except Exception as e:
+            # If focusing fails, log but continue - browser should still work
+            logger.warning("browser_window_focus_failed", browser=browser_name, error=str(e))
+
         self._browser_launched = True
         logger.info("browser_launched", browser=browser_name)
 

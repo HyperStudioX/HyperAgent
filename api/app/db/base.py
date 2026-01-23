@@ -55,6 +55,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+def get_db_session() -> AsyncSession:
+    """Get a new database session for use as a context manager.
+
+    Returns:
+        AsyncSession: Database session (use with 'async with')
+    """
+    return async_session_maker()
+
+
 async def init_db(create_tables: bool = False) -> None:
     """Initialize database connection and optionally create tables.
 

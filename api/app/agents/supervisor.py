@@ -1,6 +1,5 @@
 """Supervisor/orchestrator for the multi-agent system with handoff support."""
 
-import asyncio
 from typing import Any, AsyncGenerator, Literal
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -9,12 +8,8 @@ from langgraph.graph import END, StateGraph
 from app.agents.routing import route_query
 from app.agents.state import AgentType, SupervisorState
 from app.agents.subagents.chat import chat_subgraph
-from app.agents.subagents.code import code_subgraph
-from app.agents.subagents.analytics import data_subgraph
-from app.agents.subagents.computer import computer_subgraph
-from app.agents.subagents.image import image_subgraph
+from app.agents.subagents.data import data_subgraph
 from app.agents.subagents.research import research_subgraph
-from app.agents.subagents.writing import writing_subgraph
 from app.agents.tools.handoff import (
     HANDOFF_MATRIX,
     MAX_HANDOFFS,
@@ -32,12 +27,9 @@ logger = get_logger(__name__)
 # Note: "generate" is disabled because it produces code that shouldn't be shown to users
 # The code is still executed, and results are shown via "summarize" stage
 STREAMING_CONFIG = {
-    "write": True,
-    "finalize": True,
     "summarize": True,
     "agent": True,
     "generate": False,  # Code generation - internal step, don't stream to chat
-    "outline": False,   # Outline generation - internal step for writing agent
     "synthesize": True,
     "analyze": False,   # Analysis step - internal, only show final summary
     "router": False,
@@ -49,9 +41,23 @@ STREAMING_CONFIG = {
     "research_post": False,
     "init_config": False,
     "collect_sources": False,
-    # Computer agent - stream final response
-    "computer": True,
 }
+
+
+def _node_matches_streaming(node_name: str, node_key: str) -> bool:
+    """Check if a node name matches a streaming config key."""
+    return node_name == node_key or node_name.endswith(f":{node_key}")
+
+
+def _path_has_streamable_node(node_path_str: str) -> bool:
+    """Check if any node in the current path should stream."""
+    if not node_path_str:
+        return False
+    for segment in node_path_str.split("/"):
+        for node, enabled in STREAMING_CONFIG.items():
+            if enabled and _node_matches_streaming(segment, node):
+                return True
+    return False
 
 
 async def router_node(state: SupervisorState) -> dict:
@@ -111,6 +117,7 @@ async def chat_node(state: SupervisorState) -> dict:
     # Include task_id so browser tools use the same sandbox session as the stream viewer
     input_state = {
         "query": _build_query_with_context(state),
+        "mode": state.get("mode"),
         "messages": state.get("messages") or [],
         "user_id": state.get("user_id"),
         "task_id": state.get("task_id"),
@@ -132,10 +139,21 @@ async def chat_node(state: SupervisorState) -> dict:
 
     # Check for handoff in result
     handoff = result.get("pending_handoff")
-    if handoff and _can_handoff(state, handoff.get("target_agent", "")):
-        output["pending_handoff"] = handoff
-        output["handoff_count"] = state.get("handoff_count", 0) + 1
-        _update_handoff_history(output, state, handoff)
+    if handoff:
+        if _can_handoff(state, handoff.get("target_agent", "")):
+            output["pending_handoff"] = handoff
+            output["handoff_count"] = state.get("handoff_count", 0) + 1
+            _update_handoff_history(output, state, handoff)
+        else:
+            logger.warning(
+                "chat_handoff_blocked",
+                target=handoff.get("target_agent", ""),
+            )
+            if not output.get("response"):
+                output["response"] = (
+                    "I couldn't hand off that request, so I'm continuing here. "
+                    "Please share more details or rephrase."
+                )
 
     return output
 
@@ -199,167 +217,26 @@ async def research_post_node(state: SupervisorState) -> dict:
 
     # Validate and propagate handoff
     handoff = state.get("pending_handoff")
-    if handoff and _can_handoff(state, handoff.get("target_agent", "")):
-        output["pending_handoff"] = handoff
-        output["handoff_count"] = state.get("handoff_count", 0) + 1
-        _update_handoff_history(output, state, handoff)
+    if handoff:
+        if _can_handoff(state, handoff.get("target_agent", "")):
+            output["pending_handoff"] = handoff
+            output["handoff_count"] = state.get("handoff_count", 0) + 1
+            _update_handoff_history(output, state, handoff)
+        else:
+            logger.warning(
+                "research_handoff_blocked",
+                target=handoff.get("target_agent", ""),
+            )
+            if not state.get("response"):
+                output["response"] = (
+                    "I couldn't hand off that request, so I'm continuing here. "
+                    "Please share more details or rephrase."
+                )
 
     logger.info(
         "research_post_completed",
         has_findings=bool(shared_memory.get("research_findings")),
         has_handoff=bool(handoff),
-    )
-
-    return output
-
-
-async def code_node(state: SupervisorState) -> dict:
-    """Execute the code subagent.
-
-    Args:
-        state: Current supervisor state
-
-    Returns:
-        Dict with code results, events, and potential handoff
-    """
-    input_state = {
-        "query": _build_query_with_context(state),
-        "messages": state.get("messages") or [],
-        "user_id": state.get("user_id"),
-        "task_id": state.get("task_id"),
-        "attachment_ids": state.get("attachment_ids") or [],
-        "provider": state.get("provider"),
-        "model": state.get("model"),
-        "shared_memory": state.get("shared_memory") or {},
-    }
-
-    result = await code_subgraph.ainvoke(input_state)
-
-    output = {
-        "response": result.get("response", ""),
-        "events": result.get("events", []),
-    }
-
-    # Update shared memory with code artifacts
-    shared_memory = state.get("shared_memory") or {}
-    if result.get("code"):
-        shared_memory["generated_code"] = result.get("code", "")
-        shared_memory["code_language"] = result.get("language", "python")
-    if result.get("execution_result"):
-        shared_memory["execution_results"] = result.get("execution_result", "")
-    output["shared_memory"] = shared_memory
-
-    # Check for handoff in result
-    handoff = result.get("pending_handoff")
-    if handoff and _can_handoff(state, handoff.get("target_agent", "")):
-        output["pending_handoff"] = handoff
-        output["handoff_count"] = state.get("handoff_count", 0) + 1
-        _update_handoff_history(output, state, handoff)
-
-    return output
-
-
-async def writing_node(state: SupervisorState) -> dict:
-    """Execute the writing subagent.
-
-    Args:
-        state: Current supervisor state
-
-    Returns:
-        Dict with writing results, events, and potential handoff
-    """
-    input_state = {
-        "query": _build_query_with_context(state),
-        "messages": state.get("messages") or [],
-        "user_id": state.get("user_id"),
-        "task_id": state.get("task_id"),
-        "attachment_ids": state.get("attachment_ids") or [],
-        "image_attachments": state.get("image_attachments") or [],
-        "provider": state.get("provider"),
-        "model": state.get("model"),
-        "shared_memory": state.get("shared_memory") or {},
-    }
-
-    result = await writing_subgraph.ainvoke(input_state)
-
-    output = {
-        "response": result.get("response", ""),
-        "events": result.get("events", []),
-    }
-
-    # Update shared memory with writing artifacts
-    shared_memory = state.get("shared_memory") or {}
-    if result.get("outline"):
-        shared_memory["writing_outline"] = result.get("outline", "")
-    if result.get("draft"):
-        shared_memory["writing_draft"] = result.get("draft", "")
-    output["shared_memory"] = shared_memory
-
-    # Check for handoff in result
-    handoff = result.get("pending_handoff")
-    if handoff and _can_handoff(state, handoff.get("target_agent", "")):
-        output["pending_handoff"] = handoff
-        output["handoff_count"] = state.get("handoff_count", 0) + 1
-        _update_handoff_history(output, state, handoff)
-
-    return output
-
-
-async def image_node(state: SupervisorState) -> dict:
-    """Execute the image generation subagent.
-
-    Args:
-        state: Current supervisor state
-
-    Returns:
-        Dict with image generation results and events
-    """
-    logger.info("image_generation_started", query=state.get("query", "")[:50])
-
-    input_state = {
-        "query": _build_query_with_context(state),
-        "messages": state.get("messages") or [],
-        "user_id": state.get("user_id"),
-        "task_id": state.get("task_id"),
-        "provider": state.get("provider"),
-        "model": state.get("model"),
-        "image_model": state.get("image_model"),
-        "quality": state.get("quality"),
-        "shared_memory": state.get("shared_memory") or {},
-    }
-
-    result = await image_subgraph.ainvoke(input_state)
-
-    # Extract events from subgraph result
-    subgraph_events = result.get("events", [])
-    image_events = [e for e in subgraph_events if isinstance(e, dict) and e.get("type") == "image"]
-    token_events = [e for e in subgraph_events if isinstance(e, dict) and e.get("type") == "token"]
-
-    logger.info(
-        "image_node_subgraph_result",
-        total_events=len(subgraph_events),
-        image_events_count=len(image_events),
-        token_events_count=len(token_events),
-        has_response=bool(result.get("response")),
-        response_preview=result.get("response", "")[:100] if result.get("response") else None,
-        image_events_have_data=[bool(e.get("data")) for e in image_events],
-        image_events_have_url=[bool(e.get("url")) for e in image_events],
-    )
-
-    output = {
-        "response": result.get("response", ""),
-        "events": subgraph_events,
-    }
-
-    # Update shared memory with generated images info
-    shared_memory = state.get("shared_memory") or {}
-    if result.get("generated_images"):
-        shared_memory["generated_images"] = result.get("generated_images", [])
-    output["shared_memory"] = shared_memory
-
-    logger.info(
-        "image_generation_completed",
-        image_count=len(result.get("generated_images", [])),
     )
 
     return output
@@ -405,54 +282,21 @@ async def data_node(state: SupervisorState) -> dict:
 
     # Check for handoff in result
     handoff = result.get("pending_handoff")
-    if handoff and _can_handoff(state, handoff.get("target_agent", "")):
-        output["pending_handoff"] = handoff
-        output["handoff_count"] = state.get("handoff_count", 0) + 1
-        _update_handoff_history(output, state, handoff)
-
-    return output
-
-
-async def computer_node(state: SupervisorState) -> dict:
-    """Execute the computer/desktop control subagent.
-
-    Args:
-        state: Current supervisor state
-
-    Returns:
-        Dict with computer task results and events
-    """
-    logger.info("computer_task_started", query=state.get("query", "")[:50])
-
-    input_state = {
-        "query": _build_query_with_context(state),
-        "messages": state.get("messages") or [],
-        "user_id": state.get("user_id"),
-        "task_id": state.get("task_id"),
-        "provider": state.get("provider"),
-        "model": state.get("model"),
-        "shared_memory": state.get("shared_memory") or {},
-    }
-
-    result = await computer_subgraph.ainvoke(input_state)
-
-    output = {
-        "response": result.get("response", ""),
-        "events": result.get("events", []),
-    }
-
-    # Update shared memory with computer task results
-    shared_memory = state.get("shared_memory") or {}
-    if result.get("task_result"):
-        shared_memory["computer_task_result"] = result.get("task_result", "")
-    if result.get("extracted_content"):
-        shared_memory["extracted_content"] = result.get("extracted_content", "")
-    output["shared_memory"] = shared_memory
-
-    logger.info(
-        "computer_task_completed",
-        task_complete=result.get("task_complete", False),
-    )
+    if handoff:
+        if _can_handoff(state, handoff.get("target_agent", "")):
+            output["pending_handoff"] = handoff
+            output["handoff_count"] = state.get("handoff_count", 0) + 1
+            _update_handoff_history(output, state, handoff)
+        else:
+            logger.warning(
+                "data_handoff_blocked",
+                target=handoff.get("target_agent", ""),
+            )
+            if not output.get("response"):
+                output["response"] = (
+                    "I couldn't hand off that request, so I'm continuing here. "
+                    "Please share more details or rephrase."
+                )
 
     return output
 
@@ -595,11 +439,7 @@ def create_supervisor_graph(checkpointer=None):
     # Add nodes
     graph.add_node("router", router_node)
     graph.add_node("chat", chat_node)
-    graph.add_node("code", code_node)
-    graph.add_node("writing", writing_node)
     graph.add_node("data", data_node)
-    graph.add_node("image", image_node)
-    graph.add_node("computer", computer_node)
 
     # Research agent uses prep -> subgraph -> post pattern for real-time streaming
     # Adding the subgraph directly (not wrapped) allows internal events to propagate
@@ -611,17 +451,15 @@ def create_supervisor_graph(checkpointer=None):
     graph.set_entry_point("router")
 
     # Conditional edges from router to appropriate agent
+    # Note: Deprecated agent types (code, writing, image) are automatically
+    # mapped to CHAT in routing.py via AGENT_NAME_MAP before reaching here
     graph.add_conditional_edges(
         "router",
         select_agent,
         {
             AgentType.CHAT.value: "chat",
             AgentType.RESEARCH.value: "research_prep",  # Route to prep node
-            AgentType.CODE.value: "code",
-            AgentType.WRITING.value: "writing",
             AgentType.DATA.value: "data",
-            AgentType.IMAGE.value: "image",
-            AgentType.COMPUTER.value: "computer",
         },
     )
 
@@ -630,7 +468,7 @@ def create_supervisor_graph(checkpointer=None):
     graph.add_edge("research", "research_post")
 
     # After each agent (or research_post), check for handoff or end
-    for agent in ["chat", "research_post", "code", "writing", "data", "image", "computer"]:
+    for agent in ["chat", "research_post", "data"]:
         graph.add_conditional_edges(
             agent,
             check_for_handoff,
@@ -691,11 +529,20 @@ class AgentSupervisor:
         """
         import uuid
 
+        effective_task_id = task_id or str(uuid.uuid4())
+        normalized_mode = mode
+        if isinstance(mode, str):
+            mode_lower = mode.lower()
+            if mode_lower in {"code", "writing", "image"}:
+                normalized_mode = "chat"
+            else:
+                normalized_mode = mode_lower
+
         # Build initial state
         initial_state: SupervisorState = {
             "query": query,
-            "mode": mode,
-            "task_id": task_id,
+            "mode": normalized_mode,
+            "task_id": effective_task_id,
             "user_id": user_id,
             "messages": messages or [],
             "events": [],
@@ -711,7 +558,7 @@ class AgentSupervisor:
         # Create config with thread_id for checkpointing and recursion limit
         from app.config import settings
 
-        thread_id = task_id or str(uuid.uuid4())
+        thread_id = effective_task_id
         config = {
             "configurable": {"thread_id": thread_id},
             "recursion_limit": settings.langgraph_recursion_limit,
@@ -720,7 +567,7 @@ class AgentSupervisor:
         logger.info(
             "supervisor_run_started",
             query=query[:50],
-            mode=mode,
+            mode=normalized_mode,
             thread_id=thread_id,
             depth=initial_state.get("depth"),
             scenario=initial_state.get("scenario"),
@@ -742,75 +589,9 @@ class AgentSupervisor:
         emitted_stage_keys = set()
         emitted_image_indices = set()  # Track yielded image events by index
         streamed_tokens = False
-        browser_stream_emitted = False  # Track if browser stream event has been emitted
         # Track tool calls by ID for matching with results
         pending_tool_calls: dict[str, dict] = {}
-
-        # Pre-create browser sandbox for computer mode to avoid race conditions
-        # For other modes, sandbox is created on-demand when browser tools are called
-        pre_created_session = None
-        should_pre_create_browser = (
-            mode == "computer" or
-            (query and any(kw in query.lower() for kw in ["browse", "website", "open browser", "navigate to", "go to http"]))
-        )
-
-        if should_pre_create_browser and user_id:
-            try:
-                from app.sandbox import get_browser_sandbox_manager
-                from app.agents import events as agent_events
-
-                manager = get_browser_sandbox_manager()
-                effective_task_id = task_id or str(uuid.uuid4())
-                session_key = manager.make_session_key(user_id, effective_task_id)
-                logger.info("pre_creating_browser_sandbox", session_key=session_key, mode=mode)
-
-                # Emit launching status
-                yield agent_events.browser_action(
-                    action="launch",
-                    description="Launching browser",
-                    target=None,
-                    status="running",
-                )
-
-                # Create sandbox and launch browser
-                pre_created_session = await manager.get_or_create_sandbox(
-                    user_id=user_id,
-                    task_id=effective_task_id,
-                    launch_browser=True,
-                )
-
-                # Use ensure_stream_ready to start stream and wait for connection
-                # This properly tracks stream state on the session
-                stream_url, auth_key = await manager.ensure_stream_ready(pre_created_session)
-                browser_stream_emitted = True
-
-                # Emit stream event so frontend can show the browser
-                yield {
-                    "type": "browser_stream",
-                    "stream_url": stream_url,
-                    "sandbox_id": pre_created_session.sandbox_id,
-                    "auth_key": auth_key,
-                    "stream_ready": pre_created_session.is_stream_ready,
-                }
-
-                # Emit browser ready
-                yield agent_events.browser_action(
-                    action="launch",
-                    description="Browser ready",
-                    target=None,
-                    status="completed",
-                )
-
-                logger.info(
-                    "browser_sandbox_pre_created",
-                    session_key=session_key,
-                    sandbox_id=pre_created_session.sandbox_id,
-                    stream_ready=pre_created_session.is_stream_ready,
-                )
-
-            except Exception as e:
-                logger.warning("browser_sandbox_pre_creation_failed", error=str(e))
-                # Continue without pre-created session - tools will create on demand
+        pending_tool_calls_by_tool: dict[str, list[str]] = {}
 
         try:
             # Stream events from the graph
@@ -831,8 +612,10 @@ class AgentSupervisor:
                     node_path.append(node_name)
 
                     # Track content-generating nodes at any level
-                    content_nodes = list(STREAMING_CONFIG.keys())
-                    if any(node in node_name for node in content_nodes if STREAMING_CONFIG.get(node)):
+                    if any(
+                        enabled and _node_matches_streaming(node_name, node)
+                        for node, enabled in STREAMING_CONFIG.items()
+                    ):
                         current_content_node = node_name
 
                     # Provide immediate feedback for agent steps
@@ -859,23 +642,6 @@ class AgentSupervisor:
                             yield stage_event
                     elif node_name == "summarize":
                         stage_event = emit_stage_running("summarize", "Summarizing results...")
-                        if stage_event:
-                            yield stage_event
-                    # Writing agent stages
-                    elif node_name == "analyze":
-                        stage_event = emit_stage_running("analyze", "Analyzing task...")
-                        if stage_event:
-                            yield stage_event
-                    elif node_name == "outline":
-                        stage_event = emit_stage_running("outline", "Creating outline...")
-                        if stage_event:
-                            yield stage_event
-                    elif node_name == "write":
-                        stage_event = emit_stage_running("write", "Writing content...")
-                        if stage_event:
-                            yield stage_event
-                    elif node_name == "finalize":
-                        stage_event = emit_stage_running("finalize", "Finalizing response...")
                         if stage_event:
                             yield stage_event
                     # Research agent stages (check with endswith for namespaced subgraph nodes)
@@ -952,23 +718,6 @@ class AgentSupervisor:
                             yield stage_event
                     elif node_name == "summarize":
                         stage_event = emit_stage_completion("summarize", "Results summarized")
-                        if stage_event:
-                            yield stage_event
-                    # Writing agent stages
-                    elif node_name == "analyze":
-                        stage_event = emit_stage_completion("analyze", "Task analyzed")
-                        if stage_event:
-                            yield stage_event
-                    elif node_name == "outline":
-                        stage_event = emit_stage_completion("outline", "Outline created")
-                        if stage_event:
-                            yield stage_event
-                    elif node_name == "write":
-                        stage_event = emit_stage_completion("write", "Content written")
-                        if stage_event:
-                            yield stage_event
-                    elif node_name == "finalize":
-                        stage_event = emit_stage_completion("finalize", "Response finalized")
                         if stage_event:
                             yield stage_event
                     # Research agent stages (check with endswith for namespaced subgraph nodes)
@@ -1064,15 +813,8 @@ class AgentSupervisor:
                                             mime_type=e.get("mime_type"),
                                             index=image_index,
                                         )
-                                    # Deduplicate browser_stream events (already emitted in on_tool_start)
-                                    if e.get("type") == "browser_stream":
-                                        if browser_stream_emitted:
-                                            logger.debug(
-                                                "skipping_duplicate_browser_stream_event",
-                                                node_name=node_name,
-                                            )
-                                            continue
-                                        browser_stream_emitted = True
+                                    # Browser stream events are emitted by react_tool.py when browser tools are invoked
+                                    # No need to deduplicate here as they're emitted once per tool invocation
                                     # Log token events from image node for debugging
                                     if e.get("type") == "token" and "image" in node_name.lower():
                                         logger.info(
@@ -1097,7 +839,8 @@ class AgentSupervisor:
                             # Skip None or non-dict tool calls
                             if not tool_call or not isinstance(tool_call, dict):
                                 continue
-                            tool_name = tool_call.get("name") or tool_call.get("tool")
+                            func = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else None
+                            tool_name = tool_call.get("name") or tool_call.get("tool") or (func.get("name") if func else None)
                             # Skip if no tool name yet (streaming chunks may arrive without name)
                             # The subagent's on_tool_call callback will emit the proper event
                             if not tool_name:
@@ -1115,6 +858,7 @@ class AgentSupervisor:
                                 "tool": tool_name,
                                 "args": tool_args,
                             }
+                            pending_tool_calls_by_tool.setdefault(tool_name, []).append(tool_id)
                             yield {
                                 "type": "tool_call",
                                 "tool": tool_name,
@@ -1123,11 +867,7 @@ class AgentSupervisor:
                             }
 
                     # Use declarative config to determine streaming
-                    should_stream = any(
-                        node in node_path_str
-                        for node, enabled in STREAMING_CONFIG.items()
-                        if enabled
-                    )
+                    should_stream = _path_has_streamable_node(node_path_str)
 
                     if should_stream:
                         chunk = (event.get("data") or {}).get("chunk")
@@ -1146,6 +886,58 @@ class AgentSupervisor:
                     tool_name = event.get("name", "")
                     tool_input = (event.get("data") or {}).get("input") or {}
 
+                    browser_tools = {
+                        "browser_navigate",
+                        "browser_click",
+                        "browser_type",
+                        "browser_screenshot",
+                        "browser_scroll",
+                        "browser_press_key",
+                    }
+
+                    # Emit browser_stream when E2B desktop available so frontend shows live viewer
+                    if tool_name in browser_tools:
+                        from app.agents import events as agent_events
+                        from app.sandbox import (
+                            get_desktop_sandbox_manager,
+                            is_desktop_sandbox_available,
+                        )
+
+                        if is_desktop_sandbox_available():
+                            uid = (
+                                tool_input.get("user_id")
+                                if isinstance(tool_input, dict)
+                                else None
+                            )
+                            tid = (
+                                tool_input.get("task_id")
+                                if isinstance(tool_input, dict)
+                                else None
+                            )
+                            uid = uid if uid is not None else user_id
+                            tid = tid if tid is not None else effective_task_id
+                            try:
+                                manager = get_desktop_sandbox_manager()
+                                session = await manager.get_or_create_sandbox(
+                                    user_id=uid,
+                                    task_id=tid,
+                                    launch_browser=True,
+                                )
+                                stream_url, auth_key = await manager.ensure_stream_ready(
+                                    session
+                                )
+                                yield agent_events.browser_stream(
+                                    stream_url=stream_url,
+                                    sandbox_id=session.sandbox_id,
+                                    auth_key=auth_key,
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "browser_stream_emit_failed",
+                                    tool=tool_name,
+                                    error=str(e),
+                                )
+
                     # Generate ID if we don't have one
                     tool_call_id = None
                     if isinstance(tool_input, dict):
@@ -1162,6 +954,9 @@ class AgentSupervisor:
                             "tool": tool_name,
                             "run_id": run_id,
                         }
+                        pending_tool_calls_by_tool.setdefault(tool_name, []).append(
+                            tool_call_id
+                        )
                         yield {
                             "type": "tool_call",
                             "tool": tool_name,
@@ -1170,13 +965,10 @@ class AgentSupervisor:
                         }
 
                     # Emit browser_action events for browser tools
-                    # Note: Sandbox is pre-created at the start of run() to avoid race conditions
-                    # Here we just emit action events for progress display
-                    browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot", "computer_use"}
-                    from app.agents import events as agent_events
-
-                    # Emit browser_action event with description of the action about to happen
                     if tool_name in browser_tools:
+                        from app.agents import events as agent_events
+
+                        # Emit browser_action event with description of the action about to happen
                         action_descriptions = {
                             "browser_navigate": ("navigate", "Navigating to URL", tool_input.get("url", "") if isinstance(tool_input, dict) else ""),
                             "browser_click": ("click", "Clicking on element", f"({tool_input.get('x', '?')}, {tool_input.get('y', '?')})" if isinstance(tool_input, dict) else ""),
@@ -1184,7 +976,6 @@ class AgentSupervisor:
                             "browser_screenshot": ("screenshot", "Taking screenshot", None),
                             "browser_scroll": ("scroll", "Scrolling page", tool_input.get("direction", "down") if isinstance(tool_input, dict) else "down"),
                             "browser_press_key": ("key", "Pressing key", tool_input.get("key", "") if isinstance(tool_input, dict) else ""),
-                            "computer_use": ("computer", "Performing desktop action", tool_input.get("action", "") if isinstance(tool_input, dict) else ""),
                         }
                         if tool_name in action_descriptions:
                             action, desc, target = action_descriptions[tool_name]
@@ -1201,14 +992,20 @@ class AgentSupervisor:
                     tool_name = event.get("name", "")
                     output = (event.get("data") or {}).get("output", "")
 
-                    # Find matching tool call by run_id or tool name
+                    # Find matching tool call by run_id, then by tool order
                     tool_call_id = None
                     matched_info = None
-                    for tid, info in pending_tool_calls.items():
-                        if info.get("run_id") == run_id or (tool_name and info.get("tool") == tool_name):
-                            tool_call_id = tid
-                            matched_info = info
-                            break
+                    if run_id:
+                        for tid, info in pending_tool_calls.items():
+                            if info.get("run_id") == run_id:
+                                tool_call_id = tid
+                                matched_info = info
+                                break
+                    if not tool_call_id and tool_name:
+                        tool_queue = pending_tool_calls_by_tool.get(tool_name) or []
+                        if tool_queue:
+                            tool_call_id = tool_queue.pop(0)
+                            matched_info = pending_tool_calls.get(tool_call_id)
 
                     # Try to get tool name from matched pending call if not in event
                     if not tool_name and matched_info:
@@ -1223,7 +1020,7 @@ class AgentSupervisor:
                         tool_call_id = str(run_id) if run_id else str(uuid.uuid4())
 
                     # Emit browser_action "completed" event for browser tools
-                    browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot", "browser_scroll", "browser_press_key", "computer_use"}
+                    browser_tools = {"browser_navigate", "browser_click", "browser_type", "browser_screenshot", "browser_scroll", "browser_press_key"}
                     if tool_name in browser_tools:
                         from app.agents import events as agent_events
                         action_names = {
@@ -1233,7 +1030,6 @@ class AgentSupervisor:
                             "browser_screenshot": "screenshot",
                             "browser_scroll": "scroll",
                             "browser_press_key": "key",
-                            "computer_use": "computer",
                         }
                         yield agent_events.browser_action(
                             action=action_names.get(tool_name, tool_name),
@@ -1252,6 +1048,13 @@ class AgentSupervisor:
 
                     # Remove from pending
                     pending_tool_calls.pop(tool_call_id, None)
+                    if tool_name in pending_tool_calls_by_tool:
+                        try:
+                            pending_tool_calls_by_tool[tool_name].remove(tool_call_id)
+                        except ValueError:
+                            pass
+                        if not pending_tool_calls_by_tool[tool_name]:
+                            pending_tool_calls_by_tool.pop(tool_name, None)
 
                 # Handle errors from subagents
                 elif event_type == "on_chain_error":

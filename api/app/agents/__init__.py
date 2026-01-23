@@ -4,11 +4,10 @@ This module provides a supervisor-based multi-agent architecture where
 different specialized agents handle different types of tasks.
 
 Available agents:
-- Chat: General conversation and Q&A
+- Chat: General conversation and Q&A with skills (image generation, writing, coding, etc.)
 - Research: Deep research with web search and analysis
-- Code: Code generation and execution
-- Writing: Long-form content creation
-- Data: Data analysis (placeholder)
+- Data: Data analytics and visualization
+- Computer: Browser automation and desktop control
 
 Usage:
     from app.agents import agent_supervisor
@@ -33,12 +32,9 @@ Usage:
 from app.agents.state import (
     AgentType,
     ChatState,
-    CodeState,
     DataAnalysisState,
-    ImageState,
     ResearchState,
     SupervisorState,
-    WritingState,
 )
 
 # Routing
@@ -55,10 +51,7 @@ from app.agents.supervisor import (
 # Subagents
 from app.agents.subagents import (
     chat_subgraph,
-    code_subgraph,
-    image_subgraph,
     research_subgraph,
-    writing_subgraph,
 )
 
 __all__ = [
@@ -67,10 +60,7 @@ __all__ = [
     "SupervisorState",
     "ChatState",
     "ResearchState",
-    "CodeState",
-    "WritingState",
     "DataAnalysisState",
-    "ImageState",
     # Routing
     "route_query",
     "RoutingResult",
@@ -82,7 +72,4 @@ __all__ = [
     # Subagents
     "chat_subgraph",
     "research_subgraph",
-    "code_subgraph",
-    "writing_subgraph",
-    "image_subgraph",
 ]

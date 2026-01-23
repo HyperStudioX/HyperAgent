@@ -338,6 +338,15 @@ async def stream_query(
             )
             history = trim_duplicate_user_message(history, request.message)
 
+        # Debug logging for conversation context
+        logger.info(
+            "query_stream_context",
+            conversation_id=request.conversation_id,
+            history_from_request=len(request.history),
+            history_total=len(history),
+            has_history=bool(history),
+        )
+
         # Get file context if attachments provided
         file_context = await get_file_context(
             db,
@@ -458,6 +467,14 @@ async def stream_query(
                             "description": event.get("description", ""),
                             "target": event.get("target"),
                             "status": event.get("status", "running"),
+                        })
+                        yield f"data: {data}\n\n"
+                    elif event["type"] == "skill_output":
+                        # Stream skill output events
+                        data = json.dumps({
+                            "type": "skill_output",
+                            "skill_id": event.get("skill_id", ""),
+                            "output": event.get("output", {}),
                         })
                         yield f"data: {data}\n\n"
                     elif event["type"] == "image":

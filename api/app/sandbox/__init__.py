@@ -1,8 +1,8 @@
 """Sandbox package for E2B sandbox management and operations.
 
 This package contains:
-- Code sandbox management (code execution sandboxes)
-- Browser sandbox management (browser/desktop sandboxes)
+- Execution sandbox management (code execution sandboxes)
+- Desktop sandbox management (desktop/browser sandboxes)
 - Sandbox file operations
 - Unified metrics for all sandbox managers
 - Availability checks for graceful degradation
@@ -11,17 +11,17 @@ This package contains:
 from typing import Any
 
 from app.config import settings
-from app.sandbox.browser_sandbox_manager import (
-    BrowserSandboxManager,
-    BrowserSandboxSession,
-    get_browser_sandbox_manager,
+from app.sandbox.desktop_sandbox_manager import (
+    DesktopSandboxManager,
+    DesktopSandboxSession,
+    get_desktop_sandbox_manager,
 )
-from app.sandbox.code_sandbox_manager import (
-    CodeSandboxManager,
-    CodeSandboxSession,
-    get_code_sandbox_manager,
+from app.sandbox.execution_sandbox_manager import (
+    ExecutionSandboxManager,
+    ExecutionSandboxSession,
+    get_execution_sandbox_manager,
 )
-from app.sandbox.computer_executor import E2B_DESKTOP_AVAILABLE
+from app.sandbox.desktop_executor import E2B_DESKTOP_AVAILABLE
 from app.sandbox.file import (
     sandbox_file,
     sandbox_file_with_context,
@@ -32,43 +32,43 @@ def get_sandbox_metrics() -> dict[str, Any]:
     """Get unified metrics from all sandbox managers.
 
     Returns:
-        Dict with metrics from code and browser sandbox managers:
-            - code: Metrics from code sandbox manager
-            - browser: Metrics from browser sandbox manager
+        Dict with metrics from execution and desktop sandbox managers:
+            - execution: Metrics from execution sandbox manager
+            - desktop: Metrics from desktop sandbox manager
             - totals: Aggregated totals across all managers
     """
-    code_manager = get_code_sandbox_manager()
-    browser_manager = get_browser_sandbox_manager()
+    execution_manager = get_execution_sandbox_manager()
+    desktop_manager = get_desktop_sandbox_manager()
 
-    code_metrics = code_manager.get_metrics()
-    browser_metrics = browser_manager.get_metrics()
+    execution_metrics = execution_manager.get_metrics()
+    desktop_metrics = desktop_manager.get_metrics()
 
     return {
-        "code": code_metrics,
-        "browser": browser_metrics,
+        "execution": execution_metrics,
+        "desktop": desktop_metrics,
         "totals": {
             "active_sessions": (
-                code_metrics["active_sessions"] + browser_metrics["active_sessions"]
+                execution_metrics["active_sessions"] + desktop_metrics["active_sessions"]
             ),
             "total_created": (
-                code_metrics["total_created"] + browser_metrics["total_created"]
+                execution_metrics["total_created"] + desktop_metrics["total_created"]
             ),
             "total_cleaned": (
-                code_metrics["total_cleaned"] + browser_metrics["total_cleaned"]
+                execution_metrics["total_cleaned"] + desktop_metrics["total_cleaned"]
             ),
             "total_reused": (
-                code_metrics["total_reused"] + browser_metrics["total_reused"]
+                execution_metrics["total_reused"] + desktop_metrics["total_reused"]
             ),
             "health_check_failures": (
-                code_metrics["health_check_failures"]
-                + browser_metrics["health_check_failures"]
+                execution_metrics["health_check_failures"]
+                + desktop_metrics["health_check_failures"]
             ),
         },
     }
 
 
-def is_code_sandbox_available() -> bool:
-    """Check if code sandbox functionality is available.
+def is_execution_sandbox_available() -> bool:
+    """Check if execution sandbox functionality is available.
 
     Returns:
         True if E2B API key is configured, False otherwise
@@ -76,8 +76,8 @@ def is_code_sandbox_available() -> bool:
     return bool(settings.e2b_api_key)
 
 
-def is_browser_sandbox_available() -> bool:
-    """Check if browser sandbox functionality is available.
+def is_desktop_sandbox_available() -> bool:
+    """Check if desktop sandbox functionality is available.
 
     Returns:
         True if E2B Desktop SDK is installed and API key is configured
@@ -90,8 +90,8 @@ def get_sandbox_availability() -> dict[str, Any]:
 
     Returns:
         Dict with availability information:
-            - code_sandbox: Whether code sandbox is available
-            - browser_sandbox: Whether browser sandbox is available
+            - execution_sandbox: Whether execution sandbox is available
+            - desktop_sandbox: Whether desktop sandbox is available
             - e2b_api_key_configured: Whether E2B API key is set
             - e2b_desktop_sdk_installed: Whether e2b-desktop package is installed
             - issues: List of issues preventing sandbox usage
@@ -105,8 +105,8 @@ def get_sandbox_availability() -> dict[str, Any]:
         issues.append("E2B Desktop SDK not installed (pip install e2b-desktop)")
 
     return {
-        "code_sandbox": is_code_sandbox_available(),
-        "browser_sandbox": is_browser_sandbox_available(),
+        "execution_sandbox": is_execution_sandbox_available(),
+        "desktop_sandbox": is_desktop_sandbox_available(),
         "e2b_api_key_configured": bool(settings.e2b_api_key),
         "e2b_desktop_sdk_installed": E2B_DESKTOP_AVAILABLE,
         "issues": issues,
@@ -114,22 +114,22 @@ def get_sandbox_availability() -> dict[str, Any]:
 
 
 __all__ = [
-    # Code sandbox management
-    "CodeSandboxSession",
-    "CodeSandboxManager",
-    "get_code_sandbox_manager",
-    # Browser sandbox management
-    "BrowserSandboxSession",
-    "BrowserSandboxManager",
-    "get_browser_sandbox_manager",
+    # Execution sandbox management
+    "ExecutionSandboxSession",
+    "ExecutionSandboxManager",
+    "get_execution_sandbox_manager",
+    # Desktop sandbox management
+    "DesktopSandboxSession",
+    "DesktopSandboxManager",
+    "get_desktop_sandbox_manager",
     # Sandbox file operations
     "sandbox_file",
     "sandbox_file_with_context",
     # Metrics
     "get_sandbox_metrics",
     # Availability checks
-    "is_code_sandbox_available",
-    "is_browser_sandbox_available",
+    "is_execution_sandbox_available",
+    "is_desktop_sandbox_available",
     "get_sandbox_availability",
     "E2B_DESKTOP_AVAILABLE",
 ]

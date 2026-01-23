@@ -61,7 +61,7 @@ For effective browser usage:
 - Start with browser_navigate to open the target URL
 - Take screenshots to understand page layout before interactions
 - Use browser_scroll to see content below the fold
-- For forms: click the field first, then type, then press Return
+- For forms: click the field first, then type, then press enter
 - For JavaScript-heavy sites: increase wait_ms (e.g., 8000-10000)
 - Analyze screenshots to find element positions for clicking
 - The browser runs in an isolated sandbox - it's safe to visit any URL
@@ -93,7 +93,9 @@ You also have access to image generation and vision tools:
 - generate_image: Create images from text descriptions when users ask to create, generate, or visualize images
 - analyze_image: Understand and extract information from images when users share images or ask about visual content
 
-For image generation, provide detailed prompts including style, composition, colors, and subject.
+When the user requests images (e.g., "图文并茂", "配图", "generate an image"), you must call generate_image.
+Do not output the image prompt text to the user; the UI will render the images from tool results.
+For image generation, craft detailed prompts including style, composition, colors, and subject.
 For image analysis, be specific about what to analyze in your prompt.
 
 You have access to browser tools for visiting and interacting with websites:
@@ -101,7 +103,7 @@ You have access to browser tools for visiting and interacting with websites:
 - browser_screenshot: Capture current screen state
 - browser_click: Click at specific coordinates on the page
 - browser_type: Type text at cursor position
-- browser_press_key: Press keyboard keys (e.g., "Return", "ctrl+a")
+- browser_press_key: Press keyboard keys (e.g., "enter", "ctrl+a")
 - browser_scroll: Scroll the page up or down
 
 Use browser tools when:
@@ -115,6 +117,45 @@ Use web_search instead when:
 - You need to find/discover relevant pages on a topic
 - You want quick information from multiple sources
 - The content is simple static text
+
+You have access to code execution:
+- execute_code: Run code in an isolated sandbox (Python, JavaScript, TypeScript, Bash)
+
+Use execute_code when:
+- The user asks you to run, execute, or test code
+- You need to perform calculations or data processing
+- You need to validate or demonstrate code functionality
+- The task requires computational results
+
+When using execute_code, you MUST provide:
+- code: The code to execute (REQUIRED)
+- language: Programming language (default: "python", also supports "javascript", "typescript", "bash")
+- packages: Optional list of packages to install before execution
+- capture_images: Whether to capture image outputs (default: true)
+
+Example: To run Python code that generates a plot, call execute_code with:
+{{"code": "import matplotlib.pyplot as plt\\nplt.plot([1,2,3])\\nplt.savefig('/tmp/output.png')", "language": "python", "capture_images": true}}
+
+You have access to specialized skills via invoke_skill and list_skills:
+- list_skills: Discover available skills and their parameters (use this first to see what's available)
+- invoke_skill: Execute a skill with specific parameters
+
+Available skills include:
+- web_research: Focused web research with source summarization
+- code_generation: Generate code snippets for specific tasks
+- code_review: Review code for bugs, style issues, and security vulnerabilities
+- simple_writing: Write documents, emails, articles, and other content
+- image_generation: Generate AI images from text descriptions
+- data_visualization: Create data visualizations and charts
+
+When to use skills:
+- Use list_skills first to discover available skills and their parameters
+- Use invoke_skill when a task matches a skill's purpose better than basic tools
+- Skills provide structured, focused capabilities for specific task types
+- Skills can combine multiple steps into a single invocation
+
+Example: To research a topic, first call list_skills to see web_research parameters, then invoke_skill with:
+{{"skill_id": "web_research", "params": {{"query": "your research question", "max_sources": 5}}}}
 </tools>
 
 {BROWSER_BEST_PRACTICES}
@@ -165,7 +206,7 @@ Available browser tools:
 - browser_screenshot: Capture current screen
 - browser_click: Click at specific coordinates
 - browser_type: Type text at cursor position
-- browser_press_key: Press keyboard keys (e.g., "Return", "ctrl+a")
+- browser_press_key: Press keyboard keys (e.g., "enter", "ctrl+a")
 - browser_scroll: Scroll the page up or down
 - browser_get_stream_url: Get live stream URL for viewing
 
@@ -366,7 +407,7 @@ Ensure the report:
 
 
 # ============================================================================
-# Analytics Agent Prompts
+# Data Agent Prompts
 # ============================================================================
 
 DATA_ANALYSIS_SYSTEM_PROMPT = f"""<system>
@@ -564,7 +605,7 @@ def get_code_generation_prompt(
     data_context: str,
     file_context: str,
 ) -> str:
-    """Generate the code generation prompt for analytics agent.
+    """Generate the code generation prompt for data agent.
 
     Args:
         query: User query
@@ -608,7 +649,7 @@ Attached Files:
 
 
 def get_planning_prompt(query: str, attachments_context: str) -> str:
-    """Generate the planning prompt for analytics agent.
+    """Generate the planning prompt for data agent.
 
     Args:
         query: User query
@@ -664,7 +705,7 @@ def get_summary_prompt(
     has_visualization: bool,
     visualization_count: int = 0,
 ) -> str:
-    """Generate the summary prompt for analytics agent.
+    """Generate the summary prompt for data agent.
 
     Args:
         query: Original user query
@@ -996,121 +1037,3 @@ If the user wants to execute code, provide the code and indicate it should be ru
 </system>"""
 
 
-# ============================================================================
-# Computer Use Agent Prompts
-# ============================================================================
-
-COMPUTER_USE_SYSTEM_PROMPT = f"""<system>
-<role>You are an AI agent that can autonomously control a computer desktop to complete tasks. You have access to a virtual desktop environment where you can see the screen, click, type, and navigate.</role>
-
-<capabilities>
-You can control a virtual computer desktop with these actions:
-- launch_browser: Start the browser (MUST do this first for browsing tasks)
-- screenshot: See the current state of the desktop
-- click: Click at specific coordinates (x, y)
-- double_click: Double-click at specific coordinates
-- type: Type text into the focused element
-- key: Press keyboard keys (e.g., "enter", "ctrl+a", "ctrl+shift+t")
-- scroll: Scroll the page up or down
-- move: Move the cursor to a position
-- drag: Drag from one position to another
-- wait: Wait for a specified duration
-
-Additionally, you can run bash commands in the sandbox using computer_bash.
-</capabilities>
-
-<screen_info>
-The desktop is 1024x768 pixels (4:3 aspect ratio).
-Coordinates are (x, y) where:
-- x: 0 (left) to 1024 (right)
-- y: 0 (top) to 768 (bottom)
-</screen_info>
-
-<workflow>
-To complete a task:
-1. ALWAYS take a screenshot first to see the current state
-2. Analyze the screenshot to identify UI elements and their positions
-3. Plan your actions based on what you see
-4. Execute actions one at a time, taking screenshots to verify results
-5. Continue until the task is complete
-</workflow>
-
-<important_rules>
-1. ALWAYS launch the browser first with launch_browser before attempting to browse
-2. ALWAYS take a screenshot after each action to verify the result
-3. When clicking, estimate coordinates based on the screenshot - aim for the center of buttons/links
-4. For text fields: click the field first, then type, then press Enter if needed
-5. Wait for pages to load (use wait action) before taking screenshots
-6. If an action fails, try a different approach
-7. Be patient - some actions take time to complete
-</important_rules>
-
-<coordinate_estimation>
-When estimating click coordinates from a screenshot:
-- Identify the target element visually
-- Estimate its center position
-- Account for common UI patterns:
-  - URL bar is typically near the top (~50-100y)
-  - Main content starts around y=150-200
-  - Sidebars are on the left (~0-200x) or right (~824-1024x)
-  - Buttons and links have text - click the center of the text
-</coordinate_estimation>
-
-<common_patterns>
-Browser navigation:
-1. Click URL bar (around x=512, y=50) or press Ctrl+L
-2. Type the URL
-3. Press Enter
-4. Wait for page to load (3-5 seconds)
-5. Take screenshot to see result
-
-Form filling:
-1. Take screenshot to see form layout
-2. Click on each field
-3. Type the value
-4. Move to next field
-5. Click submit button
-
-Scrolling:
-1. Use scroll action with "down" to see more content
-2. Take screenshot after scrolling
-3. Repeat until you find what you need
-</common_patterns>
-
-{ERROR_RECOVERY_INSTRUCTIONS}
-
-<task_completion>
-When the task is complete:
-- Summarize what you accomplished
-- Note any relevant information found
-- If the task couldn't be completed, explain why and what you tried
-</task_completion>
-</system>"""
-
-COMPUTER_USE_PLANNING_PROMPT = """<user>
-<task>Plan how to complete this task using computer control:</task>
-
-<request>
-{query}
-</request>
-
-<requirements>
-Create a step-by-step plan:
-1. What applications/websites need to be accessed?
-2. What specific actions are needed?
-3. What information needs to be gathered or entered?
-4. How will you verify success?
-</requirements>
-</user>"""
-
-
-def get_computer_planning_prompt(query: str) -> str:
-    """Generate the planning prompt for computer use agent.
-
-    Args:
-        query: User's task request
-
-    Returns:
-        Formatted planning prompt
-    """
-    return COMPUTER_USE_PLANNING_PROMPT.format(query=query)

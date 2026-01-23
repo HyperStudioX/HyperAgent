@@ -130,12 +130,52 @@ if (!hasHydrated) return null; // or loading state
 - Active states: inverted colors (foreground bg, background text)
 - Icons should be 3.5-4px (w-3.5 h-3.5 or w-4 h-4)
 
-## Backend API Contract
+## Backend Architecture
 
-The frontend expects these endpoints:
+### Multi-Agent System
+
+HyperAgent uses a **simplified hybrid architecture** combining agents and skills:
+
+**Primary Agent:**
+- **Chat Agent** - Handles 80%+ of requests with skills (images, writing, code, etc.)
+
+**Specialized Agents:**
+- **Research Agent** - Deep, comprehensive research workflows only
+- **Data Agent** - Data analytics and visualization only
+- **Computer Agent** - Browser automation only
+
+**Skills System:**
+The Chat agent has access to composable skills:
+- `image_generation` - AI image generation (Gemini/DALL-E)
+- `simple_writing` - Document/email/article writing
+- `code_generation` - Generate code snippets
+- `code_review` - Review code for bugs/style/security
+- `web_research` - Focused web research with summarization
+- `data_visualization` - Generate visualization code
+
+Skills are LangGraph subgraphs that agents invoke as tools using `invoke_skill` and `list_skills`.
+
+See `AGENT_ARCHITECTURE.md` for detailed architecture documentation.
+
+### API Endpoints
+
+**Core:**
+- `POST /api/v1/query` - Main query endpoint (SSE streaming)
 - `POST /api/v1/chat` - Chat completions
 - `POST /api/v1/research` - Research task creation
 - `GET /api/v1/research/:id` - Research task status
-- SSE streams for real-time updates
+
+**Skills:**
+- `GET /api/v1/skills` - List available skills
+- `GET /api/v1/skills/:id` - Get skill details
+
+**Conversations:**
+- `GET /api/v1/conversations` - List conversations
+- `POST /api/v1/conversations` - Create conversation
+- `GET /api/v1/conversations/:id` - Get conversation details
+
+**Files:**
+- `POST /api/v1/files/upload` - Upload files
+- `GET /api/v1/files/download/:key` - Download files
 
 Ensure backend is running on port 8080 or configure `NEXT_PUBLIC_API_URL`.

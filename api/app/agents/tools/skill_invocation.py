@@ -1,0 +1,207 @@
+"""Skill invocation tools for LangGraph agents."""
+
+import json
+from typing import Any
+
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+from app.core.logging import get_logger
+from app.services.skill_registry import skill_registry
+from app.services.skill_executor import skill_executor
+
+logger = get_logger(__name__)
+
+
+class InvokeSkillInput(BaseModel):
+    """Input schema for skill invocation tool."""
+
+    skill_id: str = Field(description="The ID of the skill to invoke (e.g., 'web_research')")
+    params: dict[str, Any] = Field(description="Input parameters required by the skill")
+    # Context fields (injected by agent, not provided by LLM)
+    # These are excluded from the JSON schema so the LLM doesn't see them
+    user_id: str | None = Field(
+        default=None,
+        description="User ID for session management (internal use only)",
+        json_schema_extra={"exclude": True},
+    )
+    task_id: str | None = Field(
+        default=None,
+        description="Task ID for session management (internal use only)",
+        json_schema_extra={"exclude": True},
+    )
+
+
+@tool(args_schema=InvokeSkillInput)
+async def invoke_skill(
+    skill_id: str,
+    params: dict[str, Any],
+    user_id: str | None = None,
+    task_id: str | None = None,
+) -> str:
+    """Invoke a registered skill to perform a specialized task.
+
+    Skills are composable subgraphs that provide focused capabilities like
+    web research, code review, data visualization, and more. Each skill has
+    its own input requirements and output format.
+
+    To see available skills and their parameters, list them first or check
+    the skill registry.
+
+    Args:
+        skill_id: The ID of the skill (e.g., 'web_research', 'code_review')
+        params: Input parameters required by the skill (varies per skill)
+
+    Returns:
+        JSON string with skill execution results
+    """
+    logger.debug(
+        "invoke_skill_tool_called",
+        skill_id=skill_id,
+        params=params,
+    )
+
+    # Get skill from registry
+    skill = skill_registry.get_skill(skill_id)
+    if not skill:
+        error_msg = f"Skill '{skill_id}' not found. Available skills: {[s.id for s in skill_registry.list_skills()]}"
+        logger.warning("skill_not_found", skill_id=skill_id)
+        return json.dumps({
+            "error": error_msg,
+            "skill_id": skill_id,
+        })
+
+    # Validate input
+    is_valid, error_msg = skill.validate_input(params)
+    if not is_valid:
+        logger.warning("skill_input_invalid", skill_id=skill_id, error=error_msg)
+        return json.dumps({
+            "error": f"Invalid parameters for skill '{skill_id}': {error_msg}",
+            "skill_id": skill_id,
+            "expected_parameters": [p.model_dump() for p in skill.metadata.parameters],
+        })
+
+    try:
+        output = None
+        error = None
+        effective_user_id = user_id or "anonymous"
+
+        async for event in skill_executor.execute_skill(
+            skill_id=skill_id,
+            params=params,
+            user_id=effective_user_id,
+            agent_type="tool",
+            task_id=task_id,
+        ):
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") == "skill_output":
+                output = event.get("output", {})
+            elif event.get("type") == "error":
+                error = event.get("error")
+
+        if error:
+            logger.error("skill_execution_error", skill_id=skill_id, error=error)
+            return json.dumps({
+                "error": error,
+                "skill_id": skill_id,
+            })
+
+        if output is None:
+            output = {}
+
+        logger.debug("skill_executed_successfully", skill_id=skill_id, output_keys=list(output.keys()) if isinstance(output, dict) else None)
+
+        return json.dumps({
+            "skill_id": skill_id,
+            "output": output,
+            "success": True,
+        }, indent=2)
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error("skill_execution_failed", skill_id=skill_id, error=error_msg)
+        return json.dumps({
+            "error": f"Skill execution failed: {error_msg}",
+            "skill_id": skill_id,
+        })
+
+
+class ListSkillsInput(BaseModel):
+    """Input schema for listing skills."""
+
+    category: str | None = Field(
+        default=None,
+        description="Optional category filter (research, code, data, creative, automation)",
+    )
+    # Context fields (injected by agent, not provided by LLM)
+    # These are excluded from the JSON schema so the LLM doesn't see them
+    user_id: str | None = Field(
+        default=None,
+        description="User ID for session management (internal use only)",
+        json_schema_extra={"exclude": True},
+    )
+    task_id: str | None = Field(
+        default=None,
+        description="Task ID for session management (internal use only)",
+        json_schema_extra={"exclude": True},
+    )
+
+
+@tool(args_schema=ListSkillsInput)
+async def list_skills(category: str | None = None) -> str:
+    """List all available skills that can be invoked.
+
+    Use this tool to discover what skills are available and what they do.
+    Each skill has a specific purpose and required parameters.
+
+    Args:
+        category: Optional category filter (e.g., 'research', 'code', 'data')
+
+    Returns:
+        JSON string with available skills and their metadata
+    """
+    logger.debug("list_skills_tool_called", category=category)
+
+    skills = skill_registry.list_skills(category=category)
+
+    if not skills:
+        return json.dumps({
+            "message": "No skills found" + (f" in category '{category}'" if category else ""),
+            "skills": [],
+        })
+
+    skills_data = []
+    for skill_metadata in skills:
+        skills_data.append({
+            "id": skill_metadata.id,
+            "name": skill_metadata.name,
+            "description": skill_metadata.description,
+            "category": skill_metadata.category,
+            "parameters": [
+                {
+                    "name": p.name,
+                    "type": p.type,
+                    "description": p.description,
+                    "required": p.required,
+                    "default": p.default,
+                }
+                for p in skill_metadata.parameters
+            ],
+            "tags": skill_metadata.tags,
+        })
+
+    return json.dumps({
+        "skills": skills_data,
+        "count": len(skills_data),
+        "category": category,
+    }, indent=2)
+
+
+def get_skill_tools() -> list:
+    """Get all skill-related tools for the registry.
+
+    Returns:
+        List of skill tools to register
+    """
+    return [invoke_skill, list_skills]

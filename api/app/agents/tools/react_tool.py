@@ -151,6 +151,13 @@ async def execute_tool_with_retry(
     Raises:
         ToolExecutionError: If execution fails after all retries
     """
+    # Log tool invocation in debug mode
+    logger.debug(
+        "tool_invoked",
+        tool_name=tool.name,
+        tool_args={k: v for k, v in tool_input.items() if k not in ["user_id", "task_id"]},  # Exclude sensitive context
+    )
+    
     try:
         result = await execute_with_retry(
             tool.ainvoke,
@@ -158,7 +165,17 @@ async def execute_tool_with_retry(
             max_retries=max_retries,
             base_delay=base_delay,
         )
-        return str(result) if result is not None else ""
+        result_str = str(result) if result is not None else ""
+        
+        # Log tool completion in debug mode
+        logger.debug(
+            "tool_completed",
+            tool_name=tool.name,
+            result_length=len(result_str),
+            result_preview=result_str[:200] if result_str else None,
+        )
+        
+        return result_str
 
     except TRANSIENT_ERRORS as e:
         raise ToolExecutionError(
@@ -350,13 +367,20 @@ def _merge_tool_call_chunks(tool_calls: list[dict]) -> list[dict]:
             if tc_id and not existing["id"]:
                 existing["id"] = tc_id
 
-            # Update name if we have one
-            name = tc.get("name") or tc.get("tool")
+            # Update name if we have one (support nested "function" format)
+            func = tc.get("function") if isinstance(tc.get("function"), dict) else None
+            name = tc.get("name") or tc.get("tool") or (func.get("name") if func else None)
             if name:
                 existing["name"] = name
 
             # Merge args - handle both dict and string (streaming) formats
             args = tc.get("args")
+            if args is None:
+                args = tc.get("arguments")
+            if args is None:
+                args = tc.get("input")
+            if args is None and func:
+                args = func.get("arguments") or func.get("args") or func.get("input")
             if args is not None:
                 if isinstance(args, dict):
                     # Dict args - merge directly
@@ -550,10 +574,34 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
 
     normalized_tool_calls = []
     for tool_call in merged_tool_calls:
-        tool_name = tool_call.get("name") or tool_call.get("tool") or ""
+        func = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else None
+        tool_name = tool_call.get("name") or tool_call.get("tool") or (func.get("name") if func else "") or ""
         if not tool_name:
             continue
-        tool_args = tool_call.get("args") or {}
+        tool_args = tool_call.get("args")
+        if tool_args is None:
+            tool_args = tool_call.get("arguments")
+        if tool_args is None:
+            tool_args = tool_call.get("input")
+        if tool_args is None and func:
+            tool_args = func.get("arguments") or func.get("args") or func.get("input")
+        if isinstance(tool_args, str):
+            try:
+                parsed_args = json.loads(tool_args)
+                tool_args = parsed_args if isinstance(parsed_args, dict) else {}
+            except json.JSONDecodeError:
+                recovered_args = _recover_partial_json(tool_args)
+                tool_args = recovered_args or {}
+        if tool_args is None:
+            tool_args = {}
+
+        # Log tool calls with empty args for debugging
+        if not tool_args and tool_name:
+            logger.debug(
+                "tool_call_with_empty_args",
+                tool_name=tool_name,
+                raw_tool_call=str(tool_call)[:200],
+            )
 
         # Handle missing required args for specific tools
         if tool_name == "web_search" and not tool_args.get("query"):
@@ -591,13 +639,13 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
                             url=inferred_url,
                         )
                     else:
-                        logger.warning(
+                        logger.debug(
                             "browser_navigate_missing_url",
                             query=query[:50],
                         )
                         continue
                 else:
-                    logger.warning(
+                    logger.debug(
                         "browser_navigate_missing_url",
                         query=query[:50],
                     )
@@ -605,17 +653,46 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
 
         # Skip generate_image if prompt is missing (required field)
         if tool_name == "generate_image" and not tool_args.get("prompt"):
-            logger.warning(
-                "skipping_generate_image_missing_prompt",
-                tool_args=tool_args,
-            )
-            continue
+            if query:
+                tool_args = {**tool_args, "prompt": query}
+                logger.info(
+                    "generate_image_prompt_fallback",
+                    query=query[:100],
+                )
+            else:
+                logger.debug(
+                    "skipping_generate_image_missing_prompt",
+                    tool_args=tool_args,
+                    query=query[:100],
+                )
+                continue
+        # Skip invoke_skill if required fields are missing
+        if tool_name == "invoke_skill":
+            params = tool_args.get("params")
+            if isinstance(params, str):
+                try:
+                    parsed_params = json.loads(params)
+                    if isinstance(parsed_params, dict):
+                        tool_args["params"] = parsed_params
+                        params = parsed_params
+                except json.JSONDecodeError:
+                    logger.debug(
+                        "invoke_skill_params_parse_failed",
+                        tool_args_preview=str(tool_args)[:200],
+                    )
+            if not tool_args.get("skill_id") or not isinstance(params, dict):
+                logger.debug(
+                    "skipping_invoke_skill_missing_args",
+                    tool_args=tool_args,
+                    query=query[:100],
+                )
+                continue
 
         # Skip browser_click if coordinates are missing (required fields)
         if tool_name == "browser_click" and (
             tool_args.get("x") is None or tool_args.get("y") is None
         ):
-            logger.warning(
+            logger.debug(
                 "skipping_browser_click_missing_coordinates",
                 tool_args=tool_args,
             )
@@ -623,19 +700,12 @@ def build_ai_message_from_chunks(response_chunks: list, query: str) -> AIMessage
 
         # Skip browser_type if text is missing (required field)
         if tool_name == "browser_type" and not tool_args.get("text"):
-            logger.warning(
+            logger.debug(
                 "skipping_browser_type_missing_text",
                 tool_args=tool_args,
             )
             continue
 
-        # Skip computer_use if action is missing (required field)
-        if tool_name == "computer_use" and not tool_args.get("action"):
-            logger.warning(
-                "skipping_computer_use_missing_action",
-                tool_args=tool_args,
-            )
-            continue
 
         tool_call_id = tool_call.get("id") or tool_call.get("tool_call_id")
         if not tool_call_id:
@@ -705,29 +775,11 @@ AGENT_REACT_CONFIGS: dict[str, ReActLoopConfig] = {
         truncate_tool_results=True,
         tool_result_max_chars=2000,
     ),
-    "code": ReActLoopConfig(
-        max_iterations=3,
-        handoff_behavior="deferred",
-        truncate_tool_results=True,
-        tool_result_max_chars=1500,
-    ),
-    "analytics": ReActLoopConfig(
-        max_iterations=3,
-        handoff_behavior="deferred",
-        truncate_tool_results=True,
-        tool_result_max_chars=2000,
-    ),
     "data": ReActLoopConfig(
         max_iterations=3,
         handoff_behavior="deferred",
         truncate_tool_results=True,
         tool_result_max_chars=2000,
-    ),
-    "writing": ReActLoopConfig(
-        max_iterations=3,
-        handoff_behavior="deferred",
-        truncate_tool_results=True,
-        tool_result_max_chars=1500,
     ),
     "research": ReActLoopConfig(
         max_iterations=5,
@@ -742,7 +794,7 @@ def get_react_config(agent_type: str) -> ReActLoopConfig:
     """Get the ReAct loop configuration for a specific agent type.
 
     Args:
-        agent_type: The agent type (chat, code, analytics, writing, research, data)
+        agent_type: The agent type (chat, research, data)
 
     Returns:
         ReActLoopConfig for the specified agent type, or default if not found
@@ -1085,10 +1137,10 @@ async def execute_react_loop(
             # Pre-execution: For browser_navigate, get stream URL first so user can watch
             if tool_name == "browser_navigate":
                 try:
-                    from app.sandbox import get_browser_sandbox_manager
+                    from app.sandbox import get_desktop_sandbox_manager
                     from app.agents import events as agent_events
 
-                    manager = get_browser_sandbox_manager()
+                    manager = get_desktop_sandbox_manager()
                     # Get user_id and task_id from tool args if available
                     user_id = tool_args.get("user_id")
                     task_id = tool_args.get("task_id")
@@ -1180,11 +1232,43 @@ async def execute_react_loop(
                             llm_result = json.dumps({
                                 "success": True,
                                 "message": f"Successfully generated {image_count} image(s). The images have been displayed to the user.",
-                                "prompt": parsed.get("prompt", ""),
                                 "count": image_count,
                             })
                     except Exception as e:
                         logger.warning("generate_image_result_processing_error", error=str(e))
+
+                # Special handling for invoke_skill image generation
+                if tool_name == "invoke_skill" and result:
+                    try:
+                        import json
+                        parsed = json.loads(result)
+                        if parsed.get("skill_id") == "image_generation":
+                            output = parsed.get("output") or {}
+                            images = output.get("images") or []
+                            if images:
+                                from app.agents.utils import extract_and_add_image_events
+                                start_index = len([e for e in events if e.get("type") == "image"])
+                                extract_and_add_image_events(
+                                    json.dumps({"success": True, "images": images}),
+                                    events,
+                                    start_index=start_index,
+                                )
+
+                                image_count = len(images)
+                                if on_token:
+                                    placeholders = "\n\n" + "\n\n".join(
+                                        f"![generated-image:{start_index + i}]"
+                                        for i in range(image_count)
+                                    ) + "\n\n"
+                                    on_token(placeholders)
+
+                                llm_result = json.dumps({
+                                    "success": True,
+                                    "message": f"Successfully generated {image_count} image(s). The images have been displayed to the user.",
+                                    "count": image_count,
+                                })
+                    except Exception as e:
+                        logger.warning("invoke_skill_image_result_processing_error", error=str(e))
 
                 # Special handling for browser_navigate: handle content (stream URL emitted early)
                 if tool_name == "browser_navigate" and result:
@@ -1214,6 +1298,9 @@ async def execute_react_loop(
                 # Truncate result if configured
                 if config.truncate_tool_results and llm_result:
                     llm_result = truncate_tool_result(llm_result, config.tool_result_max_chars)
+
+                if tool_args.get("action") == "launch_browser":
+                    computer_browser_launched = True
 
                 if on_tool_result:
                     on_tool_result(tool_name, llm_result[:500] if llm_result else "", tool_call_id)

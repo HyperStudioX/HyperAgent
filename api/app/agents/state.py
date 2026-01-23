@@ -13,15 +13,20 @@ from app.services.search import SearchResult
 
 
 class AgentType(str, Enum):
-    """Available agent types."""
+    """Available agent types.
+
+    Simplified architecture:
+    - CHAT: Main agent with skills for general tasks, image generation, writing, and coding
+    - RESEARCH: Deep research workflows with comprehensive analysis
+    - DATA: Data analytics and visualization
+
+    Note: Deprecated agent types (IMAGE, WRITING, CODE) have been removed.
+    They are mapped to CHAT at the routing layer via AGENT_NAME_MAP.
+    """
 
     CHAT = "chat"
     RESEARCH = "research"
-    CODE = "code"
-    WRITING = "writing"
     DATA = "data"
-    IMAGE = "image"
-    COMPUTER = "computer"
 
 
 # Re-export HandoffInfo and SharedAgentMemory from handoff module for backward compatibility
@@ -79,6 +84,7 @@ class ChatState(SupervisorState, total=False):
     # Chat-specific fields
     system_prompt: str
     lc_messages: list[BaseMessage]  # LangChain messages for tool calling
+    has_error: bool  # Flag to signal error and stop the loop
     # Note: tool_iterations is inherited from SupervisorState
 
 
@@ -107,29 +113,6 @@ class ResearchState(SupervisorState, total=False):
     report_chunks: list[str]
 
 
-class CodeState(SupervisorState, total=False):
-    """State for the code execution subagent."""
-
-    # Code execution
-    code: str
-    language: str
-    execution_result: str
-    stdout: str
-    stderr: str
-    sandbox_id: str | None
-
-
-class WritingState(SupervisorState, total=False):
-    """State for the writing subagent."""
-
-    # Writing configuration
-    writing_type: str  # article, documentation, creative, etc.
-    tone: str
-    outline: str
-    draft: str
-    final_content: str
-
-
 class DataAnalysisState(SupervisorState, total=False):
     """State for the data analysis subagent."""
 
@@ -155,57 +138,3 @@ class DataAnalysisState(SupervisorState, total=False):
     images: list[dict[str, str]] | None  # List of {data: str, type: str, path: str}
 
 
-class ImageState(SupervisorState, total=False):
-    """State for the image generation subagent."""
-
-    # Request analysis
-    original_prompt: str  # User's original request
-    refined_prompt: str  # LLM-enhanced prompt for better results
-    should_refine: bool  # Whether prompt refinement is needed
-
-    # Image parameters
-    style: str  # e.g., "photorealistic", "artistic", "cartoon"
-    aspect_ratio: str  # e.g., "1:1", "16:9", "9:16"
-    size: str  # e.g., "1024x1024", "1792x1024"
-    quality: str  # "standard" or "hd" (for OpenAI)
-
-    # Provider configuration
-    image_provider: str  # "gemini" or "openai"
-    image_model: str  # Specific model name
-
-    # Generation results
-    generated_images: list[dict[str, Any]]  # List of {base64_data, url, revised_prompt}
-    generation_status: str  # "pending", "generating", "completed", "failed"
-    generation_error: str | None  # Error message if failed
-
-
-class ComputerState(SupervisorState, total=False):
-    """State for the computer/desktop control subagent.
-
-    This agent autonomously controls an E2B Desktop sandbox to complete
-    tasks that require visual interaction with a computer desktop.
-    """
-
-    # Sandbox management
-    sandbox_id: str | None  # E2B sandbox ID
-    stream_url: str | None  # Live stream URL for visual feedback
-    auth_key: str | None  # Auth key for stream access
-
-    # Task planning
-    task_plan: str  # Step-by-step plan for desktop operations
-    current_step: int  # Current step in the plan
-    completed_steps: list[str]  # Completed step descriptions
-
-    # Desktop state tracking
-    last_screenshot: str | None  # Base64-encoded last screenshot
-    screen_width: int  # Desktop width (default 1024)
-    screen_height: int  # Desktop height (default 768)
-    cursor_position: tuple[int, int] | None  # Current cursor (x, y)
-
-    # Tool calling support
-    lc_messages: list[BaseMessage]  # LangChain messages for ReAct loop
-    task_complete: bool  # Flag to indicate task completion
-
-    # Results
-    task_result: str  # Summary of what was accomplished
-    extracted_content: str | None  # Any text/data extracted from the desktop

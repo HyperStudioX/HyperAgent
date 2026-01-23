@@ -16,16 +16,25 @@ logger = get_logger(__name__)
 ROUTER_PROMPT = """You are a routing assistant that determines which specialized agent should handle a user query.
 
 Available agents:
-1. chat - For general conversation, simple Q&A, greetings, and casual interactions
-2. research - For in-depth research tasks requiring web search, analysis, and comprehensive reports
-3. code - For code execution, writing scripts, debugging, and programming tasks
-4. writing - For long-form content creation like articles, documentation, essays, and creative writing
-5. data - For data analysis, CSV/JSON processing, statistics, and data visualization
-6. image - For image generation, creating pictures, artwork, illustrations, and visual content
-7. computer - For tasks requiring visual desktop interaction, browser automation, form filling, clicking buttons, or interacting with web applications as a human would
+1. chat - Primary agent for most tasks: conversation, Q&A, image generation, writing, coding, and general requests. Has powerful skills for specialized tasks.
+2. research - ONLY for deep, comprehensive research requiring extensive web search, multi-source analysis, and detailed reports
+3. data - ONLY for data analytics: CSV/JSON processing, statistical analysis, and data visualization
+
+IMPORTANT: Route almost everything to CHAT agent. It has skills for:
+- Image generation (image_generation skill)
+- Writing content (simple_writing skill)
+- Code generation (code_generation skill)
+- Code review (code_review skill)
+- Code execution (execute_code tool)
+- Web search (web_search tool)
+- Quick research (web_research skill)
+
+Route to specialized agents ONLY when:
+- RESEARCH: Comprehensive multi-step research with synthesis and detailed analysis
+- DATA: Data analytics, CSV processing, statistical analysis, or data visualization
 
 Analyze the user's query and respond with a JSON object containing:
-- "agent": The agent name (chat, research, code, writing, data, image, or computer)
+- "agent": The agent name (chat, research, or data)
 - "confidence": Your confidence level (0.0 to 1.0)
 - "reason": Brief explanation for your choice
 
@@ -33,51 +42,60 @@ Respond with ONLY the JSON object, no other text.
 
 Examples:
 Query: "Hello, how are you?"
-{"agent": "chat", "confidence": 0.95, "reason": "Simple greeting requiring conversational response"}
+{"agent": "chat", "confidence": 0.95, "reason": "General conversation"}
 
-Query: "Research the latest AI developments in 2024"
-{"agent": "research", "confidence": 0.9, "reason": "Requires web search and comprehensive analysis"}
+Query: "Research and write a comprehensive report on AI developments in 2024 with citations"
+{"agent": "research", "confidence": 0.95, "reason": "Deep research requiring multi-source analysis and detailed report"}
+
+Query: "What are the latest AI developments?"
+{"agent": "chat", "confidence": 0.9, "reason": "Simple question - chat can search and answer"}
 
 Query: "Write a Python function to sort a list"
-{"agent": "code", "confidence": 0.95, "reason": "Programming task requiring code generation"}
+{"agent": "chat", "confidence": 0.95, "reason": "Code generation - chat has code_generation skill"}
+
+Query: "Write and execute Python code to test this algorithm"
+{"agent": "chat", "confidence": 0.95, "reason": "Code task - chat has code skills and execute_code tool"}
+
+Query: "Review this code for bugs"
+{"agent": "chat", "confidence": 0.95, "reason": "Code review - chat has code_review skill"}
 
 Query: "Write a blog post about climate change"
-{"agent": "writing", "confidence": 0.85, "reason": "Long-form content creation"}
+{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat has simple_writing skill"}
 
-Query: "Analyze this CSV data and find trends"
-{"agent": "data", "confidence": 0.9, "reason": "Data analysis task"}
+Query: "Write an email to my team"
+{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat has simple_writing skill"}
+
+Query: "Analyze this CSV file and create visualizations of the trends"
+{"agent": "data", "confidence": 0.95, "reason": "Data analytics and visualization task"}
 
 Query: "Generate an image of a sunset over mountains"
-{"agent": "image", "confidence": 0.95, "reason": "Image generation request"}
-
-Query: "Create a picture of a cute robot"
-{"agent": "image", "confidence": 0.95, "reason": "Requesting visual content creation"}
+{"agent": "chat", "confidence": 0.95, "reason": "Image generation - chat has image_generation skill"}
 
 Query: "Go to amazon.com and find the price of iPhone 15"
-{"agent": "computer", "confidence": 0.95, "reason": "Requires browsing a website and interacting with it"}
+{"agent": "chat", "confidence": 0.95, "reason": "Browser automation - chat agent has browser tools"}
 
 Query: "Fill out the contact form on example.com"
-{"agent": "computer", "confidence": 0.95, "reason": "Requires form interaction on a website"}
+{"agent": "chat", "confidence": 0.95, "reason": "Form interaction - chat agent has browser tools"}
 
-Query: "Take a screenshot of the Google homepage"
-{"agent": "computer", "confidence": 0.9, "reason": "Requires visual browser interaction"}
+Query: "Generate a picture of a cat"
+{"agent": "chat", "confidence": 0.95, "reason": "Image generation - chat has image_generation skill"}
 
-Query: "Click the login button and sign in to my account"
-{"agent": "computer", "confidence": 0.95, "reason": "Requires clicking and typing in a browser"}"""
+Query: "Create a detailed academic research paper on quantum computing"
+{"agent": "research", "confidence": 0.9, "reason": "Comprehensive research requiring detailed analysis"}"""
 
 # Fallback prompt for legacy parsing (backward compatibility)
 ROUTER_PROMPT_LEGACY = """You are a routing assistant that determines which specialized agent should handle a user query.
 
 Available agents:
-1. CHAT - For general conversation, simple Q&A, greetings, and casual interactions
-2. RESEARCH - For in-depth research tasks requiring web search, analysis, and comprehensive reports
-3. CODE - For code execution, writing scripts, debugging, and programming tasks
-4. WRITING - For long-form content creation like articles, documentation, essays, and creative writing
-5. DATA - For data analysis, CSV/JSON processing, statistics, and data visualization
-6. IMAGE - For image generation, creating pictures, artwork, illustrations, and visual content
-7. COMPUTER - For tasks requiring visual desktop interaction, browser automation, form filling, or clicking buttons
+1. CHAT - Primary agent for most tasks: conversation, Q&A, images, writing, coding, web search. Has powerful skills.
+2. RESEARCH - ONLY for deep, comprehensive research with detailed analysis
+3. DATA - ONLY for data analytics, CSV processing, and data visualization
 
-Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, CODE, WRITING, DATA, IMAGE, or COMPUTER) followed by a brief reason.
+IMPORTANT: Route almost everything to CHAT (including ALL writing tasks). Only use specialized agents for:
+- RESEARCH: Comprehensive multi-step research with synthesis
+- DATA: Data analytics and visualization
+
+Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, or DATA) followed by a brief reason.
 
 Format your response exactly as:
 AGENT: <agent_name>
@@ -99,21 +117,15 @@ ROUTING_CONFIDENCE_THRESHOLD = 0.5
 
 
 # Agent name mapping (handles both lowercase and uppercase)
+# Maps all agent names (including deprecated ones) to canonical AgentType values
 AGENT_NAME_MAP = {
+    # Canonical agent types
     "chat": AgentType.CHAT,
     "research": AgentType.RESEARCH,
-    "code": AgentType.CODE,
-    "writing": AgentType.WRITING,
     "data": AgentType.DATA,
-    "image": AgentType.IMAGE,
-    "computer": AgentType.COMPUTER,
     "CHAT": AgentType.CHAT,
     "RESEARCH": AgentType.RESEARCH,
-    "CODE": AgentType.CODE,
-    "WRITING": AgentType.WRITING,
     "DATA": AgentType.DATA,
-    "IMAGE": AgentType.IMAGE,
-    "COMPUTER": AgentType.COMPUTER,
 }
 
 
@@ -205,9 +217,6 @@ def parse_router_response(response: str) -> RoutingResult:
     if result:
         return result
 
-    # Fall back to legacy parsing
-    return parse_router_response_legacy(response)
-
 
 async def route_query(state: SupervisorState) -> dict:
     """Route a query to the appropriate agent.
@@ -221,32 +230,6 @@ async def route_query(state: SupervisorState) -> dict:
     Returns:
         Dict with selected_agent and routing_reason
     """
-    # Check for explicit mode override
-    explicit_mode = state.get("mode")
-    if explicit_mode:
-        try:
-            agent_type = AgentType(explicit_mode)
-            logger.info(
-                "routing_explicit",
-                query=state.get("query", "")[:50],
-                agent=agent_type.value,
-            )
-            return {
-                "selected_agent": agent_type.value,
-                "routing_reason": "Explicit mode selection",
-                "events": [
-                    {
-                        "type": "routing",
-                        "agent": agent_type.value,
-                        "reason": "Explicit mode selection",
-                    }
-                ],
-            }
-        except ValueError:
-            logger.warning("invalid_explicit_mode", mode=explicit_mode)
-            # Fall through to LLM routing
-
-    # LLM-based routing (use FLASH tier for fast, cost-efficient routing)
     query = state.get("query", "")
     provider = state.get("provider")
     llm = llm_service.get_llm_for_tier(ModelTier.FLASH, provider=provider)

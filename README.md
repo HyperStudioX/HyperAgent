@@ -1,26 +1,110 @@
 # HyperAgent
 
-AI-powered platform for conversational chat and deep research.
+AI-powered multi-agent platform with composable skills for chat, research, coding, data analysis, and more.
 
 ## What is HyperAgent?
 
-HyperAgent combines two powerful AI capabilities:
+HyperAgent is a **next-generation AI platform** that combines specialized agents with composable skills:
 
-**AI Chat** — Have natural conversations with advanced language models. Get instant answers, brainstorm ideas, or work through problems with streaming responses.
+### 🤖 Multi-Agent System
 
-**Deep Research** — Go beyond simple Q&A. HyperAgent conducts multi-step research across sources, synthesizes findings, and delivers comprehensive reports with full source tracking.
+**Chat Agent (Primary)** — Handles most tasks with intelligent skill invocation:
+- Natural conversations with advanced LLMs
+- AI image generation (Gemini/DALL-E)
+- Content writing (emails, articles, documents)
+- Code generation and review
+- Quick web research
+- And much more...
 
-## Features
+**Research Agent** — Deep research workflows:
+- Comprehensive multi-source research
+- In-depth analysis and synthesis
+- Detailed reports with citations
+- Academic-level research papers
 
-- Streaming responses for real-time interaction
-- Multi-provider LLM support (Anthropic Claude, OpenAI GPT-4)
-- Source tracking and citation for research tasks
-- Clean, minimal interface
+**Data Agent** — Data analytics:
+- CSV/JSON/Excel processing
+- Statistical analysis
+- Data visualization and charting
+- Trend analysis and insights
+
+**Computer Agent** — Browser automation:
+- Visual website interaction
+- Form filling and submission
+- Automated web scraping
+- Screenshot capture
+
+### 🛠️ Skills System
+
+Skills are composable LangGraph subgraphs that agents invoke as tools:
+
+- **`image_generation`** - AI image generation
+- **`simple_writing`** - Document/email/article creation
+- **`code_generation`** - Generate code snippets
+- **`code_review`** - Code analysis for bugs/style/security
+- **`web_research`** - Focused research with summarization
+- **`data_visualization`** - Generate visualization code
+
+Any agent can invoke any skill, making the system highly composable and extensible.
+
+## Architecture Highlights
+
+- **Simplified Hybrid Architecture** - Chat agent handles 80%+ of requests using skills
+- **Composable Skills** - Reusable LangGraph subgraphs for focused tasks
+- **Specialized Agents** - Complex workflows handled by dedicated agents
+- **Event Streaming** - Real-time SSE streaming for all operations
+- **Multi-Provider** - Supports Anthropic Claude, OpenAI GPT-4, Google Gemini
+
+## Key Features
+
+- ✅ Streaming responses with real-time updates
+- ✅ Multi-provider LLM support (Anthropic, OpenAI, Google)
+- ✅ Composable skills system for extensibility
+- ✅ File attachments with vision support
+- ✅ Browser automation with E2B Desktop
+- ✅ Code execution in secure sandboxes
+- ✅ Source tracking and citations
+- ✅ Clean, minimal interface
+- ✅ Internationalization (English, 中文)
 
 ## Documentation
 
-- [Development Guide](docs/Development.md) — Setup, tech stack, and API reference
-- [Design Style Guide](docs/Design-Style-Guide.md) — UI components, colors, and typography
+- **[Agent Architecture](AGENT_ARCHITECTURE.md)** — Multi-agent system and skills architecture
+- **[Development Guide](docs/Development.md)** — Setup, tech stack, and API reference
+- **[Design Style Guide](docs/Design-Style-Guide.md)** — UI components, colors, and typography
+
+## Quick Start
+
+### Backend (Python/FastAPI)
+```bash
+cd api
+uv sync                    # Install dependencies
+uv run alembic upgrade head # Run migrations
+uv run uvicorn app.main:app --reload
+```
+
+### Frontend (Next.js)
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Visit `http://localhost:3000` to start using HyperAgent.
+
+## Tech Stack
+
+**Backend:**
+- FastAPI + LangGraph for multi-agent orchestration
+- PostgreSQL for persistence
+- Redis for caching and rate limiting
+- E2B for code execution and browser automation
+
+**Frontend:**
+- Next.js 16 (App Router)
+- React 18 with TypeScript
+- Zustand for state management
+- Radix UI + Tailwind CSS
 
 ## License
 

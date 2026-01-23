@@ -39,6 +39,7 @@
         "researchDescription": "深度分析与报告",
         "progress": {
             "processing": "处理中",
+            "taskProgress": "任务进度",
             "toolCount": "{count, plural, =1 {1 个工具} other {# 个工具}}",
             "stageCount": "{count, plural, =1 {1 个阶段} other {# 个阶段}}",
             "stagesProgress": "{completed} / {total} 个阶段",
@@ -48,7 +49,15 @@
             "collapse": "收起",
             "defaultTool": "工具",
             "sourcesCount": "{count, plural, =1 {1 个来源} other {# 个来源}}",
-            "liveBrowser": "实时浏览器"
+            "liveBrowser": "实时浏览器",
+            "browserView": "浏览器视图",
+            "close": "关闭",
+            "completed": "已完成",
+            "completedWithErrors": "完成但有错误",
+            "dismiss": "关闭",
+            "viewProgress": "查看进度",
+            "noProgressAvailable": "此对话没有详细进度信息。",
+            "progressNotSaved": "智能体事件仅在流式传输时保存。"
         }
     },
     "home": {
@@ -185,6 +194,7 @@
             "hideDetails": "收起详情",
             "thinking": "思考中...",
             "processing": "处理中...",
+            "showProgress": "查看进度",
             "searching": "搜索中...",
             "generatingImage": "正在生成：{prompt}",
             "generatingImageDefault": "正在生成图片...",
@@ -193,10 +203,13 @@
             "analyzing": "分析中...",
             "researching": "研究中...",
             "handoffTo": "正在委派给 {target}...",
+            "skillCompleted": "技能完成：{skill}",
             "inProgress": "进行中",
             "completed": "已完成",
             "completedWithErrors": "完成但有错误",
             "completedStages": "{count, plural, =0 {未完成任何步骤} =1 {已完成 1 个步骤} other {已完成 # 个步骤}}",
+            "toolsUsed": "{count, plural, =1 {使用了 1 个工具} other {使用了 # 个工具}}",
+            "toolsInvoked": "调用的工具：",
             "error": "错误",
             "errorWithMessage": "{error}",
             "expandStage": "点击展开详情",
@@ -223,11 +236,19 @@
                 "browser_press_key": "浏览器按键",
                 "browser_scroll": "浏览器滚动",
                 "browser_get_stream_url": "浏览器直播",
+                "computer_use": "计算机使用",
+                "computer_bash": "计算机终端",
+                "skill_web_research": "网络研究",
+                "skill_code_review": "代码审查",
+                "skill_code_generation": "代码生成",
+                "skill_image_generation": "图片生成",
+                "skill_simple_writing": "写作",
+                "skill_data_visualization": "数据可视化",
                 "default": "工具"
             },
             "stages": {
                 "thinking": {
-                    "running": "正在处理请求...",
+                    "running": "正在处理您的请求...",
                     "completed": "请求已处理",
                     "failed": "处理失败"
                 },
@@ -402,6 +423,17 @@
                     "completed": "桌面操作完成",
                     "failed": "桌面操作失败"
                 },
+                "computer": {
+                    "running": "正在初始化桌面控制...",
+                    "completed": "桌面控制已就绪",
+                    "failed": "桌面控制失败"
+                },
+                "processing": {
+                    "running": "处理中...",
+                    "completed": "处理完成",
+                    "failed": "处理失败",
+                    "pending": "处理中"
+                },
                 "default": {
                     "running": "处理中...",
                     "completed": "已完成",
@@ -486,5 +518,15 @@
         "voice": {
             "language": "语言"
         }
+    },
+    "report": {
+        "defaultTitle": "分析报告",
+        "tableOfContents": "目录",
+        "expandOutline": "展开大纲",
+        "collapseOutline": "收起大纲",
+        "refiningAnalysis": "正在完善分析...",
+        "synthetic": "HyperAgent 合成",
+        "verifiedReport": "已验证报告",
+        "code": "代码"
     }
 }

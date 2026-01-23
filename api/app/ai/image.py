@@ -181,10 +181,31 @@ class ImageGenerationService:
                 )
 
             # Extract image from response parts
-            if response.candidates and response.candidates[0].content.parts:
-                for part in response.candidates[0].content.parts:
-                    if part.inline_data and part.inline_data.data:
-                        b64_data = base64.b64encode(part.inline_data.data).decode()
+            candidates = response.candidates or []
+            if not candidates:
+                logger.warning(
+                    "gemini_image_generation_no_candidates",
+                    model=model,
+                    prompt=prompt[:50],
+                )
+                continue
+
+            found_image = False
+            for candidate in candidates:
+                content = getattr(candidate, "content", None)
+                parts = getattr(content, "parts", None) if content else None
+                if not parts:
+                    logger.debug(
+                        "gemini_image_generation_candidate_no_parts",
+                        model=model,
+                        finish_reason=getattr(candidate, "finish_reason", None),
+                    )
+                    continue
+
+                for part in parts:
+                    inline_data = getattr(part, "inline_data", None)
+                    if inline_data and getattr(inline_data, "data", None):
+                        b64_data = base64.b64encode(inline_data.data).decode()
                         results.append(
                             ImageGenerationResult(
                                 base64_data=b64_data,
@@ -192,7 +213,19 @@ class ImageGenerationService:
                                 revised_prompt=None,
                             )
                         )
+                        found_image = True
                         break
+
+                if found_image:
+                    break
+
+            if not found_image:
+                logger.warning(
+                    "gemini_image_generation_no_image_parts",
+                    model=model,
+                    prompt=prompt[:50],
+                    candidate_count=len(candidates),
+                )
 
         return results
 

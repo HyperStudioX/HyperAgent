@@ -20,8 +20,9 @@ import {
 } from "lucide-react";
 import { ResearchResultView } from "@/components/query/research-report-view";
 import { Button } from "@/components/ui/button";
+import { LiveAgentProgressPanel } from "@/components/chat/live-agent-progress-panel";
 import { useTaskStore } from "@/lib/stores/task-store";
-import { useAgentProgressStore, type ComputerStreamInfo } from "@/lib/stores/agent-progress-store";
+import { useAgentProgressStore, type ComputerStreamInfo, type TimestampedEvent } from "@/lib/stores/agent-progress-store";
 import type { ResearchStep, Source, ResearchScenario, AgentEvent } from "@/lib/types";
 import type { ResearchTask } from "@/lib/stores/task-store";
 
@@ -217,6 +218,31 @@ interface TaskInfo {
     depth: string;
 }
 
+function ResearchBrowserStreamIframe({ stream }: { stream: ComputerStreamInfo }) {
+    const streamUrl = useMemo(() => {
+        const base = stream.streamUrl;
+        const auth = stream.authKey;
+        if (auth && !base.includes("authKey=")) {
+            const sep = base.includes("?") ? "&" : "?";
+            return `${base}${sep}authKey=${encodeURIComponent(auth)}`;
+        }
+        return base;
+    }, [stream.streamUrl, stream.authKey]);
+
+    return (
+        <div className="p-3">
+            <div className="rounded-lg overflow-hidden border border-border bg-black">
+                <iframe
+                    src={streamUrl}
+                    className="w-full h-[400px]"
+                    allow="autoplay; fullscreen"
+                    referrerPolicy="no-referrer"
+                />
+            </div>
+        </div>
+    );
+}
+
 interface ResearchProgressProps {
     taskId: string;
 }
@@ -253,8 +279,12 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         setBrowserStream,
     } = useAgentProgressStore();
 
-    // Get browser stream from shared store
+    // Get browser stream, events, and current action from shared store
     const browserStream = activeProgress?.browserStream ?? null;
+    const currentStage = activeProgress?.currentStage ?? null;
+    const currentStageDescription = activeProgress?.currentStageDescription ?? null;
+    const progressEvents = activeProgress?.events ?? [];
+    const progressSources = activeProgress?.sources ?? [];
 
     // Refs for stable references in callbacks
     const taskLoadedRef = useRef(false);
@@ -670,24 +700,33 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                                 </Button>
                             </div>
                         </div>
-                        {/* Stream iframe */}
-                        {showBrowserStream && (
-                            <div className="p-3">
-                                <div className="rounded-lg overflow-hidden border border-border bg-black">
-                                    <iframe
-                                        src={browserStream.streamUrl}
-                                        className="w-full h-[400px]"
-                                        allow="autoplay"
-                                        sandbox="allow-same-origin allow-scripts"
-                                    />
-                                </div>
+                        {/* Current browser action - what's happening in the live view */}
+                        {currentStage?.startsWith("browser_") && currentStageDescription && (
+                            <div className="px-3 py-1.5 text-xs text-muted-foreground border-b border-border/30 truncate">
+                                {currentStageDescription}
                             </div>
+                        )}
+                        {/* Stream iframe - use streamUrl with authKey for E2B */}
+                        {showBrowserStream && (
+                            <ResearchBrowserStreamIframe stream={browserStream} />
                         )}
                     </div>
                 )}
 
                 <div className="flex-1 overflow-y-auto">
                     <div className="max-w-none mx-auto px-4 md:px-6 py-4 md:py-6">
+                        {/* Live progress panel - shown during research */}
+                        {isResearching && progressEvents.length > 0 && (
+                            <div className="max-w-3xl mx-auto mb-6">
+                                <LiveAgentProgressPanel
+                                    events={progressEvents as TimestampedEvent[]}
+                                    sources={progressSources}
+                                    isStreaming={isResearching}
+                                    agentType="research"
+                                />
+                            </div>
+                        )}
+
                         {error ? (
                             <div className="flex items-center justify-center min-h-[40vh]">
                                 <div className="text-center">

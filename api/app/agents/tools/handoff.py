@@ -29,10 +29,10 @@ logger = get_logger(__name__)
 # These should match the values in app.agents.state.AgentType
 AGENT_CHAT = "chat"
 AGENT_RESEARCH = "research"
-AGENT_CODE = "code"
-AGENT_WRITING = "writing"
+AGENT_CODE = "code"  # DEPRECATED: Kept for backward compatibility only
+AGENT_WRITING = "writing"  # DEPRECATED: Kept for backward compatibility only
 AGENT_DATA = "data"
-AGENT_IMAGE = "image"
+AGENT_IMAGE = "image"  # DEPRECATED: Kept for backward compatibility only
 
 
 # =============================================================================
@@ -98,40 +98,24 @@ class HandoffInput(BaseModel):
 MAX_HANDOFFS = 3
 
 # Define which agents can delegate to which other agents
+# Note: CODE, WRITING, IMAGE agents are deprecated - now handled by chat agent with skills
 HANDOFF_MATRIX: dict[str, list[str]] = {
     AGENT_CHAT: [
         AGENT_RESEARCH,
-        AGENT_CODE,
-        AGENT_WRITING,
         AGENT_DATA,
-        AGENT_IMAGE,
     ],
     AGENT_RESEARCH: [
-        AGENT_CODE,
-        AGENT_DATA,
-        AGENT_IMAGE,
-    ],
-    AGENT_WRITING: [
-        AGENT_RESEARCH,
-        AGENT_IMAGE,
-    ],
-    AGENT_CODE: [
         AGENT_DATA,
     ],
-    AGENT_DATA: [
-        AGENT_CODE,
-    ],
-    AGENT_IMAGE: [],  # Image agent doesn't delegate to others
+    AGENT_DATA: [],
 }
 
 # Agent descriptions for handoff tool docstrings
+# Note: CODE, WRITING, IMAGE are deprecated - chat handles these via skills
 AGENT_DESCRIPTIONS: dict[str, str] = {
-    AGENT_CHAT: "General conversation and simple Q&A",
+    AGENT_CHAT: "General conversation, Q&A, writing, images, code, and general tasks (has skills for all these)",
     AGENT_RESEARCH: "In-depth web research, analysis, and comprehensive reports",
-    AGENT_CODE: "Code generation, debugging, and programming tasks",
-    AGENT_WRITING: "Long-form content creation, articles, documentation",
     AGENT_DATA: "Data analysis, CSV/JSON processing, statistics, visualization",
-    AGENT_IMAGE: "Image generation, artwork creation, and visual content",
 }
 
 # Shared memory context budget configuration

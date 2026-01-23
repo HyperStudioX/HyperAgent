@@ -1,7 +1,7 @@
 """Agent tools for the multi-agent system."""
 
 from app.agents.tools.code_execution import execute_code, execute_code_with_context
-from app.agents.tools.browser import (
+from app.agents.tools.browser_use import (
     browser_click,
     browser_get_stream_url,
     browser_navigate,
@@ -11,19 +11,14 @@ from app.agents.tools.browser import (
     browser_type,
 )
 from app.sandbox import (
-    BrowserSandboxManager,
-    BrowserSandboxSession,
-    get_browser_sandbox_manager,
-    CodeSandboxManager,
-    CodeSandboxSession,
-    get_code_sandbox_manager,
+    DesktopSandboxManager,
+    DesktopSandboxSession,
+    get_desktop_sandbox_manager,
+    ExecutionSandboxManager,
+    ExecutionSandboxSession,
+    get_execution_sandbox_manager,
     sandbox_file,
     sandbox_file_with_context,
-)
-from app.agents.tools.computer_use import (
-    COMPUTER_TOOLS,
-    computer_bash,
-    computer_use,
 )
 from app.agents.tools.handoff import (
     AGENT_DESCRIPTIONS,
@@ -82,20 +77,6 @@ from app.agents.tools.registry import (
     register_tool,
     unregister_tool,
 )
-from app.agents.tools.tool_gate import (
-    SemanticRule,
-    ToolEnablementResult,
-    ToolGateConfig,
-    TriggerPattern,
-    check_tool_enablement,
-    get_enabled_categories,
-    should_enable_image_tools,
-    should_enable_tools,
-    should_enable_web_search,
-)
-from app.agents.tools.tool_gate import (
-    ToolCategory as ToolGateCategory,
-)
 from app.agents.tools.validators import (
     FileOperationOutput,
     ValidationResult,
@@ -131,18 +112,14 @@ __all__ = [
     "execute_code_with_context",
     "sandbox_file",
     "sandbox_file_with_context",
-    # Code sandbox management
-    "CodeSandboxSession",
-    "CodeSandboxManager",
-    "get_code_sandbox_manager",
-    # Browser sandbox management
-    "BrowserSandboxSession",
-    "BrowserSandboxManager",
-    "get_browser_sandbox_manager",
-    # Computer use tools (autonomous desktop control)
-    "computer_use",
-    "computer_bash",
-    "COMPUTER_TOOLS",
+    # Execution sandbox management
+    "ExecutionSandboxSession",
+    "ExecutionSandboxManager",
+    "get_execution_sandbox_manager",
+    # Desktop sandbox management
+    "DesktopSandboxSession",
+    "DesktopSandboxManager",
+    "get_desktop_sandbox_manager",
     # Handoff types
     "HandoffInfo",
     "SharedAgentMemory",
@@ -208,15 +185,4 @@ __all__ = [
     "estimate_message_tokens",
     "truncate_messages_to_budget",
     "truncate_tool_result",
-    # Tool gate
-    "ToolGateCategory",
-    "TriggerPattern",
-    "SemanticRule",
-    "ToolEnablementResult",
-    "ToolGateConfig",
-    "check_tool_enablement",
-    "should_enable_tools",
-    "should_enable_image_tools",
-    "get_enabled_categories",
-    "should_enable_web_search",
 ]

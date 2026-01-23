@@ -10,7 +10,7 @@ from typing import Literal
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.sandbox import get_code_sandbox_manager
+from app.sandbox import get_execution_sandbox_manager
 from app.config import settings
 from app.core.logging import get_logger
 
@@ -41,6 +41,18 @@ class ExecuteCodeInput(BaseModel):
         ge=1,
         le=600,
         description="Execution timeout in seconds (1-600)",
+    )
+    # Context fields (injected by agent, not provided by LLM)
+    # These are excluded from the JSON schema so the LLM doesn't see them
+    user_id: str | None = Field(
+        default=None,
+        description="User ID for session management (internal use only)",
+        json_schema_extra={"exclude": True},
+    )
+    task_id: str | None = Field(
+        default=None,
+        description="Task ID for session management (internal use only)",
+        json_schema_extra={"exclude": True},
     )
 
 
@@ -95,7 +107,7 @@ async def execute_code(
 
     try:
         # Get or create sandbox session
-        sandbox_manager = get_code_sandbox_manager()
+        sandbox_manager = get_execution_sandbox_manager()
         session = await sandbox_manager.get_or_create_sandbox(
             user_id=user_id,
             task_id=task_id,

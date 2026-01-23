@@ -10,7 +10,7 @@ import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { cn } from "@/lib/utils";
 
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
-import { AgentProgressPanel } from "@/components/sidebar/sidebar-agent-progress";
+import { BrowserStreamPanel } from "@/components/sidebar/browser-stream-panel";
 
 interface MainLayoutProps {
     children: React.ReactNode;
@@ -22,12 +22,9 @@ export function MainLayout({ children }: MainLayoutProps) {
     const { isPanelOpen, activeProgress } = useAgentProgressStore();
 
     // Calculate the right panel width for content adjustment
+    // Panel only shows when browser stream is active
     const hasBrowserStream = activeProgress?.browserStream;
-    const rightPanelWidth = isPanelOpen
-        ? hasBrowserStream
-            ? "lg:pr-[680px]"  // Browser stream active - wider panel
-            : "lg:pr-[340px]"  // Normal panel width
-        : "";
+    const rightPanelWidth = isPanelOpen && hasBrowserStream ? "lg:pr-[680px]" : "";
 
     return (
         <div className="flex h-screen overflow-hidden bg-background">
@@ -85,8 +82,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                 {/* File Preview Sidebar */}
                 <FilePreviewSidebar />
 
-                {/* Agent Progress Panel - Right side panel for agent activity */}
-                <AgentProgressPanel />
+                {/* Browser Stream Panel - Right side panel for live browser view */}
+                <BrowserStreamPanel />
             </main>
         </div>
     );

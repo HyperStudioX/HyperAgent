@@ -1,6 +1,6 @@
-"""Code Sandbox Manager for E2B Session Lifecycle.
+"""Desktop Sandbox Manager for E2B Desktop Session Lifecycle.
 
-Provides session-based code execution sandbox lifecycle management, enabling sandbox
+Provides session-based desktop sandbox lifecycle management, enabling sandbox
 sharing across multiple tool calls within the same user/task context.
 """
 
@@ -11,35 +11,63 @@ from typing import Any
 
 from app.config import settings
 from app.core.logging import get_logger
-from app.sandbox.code_executor import E2BSandboxExecutor
+from app.sandbox.desktop_executor import E2B_DESKTOP_AVAILABLE, E2BDesktopExecutor
 
 logger = get_logger(__name__)
 
 
-def get_default_session_timeout() -> timedelta:
-    """Get default session timeout from settings."""
-    return timedelta(minutes=settings.e2b_session_timeout_minutes)
+def get_default_desktop_session_timeout() -> timedelta:
+    """Get default desktop session timeout from settings."""
+    return timedelta(minutes=settings.e2b_desktop_session_timeout_minutes)
 
 # Cleanup interval for expired sessions (60 seconds)
 CLEANUP_INTERVAL_SECONDS = 60
 
 
 @dataclass
-class CodeSandboxSession:
-    """Tracks an active code execution sandbox session."""
+class DesktopSandboxSession:
+    """Tracks an active desktop sandbox session."""
 
-    executor: E2BSandboxExecutor
+    executor: E2BDesktopExecutor
     session_key: str
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_accessed: datetime = field(default_factory=datetime.utcnow)
-    timeout: timedelta = field(default_factory=get_default_session_timeout)
+    timeout: timedelta = field(default_factory=get_default_desktop_session_timeout)
+    # Stream state tracking
+    _stream_url: str | None = field(default=None, repr=False)
+    _stream_auth_key: str | None = field(default=None, repr=False)
+    _stream_started: bool = field(default=False, repr=False)
+    _stream_ready: bool = field(default=False, repr=False)
 
     @property
     def sandbox_id(self) -> str | None:
         """Get the underlying sandbox ID."""
-        if self.executor and self.executor.sandbox:
-            return self.executor.sandbox.sandbox_id
-        return None
+        return self.executor.sandbox_id
+
+    @property
+    def browser_launched(self) -> bool:
+        """Check if browser has been launched in this session."""
+        return self.executor.browser_launched
+
+    @property
+    def stream_url(self) -> str | None:
+        """Get the stream URL if available."""
+        return self._stream_url
+
+    @property
+    def stream_auth_key(self) -> str | None:
+        """Get the stream auth key if available."""
+        return self._stream_auth_key
+
+    @property
+    def is_stream_started(self) -> bool:
+        """Check if the stream has been started."""
+        return self._stream_started
+
+    @property
+    def is_stream_ready(self) -> bool:
+        """Check if the stream is ready for viewing."""
+        return self._stream_ready
 
     @property
     def is_expired(self) -> bool:
@@ -50,21 +78,36 @@ class CodeSandboxSession:
         """Update last accessed time to prevent expiry."""
         self.last_accessed = datetime.utcnow()
 
+    def set_stream_info(self, stream_url: str, auth_key: str | None) -> None:
+        """Set the stream information after starting.
 
-class CodeSandboxManager:
-    """Manages code execution sandbox sessions across multiple tool invocations.
+        Args:
+            stream_url: The URL to view the stream
+            auth_key: Optional authentication key
+        """
+        self._stream_url = stream_url
+        self._stream_auth_key = auth_key
+        self._stream_started = True
 
-    Uses a session key (user_id:task_id) to enable sandbox reuse
+    def mark_stream_ready(self) -> None:
+        """Mark the stream as ready for viewing."""
+        self._stream_ready = True
+
+
+class DesktopSandboxManager:
+    """Manages desktop sandbox sessions across multiple tool invocations.
+
+    Uses a session key (desktop:user_id:task_id) to enable sandbox reuse
     within the same context. Provides automatic cleanup of expired
     sessions via background task.
     """
 
-    _instance: "CodeSandboxManager | None" = None
+    _instance: "DesktopSandboxManager | None" = None
     _lock: asyncio.Lock = asyncio.Lock()
 
     def __init__(self) -> None:
-        """Initialize the code sandbox manager."""
-        self._sessions: dict[str, CodeSandboxSession] = {}
+        """Initialize the desktop sandbox manager."""
+        self._sessions: dict[str, DesktopSandboxSession] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._session_lock = asyncio.Lock()
         # Metrics counters
@@ -74,10 +117,10 @@ class CodeSandboxManager:
         self._health_check_failures: int = 0
 
     @classmethod
-    def get_instance(cls) -> "CodeSandboxManager":
-        """Get the singleton instance of CodeSandboxManager."""
+    def get_instance(cls) -> "DesktopSandboxManager":
+        """Get the singleton instance of DesktopSandboxManager."""
         if cls._instance is None:
-            cls._instance = CodeSandboxManager()
+            cls._instance = DesktopSandboxManager()
         return cls._instance
 
     @staticmethod
@@ -89,39 +132,48 @@ class CodeSandboxManager:
             task_id: Task identifier
 
         Returns:
-            Session key string
+            Session key string with desktop prefix
         """
         user = user_id or "anonymous"
         task = task_id or "default"
-        return f"{user}:{task}"
+        return f"desktop:{user}:{task}"
 
     async def get_or_create_sandbox(
         self,
         user_id: str | None = None,
         task_id: str | None = None,
         timeout: timedelta | None = None,
-    ) -> CodeSandboxSession:
-        """Get an existing sandbox session or create a new one.
+        launch_browser: bool = True,
+        browser: str | None = None,
+    ) -> DesktopSandboxSession:
+        """Get an existing desktop sandbox session or create a new one.
 
         Args:
             user_id: User identifier
             task_id: Task identifier
-            timeout: Session timeout (defaults to DEFAULT_SESSION_TIMEOUT)
+            timeout: Session timeout (defaults to DEFAULT_DESKTOP_SESSION_TIMEOUT)
+            launch_browser: Whether to launch browser on new sandbox
+            browser: Browser to launch (defaults to config setting)
 
         Returns:
-            CodeSandboxSession with active executor
+            DesktopSandboxSession with active executor
 
         Raises:
-            ValueError: If E2B API key not configured
+            ValueError: If E2B Desktop not available or API key not configured
         """
         # Validate prerequisites at manager level (fail fast)
+        if not E2B_DESKTOP_AVAILABLE:
+            raise ValueError(
+                "E2B Desktop not available. Install with: pip install e2b-desktop"
+            )
+
         if not settings.e2b_api_key:
             raise ValueError(
                 "E2B API key not configured. Set E2B_API_KEY environment variable."
             )
 
         session_key = self.make_session_key(user_id, task_id)
-        session_timeout = timeout or get_default_session_timeout()
+        session_timeout = timeout or get_default_desktop_session_timeout()
 
         async with self._session_lock:
             # Check for existing valid session
@@ -130,11 +182,14 @@ class CodeSandboxManager:
                 # Perform health check: not expired and sandbox still alive
                 if not session.is_expired and await self._is_sandbox_healthy(session):
                     session.touch()
+                    if launch_browser and not session.browser_launched:
+                        await session.executor.launch_browser(browser=browser)
                     self._total_reused += 1
                     logger.info(
-                        "sandbox_session_reused",
+                        "desktop_sandbox_session_reused",
                         session_key=session_key,
                         sandbox_id=session.sandbox_id,
+                        browser_launched=session.browser_launched,
                     )
                     return session
                 else:
@@ -142,10 +197,14 @@ class CodeSandboxManager:
                     await self._cleanup_session_internal(session_key)
 
             # Create new session
-            executor = E2BSandboxExecutor()
+            executor = E2BDesktopExecutor()
             await executor.create_sandbox()
 
-            session = CodeSandboxSession(
+            # Launch browser if requested
+            if launch_browser:
+                await executor.launch_browser(browser=browser)
+
+            session = DesktopSandboxSession(
                 executor=executor,
                 session_key=session_key,
                 timeout=session_timeout,
@@ -154,9 +213,10 @@ class CodeSandboxManager:
             self._total_created += 1
 
             logger.info(
-                "sandbox_session_created",
+                "desktop_sandbox_session_created",
                 session_key=session_key,
                 sandbox_id=session.sandbox_id,
+                browser_launched=session.browser_launched,
             )
 
             # Start cleanup task if not running
@@ -168,15 +228,15 @@ class CodeSandboxManager:
         self,
         user_id: str | None = None,
         task_id: str | None = None,
-    ) -> CodeSandboxSession | None:
-        """Get an existing sandbox session without creating one.
+    ) -> DesktopSandboxSession | None:
+        """Get an existing desktop sandbox session without creating one.
 
         Args:
             user_id: User identifier
             task_id: Task identifier
 
         Returns:
-            CodeSandboxSession if exists and valid, None otherwise
+            DesktopSandboxSession if exists and valid, None otherwise
         """
         session_key = self.make_session_key(user_id, task_id)
 
@@ -187,7 +247,71 @@ class CodeSandboxManager:
                 return session
             return None
 
-    async def _is_sandbox_healthy(self, session: CodeSandboxSession) -> bool:
+    async def ensure_stream_ready(
+        self,
+        session: DesktopSandboxSession,
+        wait_ms: int | None = None,
+    ) -> tuple[str, str | None]:
+        """Ensure the desktop stream is started and ready for viewing.
+
+        This method should be called before performing any desktop actions to ensure
+        the user can see the actions in the live stream. It:
+        1. Starts the stream if not already started
+        2. Waits for the configured time to allow frontend to connect
+        3. Marks the session as stream-ready
+
+        Args:
+            session: The desktop session
+            wait_ms: Optional wait time in ms (defaults to settings.e2b_desktop_stream_ready_wait_ms)
+
+        Returns:
+            Tuple of (stream_url, auth_key)
+        """
+        # If stream is already ready, just return the existing info
+        if session.is_stream_ready and session.stream_url:
+            logger.debug(
+                "stream_already_ready",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+            )
+            return session.stream_url, session.stream_auth_key
+
+        # Start stream if not started
+        if not session.is_stream_started:
+            logger.info(
+                "starting_desktop_stream",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+            )
+            stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
+            session.set_stream_info(stream_url, auth_key)
+            logger.info(
+                "desktop_stream_started",
+                session_key=session.session_key,
+                sandbox_id=session.sandbox_id,
+            )
+
+        # Wait for stream to be ready (allow frontend to connect)
+        stream_wait = wait_ms or settings.e2b_desktop_stream_ready_wait_ms
+        logger.info(
+            "waiting_for_stream_ready",
+            session_key=session.session_key,
+            sandbox_id=session.sandbox_id,
+            wait_ms=stream_wait,
+        )
+        await session.executor.wait(stream_wait)
+
+        # Mark as ready
+        session.mark_stream_ready()
+        logger.info(
+            "desktop_stream_ready",
+            session_key=session.session_key,
+            sandbox_id=session.sandbox_id,
+        )
+
+        return session.stream_url, session.stream_auth_key
+
+    async def _is_sandbox_healthy(self, session: DesktopSandboxSession) -> bool:
         """Check if a sandbox session is still healthy and responsive.
 
         Args:
@@ -201,15 +325,15 @@ class CodeSandboxManager:
 
         try:
             # Perform a lightweight health check by running a simple command
-            result = await session.executor.sandbox.commands.run(
+            stdout, stderr, exit_code = await session.executor.run_command(
                 "echo 'health_check'",
-                timeout=5,  # 5 second timeout for health check
+                timeout_ms=5000,  # 5 second timeout for health check
             )
-            return result.exit_code == 0 and "health_check" in (result.stdout or "")
+            return exit_code == 0 and "health_check" in stdout
         except Exception as e:
             self._health_check_failures += 1
             logger.warning(
-                "sandbox_health_check_failed",
+                "desktop_sandbox_health_check_failed",
                 session_key=session.session_key,
                 sandbox_id=session.sandbox_id,
                 error=str(e),
@@ -221,7 +345,7 @@ class CodeSandboxManager:
         user_id: str | None = None,
         task_id: str | None = None,
     ) -> bool:
-        """Explicitly clean up a sandbox session.
+        """Explicitly clean up a desktop sandbox session.
 
         Args:
             user_id: User identifier
@@ -250,14 +374,14 @@ class CodeSandboxManager:
                 await session.executor.cleanup()
                 self._total_cleaned += 1
                 logger.info(
-                    "sandbox_session_cleaned",
+                    "desktop_sandbox_session_cleaned",
                     session_key=session_key,
                     sandbox_id=session.sandbox_id,
                 )
                 return True
             except Exception as e:
                 logger.warning(
-                    "sandbox_session_cleanup_failed",
+                    "desktop_sandbox_session_cleanup_failed",
                     session_key=session_key,
                     error=str(e),
                 )
@@ -273,8 +397,7 @@ class CodeSandboxManager:
 
         async with self._session_lock:
             expired_keys = [
-                key for key, session in self._sessions.items()
-                if session.is_expired
+                key for key, session in self._sessions.items() if session.is_expired
             ]
 
             for key in expired_keys:
@@ -282,7 +405,7 @@ class CodeSandboxManager:
                     cleaned += 1
 
         if cleaned > 0:
-            logger.info("expired_sessions_cleaned", count=cleaned)
+            logger.info("desktop_expired_sessions_cleaned", count=cleaned)
 
         return cleaned
 
@@ -304,7 +427,7 @@ class CodeSandboxManager:
             self._cleanup_task.cancel()
             self._cleanup_task = None
 
-        logger.info("all_sessions_cleaned", count=cleaned)
+        logger.info("desktop_all_sessions_cleaned", count=cleaned)
         return cleaned
 
     def _ensure_cleanup_task(self) -> None:
@@ -321,7 +444,7 @@ class CodeSandboxManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("cleanup_loop_error", error=str(e))
+                logger.error("desktop_cleanup_loop_error", error=str(e))
 
     @property
     def active_session_count(self) -> int:
@@ -338,6 +461,7 @@ class CodeSandboxManager:
                 - total_cleaned: Total sessions cleaned up since startup
                 - total_reused: Total session reuses since startup
                 - health_check_failures: Total health check failures
+                - e2b_desktop_available: Whether E2B Desktop SDK is available
         """
         return {
             "active_sessions": len(self._sessions),
@@ -345,6 +469,7 @@ class CodeSandboxManager:
             "total_cleaned": self._total_cleaned,
             "total_reused": self._total_reused,
             "health_check_failures": self._health_check_failures,
+            "e2b_desktop_available": E2B_DESKTOP_AVAILABLE,
         }
 
     def get_session_info(self) -> list[dict[str, Any]]:
@@ -357,6 +482,9 @@ class CodeSandboxManager:
             {
                 "session_key": session.session_key,
                 "sandbox_id": session.sandbox_id,
+                "browser_launched": session.browser_launched,
+                "stream_started": session.is_stream_started,
+                "stream_ready": session.is_stream_ready,
                 "created_at": session.created_at.isoformat(),
                 "last_accessed": session.last_accessed.isoformat(),
                 "is_expired": session.is_expired,
@@ -366,10 +494,10 @@ class CodeSandboxManager:
 
 
 # Singleton accessor
-def get_code_sandbox_manager() -> CodeSandboxManager:
-    """Get the global CodeSandboxManager instance.
+def get_desktop_sandbox_manager() -> DesktopSandboxManager:
+    """Get the global DesktopSandboxManager instance.
 
     Returns:
-        CodeSandboxManager singleton
+        DesktopSandboxManager singleton
     """
-    return CodeSandboxManager.get_instance()
+    return DesktopSandboxManager.get_instance()

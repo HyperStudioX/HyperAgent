@@ -1,4 +1,4 @@
-"""Data analytics subagent using E2B sandbox for code execution with handoff support."""
+"""Data analysis subagent using E2B sandbox for code execution with handoff support."""
 
 import base64
 import os
@@ -25,7 +25,6 @@ from app.agents.tools import (
 )
 from app.agents.tools.code_execution import execute_code_with_context
 from app.sandbox import sandbox_file_with_context
-from app.agents.tools.tool_gate import should_enable_tools
 from app.agents.utils import (
     append_history,
     extract_and_add_image_events,
@@ -59,6 +58,7 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
     query = state.get("query") or ""
     attachment_ids = state.get("attachment_ids", [])
     user_id = state.get("user_id")
+    task_id = state.get("task_id")
 
     event_list = []
 
@@ -103,7 +103,8 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
         messages.append(HumanMessage(content=planning_prompt))
         history = state.get("messages", [])
 
-        enable_tools = should_enable_tools(query, history)
+        # Always enable tools - let the LLM decide when to use them
+        enable_tools = True
 
         # Get all tools for data agent (code_exec, data, handoffs)
         all_tools = get_tools_for_agent("data", include_handoffs=True)
@@ -123,6 +124,10 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
                 event_list.append(events.handoff(source=source, target=target, task=task))
 
             # Execute the canonical ReAct loop
+            extra_tool_args = {
+                "user_id": user_id,
+                "task_id": task_id,
+            }
             result = await execute_react_loop(
                 llm_with_tools=llm_with_tools,
                 messages=messages,
@@ -133,6 +138,7 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
                 on_handoff=on_handoff,
+                extra_tool_args=extra_tool_args,
             )
 
             # Add events from the ReAct loop
@@ -269,7 +275,8 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
         messages.append(HumanMessage(content=code_generation_prompt))
         history = state.get("messages", [])
 
-        enable_tools = should_enable_tools(query, history)
+        # Always enable tools - let the LLM decide when to use them
+        enable_tools = True
 
         # Get all tools for data agent (code_exec, data, handoffs)
         all_tools = get_tools_for_agent("data", include_handoffs=True)
@@ -289,6 +296,10 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
                 event_list.append(events.handoff(source=source, target=target, task=task))
 
             # Execute the canonical ReAct loop
+            extra_tool_args = {
+                "user_id": user_id,
+                "task_id": task_id,
+            }
             result = await execute_react_loop(
                 llm_with_tools=llm_with_tools,
                 messages=messages,
@@ -299,6 +310,7 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
                 on_handoff=on_handoff,
+                extra_tool_args=extra_tool_args,
             )
 
             # Add events from the ReAct loop
@@ -545,7 +557,7 @@ async def summarize_results_node(state: DataAnalysisState) -> dict:
     provider = state.get("provider") or LLMProvider.ANTHROPIC
     tier = state.get("tier")
     model = state.get("model")
-    llm = llm_service.get_llm_for_task("data", provider=provider, tier_override=tier, model_override=model)
+    llm = llm_service.choose_llm_for_task("data", provider=provider, tier_override=tier, model_override=model)
 
     try:
         summary_prompt = get_summary_prompt(

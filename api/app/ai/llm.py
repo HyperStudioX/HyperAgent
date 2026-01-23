@@ -144,14 +144,14 @@ class LLMService:
         model = get_model_for_tier(tier, provider, settings.tier_mappings)
         return self.get_llm(provider, model)
 
-    def get_llm_for_task(
+    def choose_llm_for_task(
         self,
         task_type: str,
         provider: LLMProvider | None = None,
         tier_override: ModelTier | None = None,
         model_override: str | None = None,
     ) -> BaseChatModel:
-        """Get LLM based on task type with auto-routing.
+        """Choose LLM based on task type with auto-routing.
 
         Priority: model_override > tier_override > auto-routing
 
