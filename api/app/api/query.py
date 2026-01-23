@@ -509,6 +509,24 @@ async def stream_query(
                             yield f"data: {data}\n\n"
                         else:
                             logger.warning("skipping_empty_image_event", event=event)
+                    elif event["type"] == "interrupt":
+                        # Stream HITL interrupt events for user approval/input
+                        data = json.dumps({
+                            "type": "interrupt",
+                            "interrupt_id": event.get("interrupt_id", ""),
+                            "interrupt_type": event.get("interrupt_type", "input"),
+                            "title": event.get("title", "Agent Question"),
+                            "message": event.get("message", ""),
+                            "options": event.get("options"),
+                            "tool_info": event.get("tool_info"),
+                            "default_action": event.get("default_action"),
+                            "timeout_seconds": event.get("timeout_seconds", 120),
+                            "timestamp": event.get("timestamp"),
+                        })
+                        logger.info("streaming_interrupt_event",
+                                   interrupt_id=event.get("interrupt_id", "")[:8],
+                                   interrupt_type=event.get("interrupt_type"))
+                        yield f"data: {data}\n\n"
                     elif event["type"] == "complete":
                         yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
                     elif event["type"] == "error":

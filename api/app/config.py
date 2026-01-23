@@ -116,6 +116,13 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_rpm: int = 30  # requests per minute
 
+    # Human-in-the-Loop (HITL) Settings
+    hitl_enabled: bool = True  # Enable HITL by default
+    hitl_approval_timeout: int = 120  # 2 minutes for tool approvals
+    hitl_decision_timeout: int = 300  # 5 minutes for decision interrupts
+    hitl_input_timeout: int = 300  # 5 minutes for input interrupts
+    hitl_default_risk_threshold: str = "high"  # high, medium, or all
+
     # Logging
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "console"

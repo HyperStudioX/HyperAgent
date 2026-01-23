@@ -50,6 +50,18 @@ class EventType(str, Enum):
     # Skill events
     SKILL_OUTPUT = "skill_output"
 
+    # Human-in-the-loop events
+    INTERRUPT = "interrupt"
+    INTERRUPT_RESPONSE = "interrupt_response"
+
+
+class InterruptType(str, Enum):
+    """Types of human-in-the-loop interrupts."""
+
+    DECISION = "decision"  # Multiple choice decision point
+    INPUT = "input"  # Free-form text input
+    APPROVAL = "approval"  # Yes/no approval for high-risk action
+
 
 class StageStatus(str, Enum):
     """Stage lifecycle statuses."""
@@ -203,6 +215,51 @@ class SkillOutputEvent(BaseModel):
     type: Literal["skill_output"] = "skill_output"
     skill_id: str = Field(..., description="Skill identifier")
     output: dict[str, Any] = Field(..., description="Skill execution output")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class InterruptOption(BaseModel):
+    """An option for a decision-type interrupt."""
+
+    label: str = Field(..., description="Display text for the option")
+    value: str = Field(..., description="Value to return when selected")
+    description: str | None = Field(default=None, description="Additional description")
+
+
+class InterruptEvent(BaseModel):
+    """Event requesting human-in-the-loop input.
+
+    Used to pause agent execution and collect user input for:
+    - Decision: Multiple choice decision points
+    - Input: Free-form text input collection
+    - Approval: Yes/no approval for high-risk tool execution
+    """
+
+    type: Literal["interrupt"] = "interrupt"
+    interrupt_id: str = Field(..., description="Unique ID for matching response")
+    interrupt_type: InterruptType = Field(..., description="Type of interrupt")
+    title: str = Field(..., description="Title displayed in dialog")
+    message: str = Field(..., description="Detailed message/question")
+    options: list[InterruptOption] | None = Field(
+        default=None, description="Options for DECISION type"
+    )
+    tool_info: dict[str, Any] | None = Field(
+        default=None, description="Tool details for APPROVAL type"
+    )
+    default_action: str | None = Field(
+        default=None, description="Action to take on timeout (e.g., 'deny', 'approve', 'skip')"
+    )
+    timeout_seconds: int = Field(default=120, description="Timeout in seconds")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class InterruptResponseEvent(BaseModel):
+    """Event containing user response to an interrupt."""
+
+    type: Literal["interrupt_response"] = "interrupt_response"
+    interrupt_id: str = Field(..., description="ID of the interrupt being responded to")
+    action: str = Field(..., description="User action: approve, deny, skip, select, input")
+    value: str | None = Field(default=None, description="Selected value or input text")
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
@@ -505,4 +562,79 @@ def skill_output(
     return SkillOutputEvent(
         skill_id=skill_id,
         output=output,
+    ).model_dump()
+
+
+def interrupt(
+    interrupt_id: str,
+    interrupt_type: InterruptType | str,
+    title: str,
+    message: str,
+    options: list[dict[str, str]] | None = None,
+    tool_info: dict[str, Any] | None = None,
+    default_action: str | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, Any]:
+    """Create an interrupt event dictionary.
+
+    Args:
+        interrupt_id: Unique ID for matching response
+        interrupt_type: Type of interrupt (decision, input, approval)
+        title: Title displayed in dialog
+        message: Detailed message/question
+        options: Options for DECISION type [{"label": "...", "value": "...", "description": "..."}]
+        tool_info: Tool details for APPROVAL type
+        default_action: Action to take on timeout
+        timeout_seconds: Timeout in seconds
+
+    Returns:
+        Interrupt event dictionary
+    """
+    interrupt_type_enum = (
+        InterruptType(interrupt_type)
+        if isinstance(interrupt_type, str)
+        else interrupt_type
+    )
+    parsed_options = None
+    if options:
+        parsed_options = [
+            InterruptOption(
+                label=opt.get("label", ""),
+                value=opt.get("value", ""),
+                description=opt.get("description"),
+            )
+            for opt in options
+        ]
+
+    return InterruptEvent(
+        interrupt_id=interrupt_id,
+        interrupt_type=interrupt_type_enum,
+        title=title,
+        message=message,
+        options=parsed_options,
+        tool_info=tool_info,
+        default_action=default_action,
+        timeout_seconds=timeout_seconds,
+    ).model_dump()
+
+
+def interrupt_response(
+    interrupt_id: str,
+    action: str,
+    value: str | None = None,
+) -> dict[str, Any]:
+    """Create an interrupt response event dictionary.
+
+    Args:
+        interrupt_id: ID of the interrupt being responded to
+        action: User action (approve, deny, skip, select, input)
+        value: Selected value or input text
+
+    Returns:
+        Interrupt response event dictionary
+    """
+    return InterruptResponseEvent(
+        interrupt_id=interrupt_id,
+        action=action,
+        value=value,
     ).model_dump()

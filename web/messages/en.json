@@ -179,6 +179,7 @@
         "copied": "Copied",
         "regenerate": "Regenerate",
         "connectionError": "Unable to connect to the server. Please check if the backend is running.",
+        "requestCancelled": "Request cancelled by user.",
         "pressEnterToSend": "Press ⌘/Ctrl+Enter to send",
         "stop": "Stop generation",
         "typeMessage": "Type a message...",
@@ -244,6 +245,7 @@
                 "skill_image_generation": "Image Generation",
                 "skill_simple_writing": "Writing",
                 "skill_data_visualization": "Data Visualization",
+                "ask_user": "User Input",
                 "default": "Tool"
             },
             "stages": {
@@ -423,6 +425,11 @@
                     "completed": "Desktop action complete",
                     "failed": "Desktop action failed"
                 },
+                "ask_user": {
+                    "running": "Waiting for your input...",
+                    "completed": "Input received",
+                    "failed": "Input cancelled"
+                },
                 "computer": {
                     "running": "Initializing desktop control...",
                     "completed": "Desktop control ready",
@@ -528,5 +535,26 @@
         "synthetic": "HyperAgent Synthetic",
         "verifiedReport": "Verified Report",
         "code": "code"
+    },
+    "hitl": {
+        "approve": "Approve",
+        "deny": "Deny",
+        "skip": "Skip",
+        "confirm": "Confirm",
+        "submit": "Submit",
+        "cancel": "Cancel",
+        "yes": "Yes",
+        "no": "No",
+        "approveAlways": "Approve all similar actions this session",
+        "inputPlaceholder": "Enter your response...",
+        "timeoutWarning": "Action will be denied in {seconds} seconds",
+        "toolApproval": "Tool Approval Required",
+        "decisionRequired": "Decision Required",
+        "inputRequired": "Input Required",
+        "confirmRequired": "Confirmation Required",
+        "approved": "Approved",
+        "denied": "Denied",
+        "skipped": "Skipped",
+        "timeout": "Timed out"
     }
 }

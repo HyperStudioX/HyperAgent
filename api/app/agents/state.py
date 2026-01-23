@@ -66,6 +66,13 @@ class SupervisorState(TypedDict, total=False):
     # Context compression
     context_summary: str | None  # Compressed summary of older conversation history
 
+    # Human-in-the-loop (HITL) support
+    pending_interrupt: dict[str, Any] | None  # Current interrupt waiting for response
+    interrupt_response: dict[str, Any] | None  # Response to pending interrupt
+    interrupt_history: list[dict[str, Any]]  # History of interrupts in this session
+    auto_approve_tools: list[str]  # Tools user has auto-approved for this session
+    hitl_enabled: bool  # Whether HITL is enabled for this request
+
     # Output
     response: str  # Final text response
     events: Annotated[list[dict[str, Any]], operator.add]  # Streaming events

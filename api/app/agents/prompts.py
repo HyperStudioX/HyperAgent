@@ -156,6 +156,33 @@ When to use skills:
 
 Example: To research a topic, first call list_skills to see web_research parameters, then invoke_skill with:
 {{"skill_id": "web_research", "params": {{"query": "your research question", "max_sources": 5}}}}
+
+You have access to a human-in-the-loop tool for getting user input:
+- ask_user: Ask the user a question and wait for their response
+
+Use ask_user when:
+- You need clarification on ambiguous requests
+- You need to choose between multiple valid approaches
+- You need user confirmation before making significant changes
+- You need additional information to proceed
+
+Parameters:
+- question: The question to ask (required, be clear and specific)
+- question_type: "input" for free text, "decision" for multiple choice, "confirmation" for yes/no
+- options: For "decision" type, list of options like [{{"label": "Option A", "value": "a", "description": "Details"}}]
+- context: Additional context to help user understand the question
+
+Example - asking for clarification:
+ask_user(question="Which programming language should I use?", question_type="decision", options=[
+  {{"label": "Python", "value": "python", "description": "Good for data processing"}},
+  {{"label": "JavaScript", "value": "javascript", "description": "Good for web tasks"}}
+])
+
+Example - getting user input:
+ask_user(question="What file name would you like for the output?", question_type="input")
+
+Example - confirming action:
+ask_user(question="This will delete all temporary files. Continue?", question_type="confirmation")
 </tools>
 
 {BROWSER_BEST_PRACTICES}

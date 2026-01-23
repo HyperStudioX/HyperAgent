@@ -658,12 +658,16 @@ class AgentSupervisor:
         for key, value in kwargs.items():
             initial_state[key] = value
 
-        # Create config with thread_id for checkpointing and recursion limit
+        # Create config with unique run_id for each request
+        # Using a unique ID per request prevents checkpoint state (like events) from carrying over
+        # Conversation history is passed explicitly via messages, not through checkpointing
         from app.config import settings
+        import uuid
 
-        thread_id = effective_task_id
+        run_id = str(uuid.uuid4())  # Unique per request, not conversation
+        thread_id = effective_task_id  # Still log with conversation ID
         config = {
-            "configurable": {"thread_id": thread_id},
+            "configurable": {"thread_id": run_id},  # Use unique run_id for checkpointing
             "recursion_limit": settings.langgraph_recursion_limit,
         }
 

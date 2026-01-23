@@ -26,6 +26,7 @@ from app.agents.tools.image_generation import generate_image
 from app.agents.tools.vision import analyze_image
 from app.agents.tools.code_execution import execute_code
 from app.agents.tools.skill_invocation import get_skill_tools
+from app.agents.tools.hitl_tool import ask_user_tool
 from app.sandbox import sandbox_file
 from app.core.logging import get_logger
 
@@ -42,6 +43,7 @@ class ToolCategory(str, Enum):
     DATA = "data"  # Data processing and analysis
     HANDOFF = "handoff"  # Agent-to-agent delegation
     SKILL = "skill"  # Skill invocation
+    HITL = "hitl"  # Human-in-the-loop tools (ask user for input/decisions)
 
 
 # Tool instances by category
@@ -64,6 +66,8 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
     ToolCategory.HANDOFF: [],
     # SKILL tools for invoking skills
     ToolCategory.SKILL: get_skill_tools(),
+    # HITL tools for asking user for input/decisions
+    ToolCategory.HITL: [ask_user_tool],
 }
 
 
@@ -76,6 +80,7 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.CODE_EXEC,  # For execute_code tool
         ToolCategory.SKILL,
         ToolCategory.HANDOFF,
+        ToolCategory.HITL,  # For asking user for input/decisions
     ],
     AgentType.RESEARCH.value: [
         ToolCategory.SEARCH,
@@ -83,6 +88,7 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.BROWSER,
         ToolCategory.SKILL,
         ToolCategory.HANDOFF,
+        ToolCategory.HITL,  # For asking user for input/decisions
     ],
     # Data agent needs IMAGE for visualization generation and SEARCH for web data
     AgentType.DATA.value: [
@@ -92,6 +98,7 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.DATA,
         ToolCategory.SKILL,
         ToolCategory.HANDOFF,
+        ToolCategory.HITL,  # For asking user for input/decisions
     ],
 }
 

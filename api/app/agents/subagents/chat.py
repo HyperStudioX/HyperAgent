@@ -16,6 +16,7 @@ from app.agents.context_compression import (
     ContextCompressor,
     inject_summary_as_context,
 )
+from app.agents.hitl.interrupt_manager import get_interrupt_manager
 from app.agents.prompts import CHAT_SYSTEM_PROMPT
 from app.agents.state import ChatState
 from app.agents.tools import (
@@ -111,6 +112,14 @@ async def reason_node(state: ChatState) -> dict:
 
         # Add current query
         lc_messages.append(HumanMessage(content=query))
+
+    # Debug: Log messages before deduplication
+    logger.info(
+        "reason_node_messages",
+        message_count=len(lc_messages),
+        message_types=[type(m).__name__ for m in lc_messages],
+        has_tool_messages=any(isinstance(m, ToolMessage) for m in lc_messages),
+    )
 
     # Deduplicate tool messages to prevent API errors
     lc_messages = _deduplicate_tool_messages(lc_messages)
@@ -217,6 +226,8 @@ async def reason_node(state: ChatState) -> dict:
 async def act_node(state: ChatState) -> dict:
     """ReAct act node: Execute tools based on LLM's tool calls.
 
+    Includes Human-in-the-Loop (HITL) approval for high-risk tools.
+
     Args:
         state: Current chat state with tool calls
 
@@ -267,14 +278,103 @@ async def act_node(state: ChatState) -> dict:
     # Execute pending tool calls (excluding already-processed ones)
     tool_results: list[ToolMessage] = []
     image_event_count = 0  # Track image events for indexing
+    interrupt_manager = get_interrupt_manager()
 
     for tool_call in pending_tool_calls:
         tool_name = tool_call.get("name", "")
         tool_call_id = tool_call.get("id", "")
         args = tool_call.get("args", {})
 
+        # NOTE: High-risk tool approval is currently disabled because it blocks
+        # the event stream. The ask_user tool uses a proper two-phase approach
+        # that doesn't block. TODO: Implement two-phase approval for high-risk tools.
+        #
+        # For now, all tools execute without approval. The ask_user tool below
+        # allows agents to proactively ask users for decisions/input.
+
         # Emit tool call event
         event_list.append(create_tool_call_event(tool_name, args, tool_call_id))
+
+        # Handle ask_user tool specially - emit interrupt and pause for response
+        if tool_name == "ask_user":
+            from app.agents.hitl.interrupt_manager import (
+                create_decision_interrupt,
+                create_input_interrupt,
+            )
+
+            # Debug: Log the raw args received from LLM
+            logger.info(
+                "hitl_ask_user_args",
+                tool_call_id=tool_call_id,
+                args=args,
+            )
+
+            question = args.get("question", "")
+            question_type = args.get("question_type", "input")
+            options = args.get("options")
+            context = args.get("context")
+            thread_id = task_id or user_id or "default"
+
+            # Build message with context
+            message = f"{context}\n\n{question}" if context else question
+
+            # Handle confirmation type
+            if question_type == "confirmation":
+                options = [
+                    {"label": "Yes", "value": "yes", "description": "Proceed"},
+                    {"label": "No", "value": "no", "description": "Cancel"},
+                ]
+                question_type = "decision"
+
+            # Create interrupt event
+            if question_type == "decision" and options:
+                interrupt_event = create_decision_interrupt(
+                    title="Agent Question",
+                    message=message,
+                    options=options,
+                    timeout_seconds=settings.hitl_decision_timeout,
+                )
+            else:
+                interrupt_event = create_input_interrupt(
+                    title="Agent Question",
+                    message=message,
+                    timeout_seconds=settings.hitl_decision_timeout,
+                )
+
+            interrupt_id = interrupt_event["interrupt_id"]
+            event_list.append(interrupt_event)
+
+            logger.info(
+                "hitl_ask_user",
+                question_type=question_type,
+                interrupt_id=interrupt_id,
+                thread_id=thread_id,
+                question=question[:100] if question else "",
+                message=message[:100] if message else "",
+                options_count=len(options) if options else 0,
+                tool_call_id=tool_call_id,
+            )
+
+            # Store the interrupt in Redis for the frontend to find
+            await interrupt_manager.create_interrupt(
+                thread_id=thread_id,
+                interrupt_id=interrupt_id,
+                interrupt_data=interrupt_event,
+            )
+
+            # Return with pending interrupt - will be handled by wait_interrupt_node
+            lc_messages.extend(tool_results)
+            return {
+                "lc_messages": lc_messages,
+                "events": event_list,
+                "tool_iterations": state.get("tool_iterations", 0) + 1,
+                "pending_interrupt": {
+                    "interrupt_id": interrupt_id,
+                    "thread_id": thread_id,
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                },
+            }
 
         if tool_name in tool_map:
             tool = tool_map[tool_name]
@@ -413,17 +513,159 @@ def should_continue(state: ChatState) -> Literal["act", "finalize"]:
     return "finalize"
 
 
+def should_wait_or_reason(state: ChatState) -> Literal["wait_interrupt", "reason"]:
+    """Decide whether to wait for interrupt response or continue reasoning.
+
+    Args:
+        state: Current chat state
+
+    Returns:
+        "wait_interrupt" if pending interrupt exists, "reason" otherwise
+    """
+    pending = state.get("pending_interrupt")
+    if pending:
+        logger.info(
+            "routing_to_wait_interrupt",
+            interrupt_id=pending.get("interrupt_id"),
+            thread_id=pending.get("thread_id"),
+        )
+        return "wait_interrupt"
+    logger.debug("routing_to_reason", has_pending=False)
+    return "reason"
+
+
+async def wait_interrupt_node(state: ChatState) -> dict:
+    """Wait for user response to a pending interrupt and add result.
+
+    This node handles the async wait for user input when the agent
+    has asked a question via ask_user tool.
+
+    Args:
+        state: Current chat state with pending_interrupt
+
+    Returns:
+        Dict with tool result message and cleared pending_interrupt
+    """
+    logger.info("wait_interrupt_node_started")
+
+    pending = state.get("pending_interrupt")
+    if not pending:
+        logger.warning("wait_interrupt_node_no_pending")
+        return {"pending_interrupt": None}
+
+    interrupt_id = pending.get("interrupt_id")
+    thread_id = pending.get("thread_id", "default")
+    tool_call_id = pending.get("tool_call_id")
+    tool_name = pending.get("tool_name", "ask_user")
+
+    interrupt_manager = get_interrupt_manager()
+    event_list = []
+    lc_messages = list(state.get("lc_messages", []))
+
+    # Debug: Log the messages before adding tool result
+    logger.info(
+        "wait_interrupt_messages_before",
+        message_count=len(lc_messages),
+        message_types=[type(m).__name__ for m in lc_messages],
+    )
+
+    logger.info(
+        "wait_interrupt_subscribing",
+        interrupt_id=interrupt_id,
+        thread_id=thread_id,
+        tool_call_id=tool_call_id,
+    )
+
+    try:
+        # Wait for user response
+        response = await interrupt_manager.wait_for_response(
+            thread_id=thread_id,
+            interrupt_id=interrupt_id,
+            timeout_seconds=settings.hitl_decision_timeout,
+        )
+
+        action = response.get("action", "skip")
+        value = response.get("value")
+
+        logger.info(
+            "wait_interrupt_response_received",
+            interrupt_id=interrupt_id,
+            action=action,
+        )
+
+        # Determine result based on action - include context for LLM
+        if action == "skip":
+            result_str = "User skipped this question."
+        elif action in ("select", "input"):
+            if value:
+                result_str = f"User responded: {value}"
+            else:
+                result_str = "User skipped this question."
+        else:
+            result_str = f"User action: {action}"
+
+        # Add tool result message
+        lc_messages.append(
+            ToolMessage(
+                content=result_str,
+                tool_call_id=tool_call_id,
+                name=tool_name,
+            )
+        )
+
+        # Emit response event
+        from app.agents.utils import create_tool_result_event
+        event_list.append(create_tool_result_event(tool_name, result_str, tool_call_id))
+
+        # Debug: Log after adding tool result
+        logger.info(
+            "wait_interrupt_messages_after",
+            message_count=len(lc_messages),
+            result_str=result_str,
+            tool_call_id=tool_call_id,
+        )
+
+    except TimeoutError:
+        logger.warning("wait_interrupt_timeout", interrupt_id=interrupt_id)
+        result_str = "timeout"
+        lc_messages.append(
+            ToolMessage(
+                content=result_str,
+                tool_call_id=tool_call_id,
+                name=tool_name,
+            )
+        )
+
+    except Exception as e:
+        logger.error("wait_interrupt_error", error=str(e), interrupt_id=interrupt_id)
+        result_str = f"error: {str(e)}"
+        lc_messages.append(
+            ToolMessage(
+                content=result_str,
+                tool_call_id=tool_call_id,
+                name=tool_name,
+            )
+        )
+
+    return {
+        "lc_messages": lc_messages,
+        "events": event_list,
+        "pending_interrupt": None,  # Clear the pending interrupt
+    }
+
+
 def create_chat_graph() -> StateGraph:
     """Create the chat subagent graph with explicit ReAct pattern.
 
     Graph structure:
-    [reason] -> [act?] -> [reason] -> ... -> END
+    [reason] -> [act?] -> [wait_interrupt?] -> [reason] -> ... -> END
 
     The ReAct loop:
     1. reason: LLM reasons and may call tools
-    2. act: Execute tools if called
-    3. Loop back to reason with tool results
-    4. End when no more tool calls
+    2. act: Execute tools if called (may set pending_interrupt for ask_user)
+    3. wait_interrupt: If pending_interrupt, wait for user response
+    4. Loop back to reason with tool results
+    5. End when no more tool calls
 
     Returns:
         Compiled chat graph
@@ -433,6 +675,7 @@ def create_chat_graph() -> StateGraph:
     # Add ReAct nodes
     graph.add_node("reason", reason_node)
     graph.add_node("act", act_node)
+    graph.add_node("wait_interrupt", wait_interrupt_node)
     graph.add_node("finalize", finalize_node)
 
     # Set entry point
@@ -448,8 +691,18 @@ def create_chat_graph() -> StateGraph:
         },
     )
 
-    # After acting, go back to reasoning
-    graph.add_edge("act", "reason")
+    # After acting, check if we need to wait for interrupt or continue reasoning
+    graph.add_conditional_edges(
+        "act",
+        should_wait_or_reason,
+        {
+            "wait_interrupt": "wait_interrupt",
+            "reason": "reason",
+        },
+    )
+
+    # After waiting for interrupt, go back to reasoning
+    graph.add_edge("wait_interrupt", "reason")
 
     # Finalize and end
     graph.add_edge("finalize", END)

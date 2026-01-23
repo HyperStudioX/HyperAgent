@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
 import {
     Send,
-    Loader2,
+    Square,
     GraduationCap,
     TrendingUp,
     Code2,
@@ -36,7 +36,10 @@ import type {
     AgentEvent,
     GeneratedImage,
     Source,
+    InterruptEvent,
+    InterruptResponse,
 } from "@/lib/types";
+import { AskUserInput } from "@/components/hitl/ask-user-input";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
 
 // Larger icons for better visual presence
@@ -90,6 +93,9 @@ interface MessageListProps {
     streamingStartTime: Date;
     onRegenerate: (messageId: string) => void;
     messagesEndRef: React.RefObject<HTMLDivElement>;
+    activeInterrupt?: InterruptEvent | null;
+    onInterruptRespond?: (response: InterruptResponse) => void;
+    onInterruptCancel?: () => void;
 }
 
 const MessageList = memo(function MessageList({
@@ -103,6 +109,9 @@ const MessageList = memo(function MessageList({
     streamingStartTime,
     onRegenerate,
     messagesEndRef,
+    activeInterrupt,
+    onInterruptRespond,
+    onInterruptCancel,
 }: MessageListProps) {
     return (
         <div className="space-y-1">
@@ -134,6 +143,17 @@ const MessageList = memo(function MessageList({
                         streamingEvents={streamingEvents}
                         streamingSources={streamingSources}
                         agentType={streamingAgentType}
+                    />
+                </div>
+            )}
+            {/* Inline HITL Input */}
+            {activeInterrupt && onInterruptRespond && onInterruptCancel && (
+                <div className="animate-fade-in px-4 py-2">
+                    <AskUserInput
+                        key={activeInterrupt.interrupt_id}
+                        interrupt={activeInterrupt}
+                        onRespond={onInterruptRespond}
+                        onCancel={onInterruptCancel}
                     />
                 </div>
             )}
@@ -191,12 +211,14 @@ export function ChatInterface() {
     const [streamingEvents, setStreamingEvents] = useState<TimestampedEvent[]>([]);
     const [streamingSources, setStreamingSources] = useState<Source[]>([]);
     const [streamingAgentType, setStreamingAgentType] = useState<string | undefined>(undefined);
+    const [activeInterrupt, setActiveInterrupt] = useState<InterruptEvent | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const researchRef = useRef<HTMLDivElement>(null);
     const streamingContentRef = useRef("");
     const updateScheduledRef = useRef(false);
     const streamingStartTimeRef = useRef<Date>(new Date());
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // File upload hook
     const {
@@ -473,6 +495,36 @@ export function ChatInterface() {
         return Array.from(new Set(ids));
     }, []);
 
+    const handleStop = useCallback(async () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+        // Immediately reset UI state
+        flushTokenBatch();
+        const partialContent = streamingContentRef.current;
+        setStreamingContent("");
+        streamingContentRef.current = "";
+        setStreamingImages([]);
+        setStreamingEvents([]);
+        setStreamingSources([]);
+        setActiveInterrupt(null);
+        setLoading(false);
+        setStreaming(false);
+        endAgentProgress();
+
+        // Add cancelled message to conversation
+        if (activeConversationId) {
+            const cancelledMessage = partialContent
+                ? `${partialContent}\n\n---\n\n*${tChat("requestCancelled")}*`
+                : `*${tChat("requestCancelled")}*`;
+            await addMessage(activeConversationId, {
+                role: "assistant",
+                content: cancelledMessage,
+            });
+        }
+    }, [flushTokenBatch, setLoading, setStreaming, endAgentProgress, activeConversationId, addMessage, tChat]);
+
     const handleSubmit = async () => {
         if (!input.trim() || isLoading || isUploading) return;
 
@@ -626,11 +678,14 @@ export function ChatInterface() {
         };
 
         try {
+            // Create new abort controller for this request
+            abortControllerRef.current = new AbortController();
 
             const response = await fetch("/api/v1/query/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: 'include',
+                signal: abortControllerRef.current.signal,
                 body: JSON.stringify({
                     message: userMessage,
                     mode: "chat",
@@ -777,6 +832,30 @@ export function ChatInterface() {
                                 const skillId = event.skill_id as string;
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
+                            } else if (event.type === "interrupt") {
+                                // Handle interrupt event (HITL) - show approval dialog
+                                const interruptEvent: InterruptEvent = {
+                                    type: "interrupt",
+                                    interrupt_id: event.interrupt_id as string,
+                                    interrupt_type: event.interrupt_type as InterruptEvent["interrupt_type"],
+                                    title: event.title as string,
+                                    message: event.message as string,
+                                    options: event.options,
+                                    tool_info: event.tool_info,
+                                    default_action: event.default_action,
+                                    timeout_seconds: (event.timeout_seconds as number) || 120,
+                                    timestamp: event.timestamp || Date.now(),
+                                };
+                                console.log("[HITL] Interrupt received:", {
+                                    interrupt_id: interruptEvent.interrupt_id,
+                                    message: interruptEvent.message?.substring(0, 50),
+                                    timestamp: interruptEvent.timestamp,
+                                });
+                                setActiveInterrupt((prev) => {
+                                    console.log("[HITL] Setting interrupt, prev:", prev?.interrupt_id, "new:", interruptEvent.interrupt_id);
+                                    return interruptEvent;
+                                });
+                                addStreamingEvent(event);
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
@@ -820,10 +899,16 @@ export function ChatInterface() {
                 });
             }
         } catch (error) {
-            console.error("Chat error:", error);
-            await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
+            // Don't show error message if request was cancelled by user
+            if (error instanceof Error && error.name === 'AbortError') {
+                console.log("Chat request cancelled by user");
+            } else {
+                console.error("Chat error:", error);
+                await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
+            }
         } finally {
             // Ensure cleanup in case of early exit
+            abortControllerRef.current = null;
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
@@ -977,11 +1062,14 @@ export function ChatInterface() {
         };
 
         try {
+            // Create new abort controller for this request
+            abortControllerRef.current = new AbortController();
 
             const response = await fetch("/api/v1/query/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: 'include',
+                signal: abortControllerRef.current.signal,
                 body: JSON.stringify({
                     message: userMessage,
                     mode: agentType,
@@ -1130,6 +1218,30 @@ export function ChatInterface() {
                                 const skillId = event.skill_id as string;
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
+                            } else if (event.type === "interrupt") {
+                                // Handle interrupt event (HITL) - show approval dialog
+                                const interruptEvent: InterruptEvent = {
+                                    type: "interrupt",
+                                    interrupt_id: event.interrupt_id as string,
+                                    interrupt_type: event.interrupt_type as InterruptEvent["interrupt_type"],
+                                    title: event.title as string,
+                                    message: event.message as string,
+                                    options: event.options,
+                                    tool_info: event.tool_info,
+                                    default_action: event.default_action,
+                                    timeout_seconds: (event.timeout_seconds as number) || 120,
+                                    timestamp: event.timestamp || Date.now(),
+                                };
+                                console.log("[HITL] Interrupt received:", {
+                                    interrupt_id: interruptEvent.interrupt_id,
+                                    message: interruptEvent.message?.substring(0, 50),
+                                    timestamp: interruptEvent.timestamp,
+                                });
+                                setActiveInterrupt((prev) => {
+                                    console.log("[HITL] Setting interrupt, prev:", prev?.interrupt_id, "new:", interruptEvent.interrupt_id);
+                                    return interruptEvent;
+                                });
+                                addStreamingEvent(event);
                             } else if (event.type === "error") {
                                 fullContent = tChat("agent.error", { error: event.data });
                                 updateStreamingContent(fullContent);
@@ -1177,10 +1289,16 @@ export function ChatInterface() {
                 });
             }
         } catch (error) {
-            console.error("Agent task error:", error);
-            await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
+            // Don't show error message if request was cancelled by user
+            if (error instanceof Error && error.name === 'AbortError') {
+                console.log("Agent task cancelled by user");
+            } else {
+                console.error("Agent task error:", error);
+                await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
+            }
         } finally {
             // Ensure cleanup in case of early exit
+            abortControllerRef.current = null;
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
@@ -1248,6 +1366,62 @@ export function ChatInterface() {
         inputRef.current?.focus();
     }, []);
 
+    // Handle interrupt response (HITL)
+    const handleInterruptResponse = useCallback(async (response: InterruptResponse) => {
+        if (!activeInterrupt) {
+            console.warn("[HITL] No active interrupt to respond to");
+            return;
+        }
+
+        // Store the interrupt ID we're responding to
+        const respondingToInterruptId = response.interrupt_id;
+        console.log("[HITL] Submitting response:", response);
+
+        try {
+            // Get the thread ID - use task_id or conversation_id
+            const threadId = activeConversationId || "default";
+
+            // Submit response to backend
+            const res = await fetch(`/api/v1/hitl/respond/${threadId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify(response),
+            });
+
+            const result = await res.json();
+            console.log("[HITL] Response result:", result);
+
+            if (!res.ok) {
+                console.error("[HITL] Server error:", result);
+            }
+        } catch (error) {
+            console.error("[HITL] Failed to submit response:", error);
+        } finally {
+            // Only clear if we're still showing the SAME interrupt we responded to
+            // A new interrupt may have arrived while we were submitting the response
+            setActiveInterrupt((current) => {
+                if (current?.interrupt_id === respondingToInterruptId) {
+                    console.log("[HITL] Clearing interrupt:", respondingToInterruptId);
+                    return null;
+                }
+                console.log("[HITL] New interrupt arrived, keeping:", current?.interrupt_id);
+                return current;
+            });
+        }
+    }, [activeInterrupt, activeConversationId]);
+
+    // Handle interrupt cancellation
+    const handleInterruptCancel = useCallback(() => {
+        if (!activeInterrupt) return;
+
+        // Submit cancel response
+        handleInterruptResponse({
+            interrupt_id: activeInterrupt.interrupt_id,
+            action: "cancel",
+        });
+    }, [activeInterrupt, handleInterruptResponse]);
+
     const handleAgentSelect = (agent: AgentType) => {
         if (agent === "research") {
             // Toggle research submenu
@@ -1308,6 +1482,9 @@ export function ChatInterface() {
                             streamingStartTime={streamingStartTimeRef.current}
                             onRegenerate={handleRegenerate}
                             messagesEndRef={messagesEndRef}
+                            activeInterrupt={activeInterrupt}
+                            onInterruptRespond={handleInterruptResponse}
+                            onInterruptCancel={handleInterruptCancel}
                         />
                     </div>
                 </div>
@@ -1401,13 +1578,13 @@ export function ChatInterface() {
                                     </p>
                                 </div>
                                 <Button
-                                    onClick={handleSubmit}
-                                    disabled={!input.trim() || isProcessing || isUploading}
-                                    variant={input.trim() && !isProcessing && !isUploading ? "primary" : "default"}
+                                    onClick={isProcessing ? handleStop : handleSubmit}
+                                    disabled={isUploading || (!isProcessing && !input.trim())}
+                                    variant={isProcessing ? "destructive" : (input.trim() && !isUploading ? "primary" : "default")}
                                     size="icon"
                                 >
-                                    {isProcessing || isUploading ? (
-                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    {isProcessing ? (
+                                        <Square className="w-4 h-4 fill-current" />
                                     ) : (
                                         <Send className="w-4 h-4" />
                                     )}

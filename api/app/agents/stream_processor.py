@@ -73,11 +73,12 @@ class StreamProcessor:
         self.user_id = user_id
         self.task_id = task_id
         self.thread_id = thread_id
-        
+
         # State tracking
         self.emitted_tool_call_ids: Set[str] = set()
         self.emitted_stage_keys: Set[str] = set()
         self.emitted_image_indices: Set[int] = set()
+        self.emitted_interrupt_ids: Set[str] = set()  # Track emitted HITL interrupts
         self.pending_tool_calls: Dict[str, Dict] = {}
         self.pending_tool_calls_by_tool: Dict[str, List[str]] = {}
         self.node_path: List[str] = []
@@ -247,6 +248,24 @@ class StreamProcessor:
                 return False
             self.emitted_image_indices.add(image_index)
             logger.info("yielding_image_event", index=image_index, node_name=node_name)
+
+        # Interrupt deduplication (HITL events)
+        if event_type == "interrupt":
+            interrupt_id = e.get("interrupt_id")
+            if interrupt_id and interrupt_id in self.emitted_interrupt_ids:
+                logger.info(
+                    "interrupt_deduplicated",
+                    interrupt_id=interrupt_id,
+                    message=e.get("message", "")[:50],
+                )
+                return False
+            if interrupt_id:
+                self.emitted_interrupt_ids.add(interrupt_id)
+                logger.info(
+                    "interrupt_emitting",
+                    interrupt_id=interrupt_id,
+                    message=e.get("message", "")[:50],
+                )
 
         return True
 
