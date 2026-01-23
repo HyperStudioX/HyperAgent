@@ -1,0 +1,333 @@
+"""Context compression for managing long conversations.
+
+This module provides LLM-based context compression to preserve semantic meaning
+when conversations exceed token limits. Instead of simply dropping old messages,
+it summarizes them using a fast LLM (FLASH tier).
+"""
+
+from dataclasses import dataclass
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+
+from app.ai.llm import extract_text_from_content, llm_service
+from app.ai.model_tiers import ModelTier
+from app.core.logging import get_logger
+from app.models.schemas import LLMProvider
+
+logger = get_logger(__name__)
+
+# Compression prompt template
+COMPRESSION_PROMPT = """You are a conversation summarizer. Your task is to create a concise summary of the conversation history that preserves all essential information.
+
+Focus on:
+1. The main topic/goal of the conversation
+2. Key decisions made or conclusions reached
+3. Important facts, data, or information exchanged
+4. Current state of any ongoing tasks
+5. User preferences or requirements mentioned
+
+Be concise but comprehensive. The summary will be used to maintain context in a continued conversation.
+
+{existing_summary_section}
+
+Messages to summarize:
+{messages_text}
+
+Provide a clear, structured summary:"""
+
+
+@dataclass
+class CompressionConfig:
+    """Configuration for context compression.
+
+    Attributes:
+        token_threshold: Token count that triggers compression (default 60k = 60% of 100k budget)
+        preserve_recent: Number of recent messages to always keep intact
+        min_messages_to_compress: Minimum messages needed before compression is worthwhile
+        max_summary_tokens: Maximum tokens for the summary itself
+        enabled: Whether compression is enabled
+    """
+
+    token_threshold: int = 60000
+    preserve_recent: int = 10
+    min_messages_to_compress: int = 5
+    max_summary_tokens: int = 2000
+    enabled: bool = True
+
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count for text using simple heuristic.
+
+    Uses ~4 characters per token on average.
+
+    Args:
+        text: Text to estimate tokens for
+
+    Returns:
+        Estimated token count
+    """
+    return len(text) // 4 + 1
+
+
+def estimate_message_tokens(message: BaseMessage) -> int:
+    """Estimate token count for a LangChain message.
+
+    Args:
+        message: Message to estimate
+
+    Returns:
+        Estimated token count
+    """
+    content = ""
+    if isinstance(message.content, str):
+        content = message.content
+    elif isinstance(message.content, list):
+        for item in message.content:
+            if isinstance(item, str):
+                content += item
+            elif isinstance(item, dict) and item.get("type") == "text":
+                content += item.get("text", "")
+    return estimate_tokens(content)
+
+
+def _format_message_for_summary(message: BaseMessage) -> str:
+    """Format a message for inclusion in the summary prompt.
+
+    Args:
+        message: Message to format
+
+    Returns:
+        Formatted string representation
+    """
+    role = "System"
+    if isinstance(message, HumanMessage):
+        role = "User"
+    elif isinstance(message, AIMessage):
+        role = "Assistant"
+
+    content = ""
+    if isinstance(message.content, str):
+        content = message.content
+    elif isinstance(message.content, list):
+        parts = []
+        for item in message.content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if item.get("type") == "text":
+                    parts.append(item.get("text", ""))
+                elif item.get("type") == "tool_use":
+                    parts.append(f"[Tool call: {item.get('name', 'unknown')}]")
+        content = " ".join(parts)
+
+    # Truncate very long messages for the summary prompt
+    if len(content) > 1000:
+        content = content[:1000] + "... [truncated]"
+
+    return f"{role}: {content}"
+
+
+class ContextCompressor:
+    """Compresses conversation context using LLM summarization.
+
+    This class handles:
+    - Checking if compression is needed based on token thresholds
+    - Summarizing old messages while preserving recent ones
+    - Injecting summaries back into the conversation
+    """
+
+    def __init__(self, config: CompressionConfig | None = None):
+        """Initialize the compressor.
+
+        Args:
+            config: Compression configuration (uses defaults if None)
+        """
+        self.config = config or CompressionConfig()
+
+    def should_compress(
+        self,
+        messages: list[BaseMessage],
+        existing_summary: str | None = None,
+    ) -> bool:
+        """Check if compression should be triggered.
+
+        Compression is triggered when:
+        1. Compression is enabled
+        2. Total tokens exceed threshold
+        3. There are enough messages to make compression worthwhile
+
+        Args:
+            messages: Current message list
+            existing_summary: Any existing summary from previous compression
+
+        Returns:
+            True if compression should be performed
+        """
+        if not self.config.enabled:
+            return False
+
+        # Count non-system messages (system messages don't count toward compression)
+        non_system_count = sum(
+            1 for m in messages if not isinstance(m, SystemMessage)
+        )
+
+        # Need minimum messages to make compression worthwhile
+        if non_system_count < self.config.preserve_recent + self.config.min_messages_to_compress:
+            return False
+
+        # Calculate total token estimate
+        total_tokens = sum(estimate_message_tokens(m) for m in messages)
+        if existing_summary:
+            total_tokens += estimate_tokens(existing_summary)
+
+        return total_tokens > self.config.token_threshold
+
+    async def compress(
+        self,
+        messages: list[BaseMessage],
+        existing_summary: str | None,
+        provider: LLMProvider,
+    ) -> tuple[str | None, list[BaseMessage]]:
+        """Compress older messages into a summary.
+
+        Separates messages into:
+        - System messages (always preserved)
+        - Old messages (to be summarized)
+        - Recent messages (preserved intact)
+
+        Args:
+            messages: Full message list
+            existing_summary: Any existing summary to build upon
+            provider: LLM provider for summarization
+
+        Returns:
+            Tuple of (new_summary, preserved_messages)
+            If compression not needed, returns (None, original_messages)
+        """
+        if not self.should_compress(messages, existing_summary):
+            return None, messages
+
+        # Separate messages by type
+        system_messages = []
+        other_messages = []
+
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                system_messages.append(msg)
+            else:
+                other_messages.append(msg)
+
+        # Split into old (to summarize) and recent (to preserve)
+        preserve_count = self.config.preserve_recent
+        if len(other_messages) <= preserve_count:
+            # Not enough messages to compress
+            return None, messages
+
+        old_messages = other_messages[:-preserve_count]
+        recent_messages = other_messages[-preserve_count:]
+
+        # Check if we have enough old messages to summarize
+        if len(old_messages) < self.config.min_messages_to_compress:
+            return None, messages
+
+        logger.info(
+            "context_compression_starting",
+            total_messages=len(messages),
+            messages_to_compress=len(old_messages),
+            messages_to_preserve=len(recent_messages),
+            existing_summary_length=len(existing_summary) if existing_summary else 0,
+        )
+
+        # Build summary prompt
+        existing_summary_section = ""
+        if existing_summary:
+            existing_summary_section = f"Previous conversation summary:\n{existing_summary}\n\nAdditional messages to incorporate:"
+
+        messages_text = "\n\n".join(
+            _format_message_for_summary(m) for m in old_messages
+        )
+
+        prompt = COMPRESSION_PROMPT.format(
+            existing_summary_section=existing_summary_section,
+            messages_text=messages_text,
+        )
+
+        # Use FLASH tier for fast, cheap summarization
+        try:
+            llm = llm_service.get_llm_for_tier(
+                tier=ModelTier.FLASH,
+                provider=provider,
+            )
+
+            response = await llm.ainvoke([HumanMessage(content=prompt)])
+            new_summary = extract_text_from_content(response.content).strip()
+
+            # Validate summary isn't too long
+            summary_tokens = estimate_tokens(new_summary)
+            if summary_tokens > self.config.max_summary_tokens:
+                # Truncate summary if too long
+                max_chars = self.config.max_summary_tokens * 4
+                new_summary = new_summary[:max_chars] + "... [summary truncated]"
+
+            logger.info(
+                "context_compression_completed",
+                summary_tokens=estimate_tokens(new_summary),
+                compressed_messages=len(old_messages),
+                preserved_messages=len(recent_messages),
+            )
+
+            # Return the new summary and preserved messages
+            preserved = system_messages + recent_messages
+            return new_summary, preserved
+
+        except Exception as e:
+            logger.error(
+                "context_compression_failed",
+                error=str(e),
+            )
+            # On failure, return original messages without compression
+            return None, messages
+
+
+def inject_summary_as_context(
+    messages: list[BaseMessage],
+    summary: str,
+) -> list[BaseMessage]:
+    """Inject a context summary into the message list.
+
+    Adds the summary as a system message right after the main system prompt.
+    This ensures the LLM has access to the compressed conversation history.
+
+    Args:
+        messages: Current message list (should have system message first)
+        summary: Summary to inject
+
+    Returns:
+        New message list with summary injected
+    """
+    if not summary:
+        return messages
+
+    summary_message = SystemMessage(
+        content=f"[Previous conversation summary]\n{summary}\n[End of summary - recent messages follow]"
+    )
+
+    result = []
+    summary_injected = False
+
+    for msg in messages:
+        result.append(msg)
+        # Inject after the first system message
+        if isinstance(msg, SystemMessage) and not summary_injected:
+            result.append(summary_message)
+            summary_injected = True
+
+    # If no system message found, prepend the summary
+    if not summary_injected:
+        result.insert(0, summary_message)
+
+    return result
+
+
+# Default compressor instance
+default_compressor = ContextCompressor()

@@ -88,7 +88,7 @@ export function PreferencesPanel({
         <div
           className={cn(
             "absolute bottom-full left-0 right-0 mb-1 z-50",
-            "bg-card border border-border rounded-xl shadow-lg",
+            "bg-card border border-border rounded-xl",
             "overflow-hidden animate-scale-in"
           )}
         >

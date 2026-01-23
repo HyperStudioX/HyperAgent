@@ -16,8 +16,8 @@ export function CreateMenu({ onCreate }: CreateMenuProps) {
     <button
       onClick={onCreate}
       className={cn(
-        "group w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-base font-medium text-left transition-colors",
-        "text-foreground hover:bg-secondary/50"
+        "group w-full flex items-center gap-2.5 px-3 py-2.5 rounded-sm text-base font-medium text-left transition-colors",
+        "text-foreground hover:bg-secondary/50 border border-border"
       )}
       aria-label={t("create")}
     >

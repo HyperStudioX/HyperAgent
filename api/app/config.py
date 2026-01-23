@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     routing_timeout: int = 30  # Timeout in seconds for routing decisions
     research_task_timeout: int = 1800  # Timeout in seconds for research tasks (30 minutes)
 
+    # Context Compression
+    context_compression_enabled: bool = True  # Enable LLM-based context compression
+    context_compression_token_threshold: int = 60000  # Token threshold to trigger compression (60% of 100k budget)
+    context_compression_preserve_recent: int = 10  # Number of recent messages to always preserve
+
     # E2B Code Sandbox
     e2b_api_key: str = ""
     e2b_template_id: str = ""  # Optional: custom template with pre-installed packages for faster startup

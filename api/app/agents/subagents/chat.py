@@ -11,6 +11,11 @@ from langchain_core.messages import (
 from langgraph.graph import END, StateGraph
 
 from app.agents import events
+from app.agents.context_compression import (
+    CompressionConfig,
+    ContextCompressor,
+    inject_summary_as_context,
+)
 from app.agents.prompts import CHAT_SYSTEM_PROMPT
 from app.agents.state import ChatState
 from app.agents.tools import (
@@ -32,6 +37,7 @@ from app.agents.utils import (
     extract_and_add_image_events,
 )
 from app.ai.llm import extract_text_from_content, llm_service
+from app.config import settings
 from app.core.logging import get_logger
 from app.models.schemas import LLMProvider
 
@@ -81,10 +87,13 @@ async def reason_node(state: ChatState) -> dict:
     query = state.get("query") or ""
     system_prompt = state.get("system_prompt") or CHAT_SYSTEM_PROMPT
     image_attachments = state.get("image_attachments") or []
+    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    existing_summary = state.get("context_summary")
     # Create a copy to avoid in-place mutation issues
     lc_messages = list(state.get("lc_messages", []))
 
     event_list = []
+    new_context_summary = None
 
     # Initialize messages if empty
     if not lc_messages:
@@ -106,7 +115,36 @@ async def reason_node(state: ChatState) -> dict:
     # Deduplicate tool messages to prevent API errors
     lc_messages = _deduplicate_tool_messages(lc_messages)
 
-    # Apply message truncation to stay within token budget
+    # Apply context compression before truncation (preserves semantic meaning)
+    if settings.context_compression_enabled and len(lc_messages) > settings.context_compression_preserve_recent:
+        compression_config = CompressionConfig(
+            token_threshold=settings.context_compression_token_threshold,
+            preserve_recent=settings.context_compression_preserve_recent,
+            enabled=settings.context_compression_enabled,
+        )
+        compressor = ContextCompressor(compression_config)
+
+        try:
+            new_summary, lc_messages = await compressor.compress(
+                lc_messages,
+                existing_summary,
+                provider,
+            )
+            if new_summary:
+                # Inject summary as context after system message
+                lc_messages = inject_summary_as_context(lc_messages, new_summary)
+                new_context_summary = new_summary
+                logger.info("context_compressed", summary_length=len(new_summary))
+                event_list.append({
+                    "type": "stage",
+                    "name": "context",
+                    "description": "Context compressed to preserve conversation history",
+                    "status": "completed",
+                })
+        except Exception as e:
+            logger.warning("context_compression_skipped", error=str(e))
+
+    # Apply message truncation to stay within token budget (fallback safety)
     config = get_react_config("chat")
     lc_messages, was_truncated = truncate_messages_to_budget(
         lc_messages,
@@ -123,7 +161,6 @@ async def reason_node(state: ChatState) -> dict:
         })
 
     # Get LLM with tools
-    provider = state.get("provider") or LLMProvider.ANTHROPIC
     tier = state.get("tier")
     model = state.get("model")
     llm = llm_service.choose_llm_for_task(
@@ -148,11 +185,15 @@ async def reason_node(state: ChatState) -> dict:
             if response_text:
                 event_list.append(events.token(response_text))
 
-        return {
+        result = {
             "lc_messages": lc_messages,
             "events": event_list,
             "has_error": False,
         }
+        # Include context summary if compression occurred
+        if new_context_summary:
+            result["context_summary"] = new_context_summary
+        return result
     except Exception as e:
         logger.error("chat_reason_failed", error=str(e))
         error_msg = str(e)

@@ -317,50 +317,44 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                         )}
                     >
                         {normalizedContent && (
-                            isStreaming ? (
-                                <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/90">
-                                    {normalizedContent}
-                                </div>
-                            ) : (
-                                <ReactMarkdown
-                                    remarkPlugins={[remarkGfm, remarkMath]}
-                                    rehypePlugins={[rehypeKatex]}
-                                    components={{
-                                    p: ({ children }) => (
-                                        <p className="mb-4 last:mb-0 text-base leading-relaxed text-foreground/90">
-                                            {children}
-                                        </p>
-                                    ),
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm, remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
+                                components={{
+                                p: ({ children }) => (
+                                    <p className="mb-5 last:mb-0 text-[15px] leading-[1.75] text-foreground/90 tracking-[-0.01em]">
+                                        {children}
+                                    </p>
+                                ),
                                 ul: ({ children }) => (
-                                    <ul className="my-4 ml-1 space-y-2 list-none">
-                                        {React.Children.map(children, (child) =>
-                                            React.isValidElement(child) ? (
-                                                <li className="relative pl-5 text-base leading-relaxed text-foreground/90 before:absolute before:left-0 before:top-[0.6em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-primary/60">
-                                                    {child.props.children}
-                                                </li>
-                                            ) : null
-                                        )}
+                                    <ul className="my-5 space-y-2.5 list-none">
+                                        {children}
                                     </ul>
                                 ),
                                 ol: ({ children }) => (
-                                    <ol className="my-4 ml-1 space-y-2 list-none">
-                                        {React.Children.map(children, (child, index) =>
-                                            React.isValidElement(child) ? (
-                                                <li className="relative pl-6 text-base leading-relaxed text-foreground/90">
-                                                    <span className="absolute left-0 top-0 font-mono text-xs text-muted-foreground tabular-nums">
-                                                        {index + 1}.
-                                                    </span>
-                                                    {child.props.children}
-                                                </li>
-                                            ) : null
-                                        )}
+                                    <ol className="my-5 space-y-2.5 list-none [counter-reset:list-counter]">
+                                        {children}
                                     </ol>
                                 ),
-                                li: ({ children }) => (
-                                    <li className="leading-relaxed">{children}</li>
-                                ),
+                                li: ({ children, node }) => {
+                                    // Check if parent is ol or ul by looking at node structure
+                                    const isOrdered = node?.position?.start?.line !== undefined &&
+                                        (children?.toString().match(/^\d+\./) || false);
+
+                                    return (
+                                        <li className="relative pl-6 text-[15px] leading-[1.7] text-foreground/90 [counter-increment:list-counter]">
+                                            <span className={cn(
+                                                "absolute left-0 top-0 select-none",
+                                                "text-muted-foreground/70 font-medium"
+                                            )}>
+                                                {/* Elegant bullet or number */}
+                                                <span className="inline-block w-1.5 h-1.5 mt-[0.6em] rounded-full bg-foreground/25" />
+                                            </span>
+                                            <span className="block">{children}</span>
+                                        </li>
+                                    );
+                                },
                                 a: ({ href, children }) => {
-                                    // Filter out invalid URLs (e.g., Chinese text being used as URLs)
                                     const isValidUrl = href && (
                                         href.startsWith('http://') ||
                                         href.startsWith('https://') ||
@@ -369,7 +363,6 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                     );
 
                                     if (!isValidUrl) {
-                                        // Render as plain text if URL is invalid
                                         return <span className="text-foreground">{children}</span>;
                                     }
 
@@ -378,17 +371,20 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                             href={href}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-accent-blue underline underline-offset-2 hover:text-accent-blue/80 transition-colors"
+                                            className={cn(
+                                                "relative inline-block font-medium",
+                                                "text-foreground",
+                                                "after:absolute after:bottom-0 after:left-0 after:right-0",
+                                                "after:h-[1px] after:bg-accent-cyan/50",
+                                                "hover:after:bg-accent-cyan hover:text-foreground",
+                                                "transition-colors"
+                                            )}
                                         >
                                             {children}
                                         </a>
                                     );
                                 },
                                 img: ({ src, alt }) => {
-                                    // Generated images are rendered outside ReactMarkdown
-                                    // This handler only processes regular markdown images
-
-                                    // Filter out invalid image sources
                                     const isValidSrc = src && (
                                         src.startsWith('http://') ||
                                         src.startsWith('https://') ||
@@ -397,21 +393,27 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                     );
 
                                     if (!isValidSrc) {
-                                        // Render alt text if src is invalid
                                         return (
-                                            <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-secondary rounded text-sm text-muted-foreground">
+                                            <span className="inline-flex items-center gap-2 px-3 py-2 bg-secondary/50 rounded-lg text-sm text-muted-foreground border border-border/50">
                                                 <ImageIcon className="w-4 h-4" />
-                                                {alt || 'Invalid image source'}
+                                                {alt || 'Image'}
                                             </span>
                                         );
                                     }
 
                                     return (
-                                        <img
-                                            src={src}
-                                            alt={alt || ''}
-                                            className="max-w-full h-auto rounded-lg my-4"
-                                        />
+                                        <span className="block my-6">
+                                            <img
+                                                src={src}
+                                                alt={alt || ''}
+                                                className="max-w-full h-auto rounded-xl shadow-sm"
+                                            />
+                                            {alt && (
+                                                <span className="block mt-2 text-xs text-muted-foreground text-center italic">
+                                                    {alt}
+                                                </span>
+                                            )}
+                                        </span>
                                     );
                                 },
                                 code: ({ node, className, children, ...props }) => {
@@ -420,7 +422,14 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
 
                                     if (isInline) {
                                         return (
-                                            <code className="px-1.5 py-0.5 font-mono text-sm bg-secondary rounded">
+                                            <code className={cn(
+                                                "px-1.5 py-0.5 mx-0.5",
+                                                "font-mono text-[0.875em]",
+                                                "bg-secondary/80 dark:bg-secondary",
+                                                "rounded-md",
+                                                "text-foreground/90",
+                                                "border border-border/40"
+                                            )}>
                                                 {children}
                                             </code>
                                         );
@@ -433,58 +442,88 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                     );
                                 },
                                 blockquote: ({ children }) => (
-                                    <blockquote className="my-4 pl-4 border-l-2 border-border text-muted-foreground italic">
+                                    <blockquote className={cn(
+                                        "my-6 py-4 px-5",
+                                        "border-l-[3px] border-accent-cyan/40",
+                                        "bg-secondary/30 dark:bg-secondary/20",
+                                        "rounded-r-lg",
+                                        "text-foreground/80 italic",
+                                        "[&>p]:mb-0 [&>p]:text-[15px]"
+                                    )}>
                                         {children}
                                     </blockquote>
                                 ),
                                 h1: ({ children }) => (
-                                    <h1 className="mt-6 mb-3 first:mt-0 text-xl font-semibold text-foreground">
+                                    <h1 className={cn(
+                                        "mt-8 mb-4 first:mt-0",
+                                        "text-xl font-semibold tracking-tight",
+                                        "text-foreground",
+                                        "flex items-center gap-3"
+                                    )}>
+                                        <span className="w-1 h-5 bg-primary/80 rounded-full shrink-0" />
                                         {children}
                                     </h1>
                                 ),
                                 h2: ({ children }) => (
-                                    <h2 className="mt-5 mb-2 first:mt-0 text-lg font-semibold text-foreground">
+                                    <h2 className={cn(
+                                        "mt-7 mb-3 first:mt-0",
+                                        "text-lg font-semibold tracking-tight",
+                                        "text-foreground"
+                                    )}>
                                         {children}
                                     </h2>
                                 ),
                                 h3: ({ children }) => (
-                                    <h3 className="mt-4 mb-2 first:mt-0 text-base font-medium text-foreground">
+                                    <h3 className={cn(
+                                        "mt-6 mb-2.5 first:mt-0",
+                                        "text-base font-semibold",
+                                        "text-foreground/95"
+                                    )}>
                                         {children}
                                     </h3>
                                 ),
-                                hr: () => <hr className="my-6 border-t border-border" />,
-                                strong: ({ children }) => (
-                                    <strong className="font-semibold">{children}</strong>
+                                hr: () => (
+                                    <hr className="my-8 border-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
                                 ),
-                                em: ({ children }) => <em className="italic">{children}</em>,
+                                strong: ({ children }) => (
+                                    <strong className="font-semibold text-foreground">{children}</strong>
+                                ),
+                                em: ({ children }) => (
+                                    <em className="italic text-foreground/85">{children}</em>
+                                ),
                                 table: ({ children }) => (
-                                    <div className="my-4 overflow-x-auto rounded-lg border border-border">
+                                    <div className="my-6 overflow-x-auto rounded-xl border border-border/80 bg-card">
                                         <table className="w-full text-sm">{children}</table>
                                     </div>
                                 ),
                                 thead: ({ children }) => (
-                                    <thead className="bg-secondary/50">{children}</thead>
+                                    <thead className="bg-secondary/60 dark:bg-secondary/40">{children}</thead>
                                 ),
-                                tbody: ({ children }) => <tbody>{children}</tbody>,
+                                tbody: ({ children }) => (
+                                    <tbody className="divide-y divide-border/50">{children}</tbody>
+                                ),
                                 tr: ({ children }) => (
-                                    <tr className="border-b border-border last:border-b-0">{children}</tr>
+                                    <tr className="hover:bg-secondary/30 transition-colors">{children}</tr>
                                 ),
                                 th: ({ children }) => (
-                                    <th className="px-4 py-2.5 text-left font-semibold text-foreground border-r border-border last:border-r-0">
+                                    <th className={cn(
+                                        "px-4 py-3",
+                                        "text-left text-xs font-semibold uppercase tracking-wider",
+                                        "text-muted-foreground"
+                                    )}>
                                         {children}
                                     </th>
                                 ),
                                 td: ({ children }) => (
-                                    <td className="px-4 py-2.5 text-foreground/90 border-r border-border last:border-r-0">
+                                    <td className="px-4 py-3 text-foreground/85">
                                         {children}
                                     </td>
                                 ),
                             }}
-                                >
-                                    {normalizedContent}
-                                </ReactMarkdown>
-                            )
-                    )}
+                            >
+                                {normalizedContent}
+                            </ReactMarkdown>
+                        )}
                         {/* Show streaming cursor at the end of content */}
                         {isStreaming && message.content && <StreamingCursor />}
                     </div>
@@ -625,7 +664,8 @@ const darkCodeTheme: { [key: string]: React.CSSProperties } = {
         ...oneDark['code[class*="language-"]'],
         background: "transparent",
         fontSize: "13px",
-        lineHeight: "1.7",
+        lineHeight: "1.65",
+        fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     },
 };
 
@@ -641,17 +681,48 @@ const lightCodeTheme: { [key: string]: React.CSSProperties } = {
         ...oneLight['code[class*="language-"]'],
         background: "transparent",
         fontSize: "13px",
-        lineHeight: "1.7",
+        lineHeight: "1.65",
+        fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     },
+};
+
+// Language display names and colors
+const LANGUAGE_CONFIG: Record<string, { name: string; color: string }> = {
+    javascript: { name: "JavaScript", color: "hsl(50, 90%, 50%)" },
+    js: { name: "JavaScript", color: "hsl(50, 90%, 50%)" },
+    typescript: { name: "TypeScript", color: "hsl(211, 60%, 48%)" },
+    ts: { name: "TypeScript", color: "hsl(211, 60%, 48%)" },
+    python: { name: "Python", color: "hsl(207, 51%, 44%)" },
+    py: { name: "Python", color: "hsl(207, 51%, 44%)" },
+    rust: { name: "Rust", color: "hsl(25, 83%, 53%)" },
+    go: { name: "Go", color: "hsl(192, 68%, 46%)" },
+    java: { name: "Java", color: "hsl(15, 80%, 50%)" },
+    cpp: { name: "C++", color: "hsl(210, 55%, 50%)" },
+    c: { name: "C", color: "hsl(210, 55%, 45%)" },
+    html: { name: "HTML", color: "hsl(14, 77%, 52%)" },
+    css: { name: "CSS", color: "hsl(228, 77%, 52%)" },
+    json: { name: "JSON", color: "hsl(0, 0%, 50%)" },
+    yaml: { name: "YAML", color: "hsl(0, 0%, 55%)" },
+    bash: { name: "Bash", color: "hsl(120, 15%, 45%)" },
+    shell: { name: "Shell", color: "hsl(120, 15%, 45%)" },
+    sql: { name: "SQL", color: "hsl(210, 50%, 50%)" },
+    markdown: { name: "Markdown", color: "hsl(0, 0%, 45%)" },
+    md: { name: "Markdown", color: "hsl(0, 0%, 45%)" },
+    jsx: { name: "JSX", color: "hsl(193, 95%, 50%)" },
+    tsx: { name: "TSX", color: "hsl(211, 60%, 48%)" },
+    swift: { name: "Swift", color: "hsl(15, 100%, 55%)" },
+    kotlin: { name: "Kotlin", color: "hsl(270, 65%, 55%)" },
+    ruby: { name: "Ruby", color: "hsl(0, 65%, 50%)" },
+    php: { name: "PHP", color: "hsl(240, 35%, 55%)" },
 };
 
 function CodeBlock({ language, children }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
-    const [isHovered, setIsHovered] = useState(false);
     const { resolvedTheme } = useTheme();
     const t = useTranslations("chat");
 
     const isDark = resolvedTheme === "dark";
+    const langConfig = LANGUAGE_CONFIG[language.toLowerCase()] || { name: language, color: "hsl(var(--muted-foreground))" };
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(children);
@@ -660,56 +731,56 @@ function CodeBlock({ language, children }: CodeBlockProps) {
     };
 
     const currentStyle = isDark ? darkCodeTheme : lightCodeTheme;
+    const lineCount = children.split('\n').length;
 
     return (
         <div
             className={cn(
-                "my-5 rounded-xl overflow-hidden",
-                "ring-1 transition-all duration-300",
-                // Light mode styles
-                "bg-secondary ring-border",
-                // Dark mode styles (deep black for Cursor aesthetic)
-                "dark:bg-card dark:ring-border/50",
-                // Hover states
-                isHovered && (
-                    "ring-foreground/20 dark:ring-border dark:shadow-glow-sm"
-                )
+                "group/code my-6 rounded-xl overflow-hidden",
+                "border border-border/60",
+                "bg-[hsl(0,0%,97%)] dark:bg-[hsl(0,0%,8%)]",
+                "shadow-sm hover:shadow-md",
+                "transition-shadow duration-200"
             )}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
         >
-            {/* Header */}
+            {/* Header - refined with language indicator */}
             <div
                 className={cn(
                     "flex items-center justify-between",
-                    "px-3 md:px-4 py-2 md:py-2.5",
-                    "border-b border-border",
-                    "bg-secondary"
+                    "px-4 py-2.5",
+                    "border-b border-border/40",
+                    "bg-secondary/50 dark:bg-secondary/30"
                 )}
             >
-                <div className="flex items-center gap-2">
-                    <div className={cn(
-                        "w-5 h-5 rounded flex items-center justify-center",
-                        "bg-muted"
-                    )}>
-                        <Terminal className="w-3 h-3 text-muted-foreground" />
+                <div className="flex items-center gap-3">
+                    {/* Language indicator dot */}
+                    <div className="flex items-center gap-2">
+                        <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: langConfig.color }}
+                        />
+                        <span className="text-xs font-medium text-muted-foreground tracking-wide">
+                            {langConfig.name}
+                        </span>
                     </div>
-                    <span className="text-xs font-mono text-muted-foreground">
-                        {language}
+                    {/* Line count badge */}
+                    <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+                        {lineCount} {lineCount === 1 ? 'line' : 'lines'}
                     </span>
                 </div>
 
+                {/* Copy button with improved feedback */}
                 <button
                     onClick={handleCopy}
                     className={cn(
                         "flex items-center gap-1.5",
-                        "px-2 py-1 -my-0.5",
-                        "text-xs",
-                        "rounded",
-                        "transition-colors",
+                        "px-2.5 py-1",
+                        "text-xs font-medium",
+                        "rounded-md",
+                        "transition-all duration-150",
                         copied
-                            ? "text-foreground bg-secondary"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                            ? "text-accent-cyan bg-accent-cyan/10"
+                            : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                     )}
                 >
                     {copied ? (
@@ -719,22 +790,33 @@ function CodeBlock({ language, children }: CodeBlockProps) {
                         </>
                     ) : (
                         <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>{t("copy")}</span>
+                            <Copy className="w-3.5 h-3.5 opacity-70 group-hover/code:opacity-100 transition-opacity" />
+                            <span className="opacity-0 group-hover/code:opacity-100 transition-opacity">{t("copy")}</span>
                         </>
                     )}
                 </button>
             </div>
 
-            {/* Code Content */}
-            <div className="relative p-3 md:p-4 overflow-x-auto">
-                <SyntaxHighlighter
-                    language={language}
-                    style={currentStyle}
-                    customStyle={{ background: "transparent", margin: 0, padding: 0 }}
-                >
-                    {children}
-                </SyntaxHighlighter>
+            {/* Code Content with subtle line numbers area */}
+            <div className="relative overflow-x-auto">
+                <div className="p-4">
+                    <SyntaxHighlighter
+                        language={language}
+                        style={currentStyle}
+                        customStyle={{
+                            background: "transparent",
+                            margin: 0,
+                            padding: 0,
+                        }}
+                        codeTagProps={{
+                            style: {
+                                fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                            }
+                        }}
+                    >
+                        {children}
+                    </SyntaxHighlighter>
+                </div>
             </div>
         </div>
     );

@@ -417,7 +417,7 @@ function SourcesSection({ sources }: { sources: Source[] }) {
                             href={source.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 py-1 px-2 -mx-2 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors group"
+                            className="flex items-center gap-2 py-1 px-2 -mx-2 rounded-sm text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors group"
                         >
                             <ExternalLink className="w-3 h-3 flex-shrink-0 opacity-50 group-hover:opacity-100" />
                             <span className="truncate">{source.title}</span>
@@ -491,7 +491,7 @@ export function LiveAgentProgressPanel({
 
     return (
         <div className={cn(
-            "mt-4 rounded-xl border-2 border-border/80 bg-card/50 overflow-hidden max-w-full",
+            "mt-4 mb-6 rounded-lg border border-border/80 bg-card/50 overflow-hidden max-w-full",
             className
         )}>
             {/* Header */}

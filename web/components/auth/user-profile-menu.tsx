@@ -91,7 +91,7 @@ export function UserProfileMenu() {
       <button
         onClick={login}
         className={cn(
-          "h-9 px-4 rounded-lg",
+          "h-9 px-4 rounded-sm",
           "text-sm font-medium",
           "bg-foreground text-background",
           "hover:bg-foreground/90",
@@ -142,7 +142,7 @@ export function UserProfileMenu() {
         <div
           className={cn(
             "absolute top-full right-0 mt-2 z-50",
-            "w-72 bg-card border border-border rounded-xl",
+            "w-72 bg-card border border-border rounded-lg",
             "overflow-hidden animate-scale-in"
           )}
         >
@@ -225,7 +225,7 @@ export function UserProfileMenu() {
                             handleThemeChange(value as "light" | "dark" | "auto")
                           }
                           className={cn(
-                            "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
+                            "flex-1 h-8 rounded flex items-center justify-center gap-1.5",
                             "text-xs font-medium transition-colors",
                             mounted && theme === value
                               ? "bg-foreground text-background"
@@ -252,7 +252,7 @@ export function UserProfileMenu() {
                           key={loc.code}
                           onClick={() => handleLocaleChange(loc.code)}
                           className={cn(
-                            "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
+                            "flex-1 h-8 rounded flex items-center justify-center gap-1.5",
                             "text-xs font-medium transition-colors",
                             currentLocale.code === loc.code
                               ? "bg-foreground text-background"

@@ -309,15 +309,20 @@ className="focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:r
 
 ### Pill/Chip Selection
 
-Use foreground/background inversion for selected states:
+Use foreground/background inversion for selected states with thin borders:
 
 ```tsx
 // Unselected
-className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-card text-muted-foreground border border-border hover:bg-secondary hover:text-foreground transition-colors"
+className="flex items-center gap-2 px-3 py-2 rounded-sm text-sm font-medium bg-card text-muted-foreground border border-border hover:bg-secondary hover:text-foreground transition-colors"
 
-// Selected (inverted colors)
-className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-foreground text-background"
+// Selected (with thin border for contrast)
+className="flex items-center gap-2 px-3 py-2 rounded-sm text-sm font-medium bg-secondary text-foreground border border-foreground/15 transition-colors"
 ```
+
+**Selection Border Guidelines:**
+- Use `border` (1px) - always thin borders, never `border-2` or thicker
+- Use low opacity for subtle contrast: `border-foreground/15` (15% opacity)
+- Border radius: `rounded-sm` (8px) for selection items
 
 ### Selection with Checkmark Indicator
 
@@ -389,13 +394,37 @@ className="shadow-sm"  // box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05)
 
 **Never use:** `shadow`, `shadow-md`, `shadow-lg`, `shadow-xl`, or any decorative shadows.
 
+## Border Thickness
+
+**Always use thin borders (1px) - never use thicker borders:**
+
+```tsx
+// DO: Use thin border (1px)
+className="border border-border"
+className="border border-foreground/15"  // For selection states with low opacity
+
+// DON'T: Use thicker borders
+className="border-2 border-border"  // ❌ Never use border-2 or thicker
+```
+
+**Border Opacity Guidelines:**
+- Standard borders: `border-border` (full opacity)
+- Card/container borders: `border-border/50` (50% opacity)
+- Dividers/separators: `border-border/30` (30% opacity)
+- Selection states: `border-foreground/15` (15% opacity for subtle contrast)
+
+**Philosophy:**
+- All borders are 1px (`border`) - thin and minimal
+- Use opacity to create visual hierarchy, not thickness
+- Borders provide structure without visual weight
+
 ## Border Radius
 
 Systematic border radius hierarchy for visual consistency:
 
 | Class | Size | Usage |
 |-------|------|-------|
-| `rounded-sm` | 8px | Small badges, minimal elements |
+| `rounded-sm` | 8px | Selection items (sidebar items, list selections), small badges, minimal elements |
 | `rounded-md` | 10px | Badges, tags, tool indicators |
 | `rounded-lg` | 12px | Buttons, inputs, icon buttons, pills, chips, agent selection buttons |
 | `rounded-xl` | 16px | Cards, containers, modals, input areas |
@@ -406,6 +435,7 @@ Systematic border radius hierarchy for visual consistency:
 - Large containers (hero sections) = `rounded-2xl` (20px)
 - Standard containers (cards, modals) = `rounded-xl` (16px)
 - Interactive elements (buttons, inputs) = `rounded-lg` (12px)
+- Selection items (sidebar items, list selections) = `rounded-sm` (8px)
 - Smaller elements (pills, chips) = `rounded-lg` (12px)
 - Micro elements (badges, tags) = `rounded-md` (10px)
 

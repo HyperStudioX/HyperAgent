@@ -63,6 +63,9 @@ class SupervisorState(TypedDict, total=False):
     # Tool execution tracking (shared across all agents)
     tool_iterations: int  # Count of tool-call loops for current agent
 
+    # Context compression
+    context_summary: str | None  # Compressed summary of older conversation history
+
     # Output
     response: str  # Final text response
     events: Annotated[list[dict[str, Any]], operator.add]  # Streaming events

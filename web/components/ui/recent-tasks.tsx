@@ -234,7 +234,7 @@ export function RecentTasks({
               <button
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
                 className={cn(
-                  "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors",
+                  "flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs font-medium transition-colors",
                   isFilterOpen || activeFilter !== "all"
                     ? "bg-secondary text-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
@@ -250,7 +250,7 @@ export function RecentTasks({
 
               {/* Dropdown Menu */}
               {isFilterOpen && (
-                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-card border border-border rounded-lg overflow-hidden">
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-card border border-border rounded-sm overflow-hidden">
                   {availableFilters.map((filter) => (
                     <button
                       key={filter}
@@ -324,7 +324,7 @@ function EmptyState() {
   const t = useTranslations("sidebar");
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4">
-      <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-3">
+      <div className="w-10 h-10 rounded-sm bg-secondary flex items-center justify-center mb-3">
         <MessageCircle className="w-5 h-5 text-muted-foreground" />
       </div>
       <p className="text-sm text-muted-foreground text-center mb-1">
@@ -412,13 +412,13 @@ function RecentItemRow({
   const getStatusIndicator = () => {
     if (!isTask) return null;
     if (taskStatus === "running") {
-      return <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />;
+      return <Loader2 className={cn("w-3 h-3 animate-spin", isActive ? "text-foreground/70" : "text-muted-foreground")} />;
     }
     if (taskStatus === "completed") {
-      return <CheckCircle2 className="w-3 h-3 text-foreground" />;
+      return <CheckCircle2 className={cn("w-3 h-3", isActive ? "text-foreground" : "text-foreground")} />;
     }
     if (taskStatus === "failed") {
-      return <AlertCircle className="w-3 h-3 text-destructive" />;
+      return <AlertCircle className={cn("w-3 h-3", isActive ? "text-destructive" : "text-destructive")} />;
     }
     return null;
   };
@@ -426,17 +426,17 @@ function RecentItemRow({
   return (
     <div
       className={cn(
-        "group relative flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer transition-colors",
+        "group relative flex items-center gap-2.5 px-2 py-2 rounded-sm cursor-pointer transition-colors",
         isActive
-          ? "bg-secondary text-foreground"
+          ? "bg-secondary border border-foreground/15 text-foreground"
           : "hover:bg-secondary/50"
       )}
       onClick={onClick}
     >
       {/* Type Icon Container */}
       <div className={cn(
-        "flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-colors",
-        isActive ? "bg-foreground/10" : "bg-secondary group-hover:bg-secondary"
+        "flex-shrink-0 w-7 h-7 rounded-sm flex items-center justify-center transition-colors",
+        isActive ? "bg-foreground/15" : "bg-secondary group-hover:bg-secondary"
       )}>
         <span className={cn(
           "transition-colors",
@@ -450,7 +450,7 @@ function RecentItemRow({
       <span
         className={cn(
           "flex-1 text-base truncate",
-          isActive ? "text-foreground font-medium" : "text-foreground/80 group-hover:text-foreground"
+          isActive ? "text-foreground font-semibold" : "text-foreground/80 group-hover:text-foreground"
         )}
       >
         {title.slice(0, 40) + (title.length > 40 ? "..." : "")}
@@ -462,9 +462,11 @@ function RecentItemRow({
       {/* Delete button - visible on mobile, hover-reveal on desktop */}
       <button
         className={cn(
-          "flex-shrink-0 p-1.5 rounded-md transition-colors",
+          "flex-shrink-0 p-1.5 rounded-sm transition-colors",
           "opacity-60 md:opacity-0 group-hover:opacity-100",
-          "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+          isActive
+            ? "text-foreground/70 hover:text-foreground hover:bg-foreground/10"
+            : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
           "min-h-[32px] min-w-[32px] flex items-center justify-center"
         )}
         onClick={(e) => {
