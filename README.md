@@ -47,11 +47,32 @@ Skills are composable LangGraph subgraphs that agents invoke as tools:
 
 Any agent can invoke any skill, making the system highly composable and extensible.
 
+### 🧠 Context Compression
+
+Intelligent context management for long conversations:
+
+- **LLM-based Summarization** - Older messages summarized to preserve meaning
+- **Preserves Recent Context** - Keeps recent messages intact (configurable)
+- **Automatic Triggering** - Compresses when token threshold reached
+- **Fallback Safety** - Falls back to truncation if compression fails
+
+### 🛡️ Safety Guardrails
+
+Comprehensive safety scanning at multiple integration points:
+
+- **Input Scanning** - Prompt injection and jailbreak detection
+- **Output Scanning** - Toxicity, PII, and harmful content filtering
+- **Tool Scanning** - URL validation and code safety checks
+
+Powered by `llm-guard` with configurable violation actions (block, warn, log).
+
 ## Architecture Highlights
 
 - **Simplified Hybrid Architecture** - Chat agent handles 80%+ of requests using skills
 - **Composable Skills** - Reusable LangGraph subgraphs for focused tasks
 - **Specialized Agents** - Complex workflows handled by dedicated agents
+- **Context Compression** - LLM-based summarization for long conversations
+- **Safety Guardrails** - Multi-layer protection against harmful inputs/outputs
 - **Event Streaming** - Real-time SSE streaming for all operations
 - **Multi-Provider** - Supports Anthropic Claude, OpenAI GPT-4, Google Gemini
 
@@ -60,9 +81,12 @@ Any agent can invoke any skill, making the system highly composable and extensib
 - ✅ Streaming responses with real-time updates
 - ✅ Multi-provider LLM support (Anthropic, OpenAI, Google)
 - ✅ Composable skills system for extensibility
+- ✅ Context compression for long conversations
+- ✅ Safety guardrails (prompt injection, toxicity, PII detection)
 - ✅ File attachments with vision support
 - ✅ Browser automation with E2B Desktop
 - ✅ Code execution in secure sandboxes
+- ✅ Human-in-the-loop for high-risk actions
 - ✅ Source tracking and citations
 - ✅ Clean, minimal interface
 - ✅ Internationalization (English, 中文)
@@ -97,8 +121,9 @@ Visit `http://localhost:3000` to start using HyperAgent.
 **Backend:**
 - FastAPI + LangGraph for multi-agent orchestration
 - PostgreSQL for persistence
-- Redis for caching and rate limiting
+- Redis for caching, rate limiting, and HITL
 - E2B for code execution and browser automation
+- llm-guard for safety guardrails
 
 **Frontend:**
 - Next.js 16 (App Router)
