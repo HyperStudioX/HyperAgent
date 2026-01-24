@@ -212,6 +212,123 @@ Everything else → CHAT Agent (uses skills)
 - Research agent can use `image_generation`
 - Data agent can use `simple_writing` for reports
 
+## Context Compression
+
+HyperAgent implements **LLM-based context compression** to manage long conversations efficiently while preserving semantic meaning.
+
+### How It Works
+
+When conversations exceed token limits, instead of simply dropping old messages, the system:
+
+1. **Preserves Recent Messages**: Keeps the most recent messages intact (default: 10 messages)
+2. **Summarizes Older Messages**: Uses a fast LLM (FLASH tier) to create a concise summary of older conversation history
+3. **Injects Summary**: Adds the summary as context after system messages, maintaining conversation continuity
+4. **Fallback Truncation**: If compression fails, falls back to message truncation as a safety measure
+
+### Configuration
+
+Context compression is configurable via settings:
+
+- **`context_compression_enabled`**: Enable/disable compression (default: `true`)
+- **`context_compression_token_threshold`**: Token count that triggers compression (default: 60k tokens = 60% of 100k budget)
+- **`context_compression_preserve_recent`**: Number of recent messages to always keep intact (default: 10)
+- **`max_summary_tokens`**: Maximum tokens for the summary itself (default: 2000)
+
+### Benefits
+
+- **Preserves Context**: Maintains conversation history without losing important information
+- **Cost Efficient**: Uses fast FLASH tier LLM for summarization
+- **Automatic**: Triggers automatically when token threshold is reached
+- **Transparent**: Shows "context" stage in progress events when compression occurs
+
+### Implementation
+
+Context compression is integrated into the Chat agent's reasoning loop:
+- Checks token count before each LLM call
+- Compresses older messages if threshold exceeded
+- Injects summary as a system context message
+- Falls back to truncation if compression fails
+
+## Human-in-the-Loop (HITL)
+
+HyperAgent supports **Human-in-the-Loop** workflows, allowing agents to pause and request user input when needed.
+
+### How It Works
+
+Agents can use the `ask_user` tool to:
+
+1. **Pause Execution**: Agent pauses and waits for user response
+2. **Stream Interrupt**: Interrupt event is streamed to frontend via SSE
+3. **User Responds**: Frontend shows dialog, user provides input
+4. **Resume Execution**: Agent receives response and continues with the task
+
+### Question Types
+
+The `ask_user` tool supports three question types:
+
+1. **Decision** - Multiple choice options
+   ```python
+   response = await ask_user(
+       question="Which approach should I use?",
+       question_type="decision",
+       options=[
+           {"label": "Option A", "value": "a", "description": "Details"},
+           {"label": "Option B", "value": "b", "description": "Details"}
+       ]
+   )
+   ```
+
+2. **Input** - Free-form text input
+   ```python
+   response = await ask_user(
+       question="What file name would you like?",
+       question_type="input"
+   )
+   ```
+
+3. **Confirmation** - Yes/No questions
+   ```python
+   response = await ask_user(
+       question="Continue with this action?",
+       question_type="confirmation"
+   )
+   ```
+
+### Use Cases
+
+Common scenarios where agents request user input:
+
+- **Clarifying Ambiguous Requests**: When user intent is unclear
+- **Choosing Between Options**: Multiple valid approaches available
+- **Confirming Actions**: Before making significant changes
+- **Gathering Information**: Additional details needed to proceed
+
+### Implementation
+
+HITL uses Redis pub/sub for real-time communication:
+
+- **Storage**: Pending interrupts stored in Redis with TTL
+- **Pub/Sub**: Real-time response delivery to waiting agents
+- **Timeout**: Interrupts timeout after 120 seconds (configurable)
+- **Recovery**: Interrupts persist in Redis for reconnection recovery
+
+### Frontend Integration
+
+The frontend displays interrupt dialogs with:
+- Question text and optional context
+- Input fields or option buttons
+- Countdown timer showing remaining time
+- Skip/cancel options
+
+### State Management
+
+HITL state is tracked in agent state:
+- `pending_interrupt`: Current interrupt waiting for response
+- `interrupt_response`: User's response to pending interrupt
+- `interrupt_history`: History of interrupts in current session
+- `auto_approve_tools`: Tools user has auto-approved
+- `hitl_enabled`: Whether HITL is enabled for this request
+
 ## Backward Compatibility
 
 The following agent types remain in the enum but are deprecated:
@@ -231,11 +348,16 @@ The routing logic automatically redirects these to Chat agent.
 - Chat agent has access to all skills
 - Routing logic updated to prefer Chat + Skills
 - Frontend types and API client
+- Context compression system implemented
+- Human-in-the-Loop (HITL) system implemented
+- Redis-based interrupt management
 
 🔄 **Active:**
 - All agents (Chat, Research, Data, Computer)
 - Skills system fully functional
 - Hybrid architecture operational
+- Context compression active in Chat agent
+- HITL available to all agents via `ask_user` tool
 
 ## Future Enhancements
 

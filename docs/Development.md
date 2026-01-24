@@ -35,23 +35,36 @@ docker-compose up -d postgres redis
 
 Or run PostgreSQL and Redis locally.
 
-### 3. Start Backend
+### 3. Install Dependencies
 
 ```bash
-cd api
-uv sync --all-extras
-uv run uvicorn app.main:app --reload --port 8080
+make install
 ```
 
-### 4. Start Frontend
+Or install separately:
+```bash
+make install-web  # Frontend dependencies
+make install-api  # Backend dependencies
+```
+
+### 4. Start Backend
 
 ```bash
-cd web
-npm install
-npm run dev -- -p 5000
+make dev-api
 ```
 
-### 5. Open Application
+### 5. Start Frontend
+
+```bash
+make dev-web
+```
+
+Or start both in separate terminals:
+```bash
+make dev  # Shows instructions to run dev-web and dev-api separately
+```
+
+### 6. Open Application
 
 Visit [http://localhost:5000](http://localhost:5000)
 
@@ -113,20 +126,71 @@ HyperAgent/
 
 ## Development Commands
 
-### Frontend
+All commands use the Makefile. Run `make help` to see all available commands.
+
+### Installation
 
 ```bash
-cd web
-npm run dev     # Start dev server
-npm run build   # Production build
-npm run lint    # Run ESLint
+make install          # Install all dependencies
+make install-web      # Install frontend dependencies only
+make install-api      # Install backend dependencies only
 ```
 
-### Backend
+### Development
 
 ```bash
-cd api
-uv run uvicorn app.main:app --reload --port 8080  # Start with hot reload
-uv run pytest                                      # Run tests
-uv run ruff check .                               # Lint code
+make dev-web          # Start frontend dev server (port 5000)
+make dev-api          # Start backend dev server (port 8080)
+make dev-worker       # Start background worker
+make dev-all          # Start all services (frontend, backend, worker)
+```
+
+### Build
+
+```bash
+make build            # Build frontend for production
+make build-web        # Build frontend only
+```
+
+### Linting & Formatting
+
+```bash
+make lint             # Run all linters
+make lint-web         # Lint frontend code
+make lint-api         # Lint backend code
+make format-api       # Format backend code
+```
+
+### Testing
+
+```bash
+make test             # Run all tests
+make test-api         # Run backend tests
+```
+
+### Database Migrations
+
+```bash
+make migrate          # Apply all pending migrations
+make migrate-down     # Rollback last migration
+make migrate-new msg='description'  # Create new migration
+make migrate-status   # Show migration status
+```
+
+### Utilities
+
+```bash
+make clean            # Clean build artifacts and caches
+make health           # Check health of all services
+```
+
+### Job Queue Management
+
+```bash
+make queue-stats      # Show job queue statistics
+make queue-monitor    # Monitor job queue in real-time
+make queue-list       # List all queued jobs
+make queue-clear      # Clear all jobs from queue (DESTRUCTIVE)
+make queue-health     # Check worker and queue health
+make queue-test       # Submit a test task to verify worker
 ```

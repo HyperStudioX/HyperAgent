@@ -155,7 +155,7 @@ The Chat agent has access to composable skills:
 
 Skills are LangGraph subgraphs that agents invoke as tools using `invoke_skill` and `list_skills`.
 
-See `AGENT_ARCHITECTURE.md` for detailed architecture documentation.
+See `docs/Agent-System-Design.md` for detailed architecture documentation.
 
 ### API Endpoints
 

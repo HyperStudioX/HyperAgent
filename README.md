@@ -69,7 +69,7 @@ Any agent can invoke any skill, making the system highly composable and extensib
 
 ## Documentation
 
-- **[Agent Architecture](AGENT_ARCHITECTURE.md)** — Multi-agent system and skills architecture
+- **[Agent System Design](docs/Agent-System-Design.md)** — Multi-agent system and skills architecture
 - **[Development Guide](docs/Development.md)** — Setup, tech stack, and API reference
 - **[Design Style Guide](docs/Design-Style-Guide.md)** — UI components, colors, and typography
 

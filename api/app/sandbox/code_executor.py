@@ -114,6 +114,84 @@ class E2BSandboxExecutor:
         await self.sandbox.files.write(filename, content)
         logger.info("file_uploaded_to_sandbox", filename=filename, size=len(content))
 
+    def _detect_required_packages(self, code: str) -> list[str]:
+        """Detect Python packages required by the code.
+
+        Analyzes import statements and usage patterns to determine which
+        packages need to be installed.
+
+        Args:
+            code: Python code to analyze
+
+        Returns:
+            List of package names to install via pip
+        """
+        import re
+
+        # Map import names to pip package names
+        # (import name -> pip package name)
+        package_mapping = {
+            "matplotlib": "matplotlib",
+            "pandas": "pandas",
+            "numpy": "numpy",
+            "seaborn": "seaborn",
+            "sklearn": "scikit-learn",
+            "scipy": "scipy",
+            "plotly": "plotly",
+            "PIL": "pillow",
+            "cv2": "opencv-python",
+            "torch": "torch",
+            "tensorflow": "tensorflow",
+            "keras": "keras",
+            "requests": "requests",
+            "bs4": "beautifulsoup4",
+            "lxml": "lxml",
+            "yaml": "pyyaml",
+            "dotenv": "python-dotenv",
+            "flask": "flask",
+            "fastapi": "fastapi",
+            "sqlalchemy": "sqlalchemy",
+            "psycopg2": "psycopg2-binary",
+            "pymongo": "pymongo",
+            "redis": "redis",
+            "httpx": "httpx",
+            "aiohttp": "aiohttp",
+            "boto3": "boto3",
+            "openpyxl": "openpyxl",
+            "xlrd": "xlrd",
+            "networkx": "networkx",
+            "sympy": "sympy",
+            "statsmodels": "statsmodels",
+            "xgboost": "xgboost",
+            "lightgbm": "lightgbm",
+        }
+
+        # Usage patterns that indicate a package is needed
+        # (pattern -> pip package name)
+        usage_patterns = {
+            r"\bpd\.": "pandas",
+            r"\bnp\.": "numpy",
+            r"\bplt\.": "matplotlib",
+            r"\bsns\.": "seaborn",
+        }
+
+        required_packages = set()
+
+        # Check for explicit imports
+        # Match: import foo, from foo import bar, import foo.bar
+        import_pattern = r"(?:from|import)\s+([a-zA-Z_][a-zA-Z0-9_]*)"
+        for match in re.finditer(import_pattern, code):
+            module_name = match.group(1)
+            if module_name in package_mapping:
+                required_packages.add(package_mapping[module_name])
+
+        # Check for usage patterns (handles cases where import is missing)
+        for pattern, package in usage_patterns.items():
+            if re.search(pattern, code):
+                required_packages.add(package)
+
+        return list(required_packages)
+
     def _inject_python_imports(self, code: str) -> str:
         """Inject common Python imports if not present in the code.
 
@@ -229,6 +307,7 @@ class E2BSandboxExecutor:
         code: str,
         language: Literal["python", "javascript", "typescript", "bash"] = "python",
         timeout: int = 180,
+        auto_install_packages: bool = True,
     ) -> dict[str, Any]:
         """Execute code in the sandbox.
 
@@ -236,6 +315,7 @@ class E2BSandboxExecutor:
             code: Code to execute
             language: Programming language
             timeout: Execution timeout in seconds
+            auto_install_packages: Whether to auto-detect and install required packages
 
         Returns:
             Dict with keys:
@@ -253,6 +333,21 @@ class E2BSandboxExecutor:
         # Write code to file and determine execution command
         # Use /home/user/ instead of /tmp/ to avoid permission issues
         if language in ("python", "py"):
+            # Auto-detect and install required packages (if not using custom template)
+            if auto_install_packages and not self.template_id:
+                required_packages = self._detect_required_packages(code)
+                if required_packages:
+                    logger.info("auto_installing_packages", packages=required_packages)
+                    success, stdout, stderr = await self.install_packages(
+                        required_packages, package_manager="pip"
+                    )
+                    if not success:
+                        logger.warning(
+                            "auto_package_installation_warning",
+                            packages=required_packages,
+                            stderr=stderr[:500] if stderr else None,
+                        )
+
             script_path = "/home/user/script.py"
             # Inject common imports if not present for Python data analysis
             code = self._inject_python_imports(code)

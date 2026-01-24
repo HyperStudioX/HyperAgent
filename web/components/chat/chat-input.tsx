@@ -4,6 +4,7 @@ import React, { useState, useRef, useCallback, forwardRef, useImperativeHandle, 
 import { useTranslations } from "next-intl";
 import { ArrowUp, Loader2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 export interface ChatInputHandle {
   focus: () => void;
@@ -65,7 +66,7 @@ export const ChatInput = memo(
 
     return (
       <div className={cn("relative", className)}>
-        <div className="relative flex items-end bg-card rounded-xl border border-border focus-within:border-foreground/30 focus-within:shadow-glow-sm transition-all duration-200">
+        <div className="relative flex items-end bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors duration-200">
           <textarea
             ref={textareaRef}
             value={value}
@@ -78,31 +79,28 @@ export const ChatInput = memo(
           />
           <div className="p-2">
             {isLoading && onStop ? (
-              <button
+              <Button
                 onClick={onStop}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="secondary"
+                size="icon"
                 title={t("stop")}
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 onClick={handleSubmit}
                 disabled={!canSubmit}
-                className={cn(
-                  "group w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150",
-                  canSubmit
-                    ? "bg-accent-cyan text-foreground dark:text-background hover:bg-accent-cyan/90 hover:-translate-y-0.5 active:scale-[0.98] interactive-glow border border-accent-cyan/20"
-                    : "bg-secondary text-muted-foreground"
-                )}
+                variant={canSubmit ? "primary" : "default"}
+                size="icon"
                 aria-label={canSubmit ? t("send") : t("typeMessage")}
               >
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <ArrowUp className="w-4 h-4 group-hover:-translate-y-0.5 group-hover:scale-110 transition-transform" />
+                  <ArrowUp className="w-4 h-4" />
                 )}
-              </button>
+              </Button>
             )}
           </div>
         </div>
