@@ -147,12 +147,14 @@ Available skills include:
 - simple_writing: Write documents, emails, articles, and other content
 - image_generation: Generate AI images from text descriptions
 - data_visualization: Create data visualizations and charts
+- task_planning: Analyze complex tasks and create structured execution plans with steps, dependencies, and success criteria
 
 When to use skills:
 - Use list_skills first to discover available skills and their parameters
 - Use invoke_skill when a task matches a skill's purpose better than basic tools
 - Skills provide structured, focused capabilities for specific task types
 - Skills can combine multiple steps into a single invocation
+- Use task_planning for complex multi-step tasks that need upfront planning before execution
 
 Example: To research a topic, first call list_skills to see web_research parameters, then invoke_skill with:
 {{"skill_id": "web_research", "params": {{"query": "your research question", "max_sources": 5}}}}

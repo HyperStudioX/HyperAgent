@@ -14,8 +14,8 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { usePreviewStore } from "@/lib/stores/preview-store";
 import { GeneratedMedia } from "@/components/chat/generated-media";
-import { AgentProgressPanel } from "@/components/ui/agent-progress-panel";
-import { LiveAgentProgressPanel } from "@/components/chat/live-agent-progress-panel";
+import { TaskProgressPanel } from "@/components/ui/task-progress-panel";
+import { TaskPlanPanel, type TaskPlan } from "@/components/ui/task-plan-panel";
 import type { Message, FileAttachment, GeneratedImage, AgentEvent, Source } from "@/lib/types";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
 
@@ -225,6 +225,33 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
         });
     })() : undefined;
 
+    // Extract task plans from skill_output events
+    const agentEvents = parsedMetadata?.agentEvents;
+    const taskPlans: TaskPlan[] = useMemo(() => {
+        const plans: TaskPlan[] = [];
+        const events = streamingEvents || agentEvents || [];
+
+        for (const event of events) {
+            if (event.type === "skill_output") {
+                const skillEvent = event as AgentEvent;
+                // Check if this is a task_planning skill output
+                if (skillEvent.skill_id === "task_planning" && skillEvent.output) {
+                    const output = skillEvent.output as Record<string, unknown>;
+                    // Validate it has the expected structure
+                    if (
+                        output.task_summary &&
+                        output.complexity_assessment &&
+                        Array.isArray(output.steps) &&
+                        Array.isArray(output.success_criteria)
+                    ) {
+                        plans.push(output as unknown as TaskPlan);
+                    }
+                }
+            }
+        }
+        return plans;
+    }, [streamingEvents, agentEvents]);
+
 
     const handleCopyMessage = async () => {
         await navigator.clipboard.writeText(message.content);
@@ -300,8 +327,8 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                     )}
 
                     {/* Show live agent progress inline during streaming - replaces typing indicator */}
-                    {isStreaming && willProgressPanelRender && (
-                        <LiveAgentProgressPanel
+                    {isStreaming && willProgressPanelRender && streamingEvents && (
+                        <TaskProgressPanel
                             events={streamingEvents}
                             sources={streamingSources}
                             isStreaming={isStreaming}
@@ -571,9 +598,26 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                         );
                     })()}
 
+                    {/* Show task plans from skill_output events */}
+                    {taskPlans.length > 0 && (
+                        <div className="mt-4 space-y-4">
+                            {taskPlans.map((plan, index) => (
+                                <TaskPlanPanel
+                                    key={`plan-${index}`}
+                                    plan={plan}
+                                    defaultExpanded={taskPlans.length === 1}
+                                />
+                            ))}
+                        </div>
+                    )}
+
                     {/* Show saved agent events (progress steps) if available - only when not streaming */}
                     {!isStreaming && parsedMetadata?.agentEvents && parsedMetadata.agentEvents.length > 0 && (
-                        <AgentProgressPanel events={parsedMetadata.agentEvents} />
+                        <TaskProgressPanel
+                            events={parsedMetadata.agentEvents}
+                            isStreaming={false}
+                            agentType={agentType}
+                        />
                     )}
 
                     {/* Action buttons for assistant message - only show when not streaming */}

@@ -14,7 +14,7 @@ interface AskUserInputProps {
     onCancel: () => void;
 }
 
-// Countdown display (inline, subtle)
+// Countdown display - Aligned with design guide
 function CountdownBadge({ seconds, onExpire }: { seconds: number; onExpire: () => void }) {
     const [remaining, setRemaining] = useState(seconds);
 
@@ -48,8 +48,11 @@ function CountdownBadge({ seconds, onExpire }: { seconds: number; onExpire: () =
 
     return (
         <span className={cn(
-            "inline-flex items-center gap-1 text-xs tabular-nums",
-            isLow ? "text-destructive" : "text-muted-foreground"
+            "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium tabular-nums transition-colors",
+            "border",
+            isLow
+                ? "text-destructive border-destructive/30 bg-destructive/5"
+                : "text-muted-foreground border-border/50 bg-secondary/30"
         )}>
             <Clock className="w-4 h-4" />
             {minutes}:{secs.toString().padStart(2, "0")}
@@ -57,7 +60,7 @@ function CountdownBadge({ seconds, onExpire }: { seconds: number; onExpire: () =
     );
 }
 
-// Decision/Choice buttons
+// Decision/Choice buttons - Aligned with design guide
 function DecisionInput({
     options,
     onSelect,
@@ -73,28 +76,30 @@ function DecisionInput({
                 <button
                     key={option.value}
                     className={cn(
-                        "px-3 py-1.5 text-sm rounded-lg border transition-colors",
-                        "focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 focus-visible:outline-none",
+                        "px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors",
+                        "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none",
                         selected === option.value
                             ? "bg-foreground text-background border-foreground"
-                            : "bg-card text-muted-foreground border-border hover:bg-secondary hover:text-foreground"
+                            : "bg-transparent text-foreground border-border hover:bg-secondary hover:text-foreground"
                     )}
                     onClick={() => {
                         setSelected(option.value);
                         onSelect(option.value);
                     }}
                 >
-                    {selected === option.value && (
-                        <CheckCircle2 className="w-4 h-4 inline mr-1.5 -ml-0.5" />
-                    )}
-                    {option.label}
+                    <span className="flex items-center gap-2">
+                        {selected === option.value && (
+                            <CheckCircle2 className="w-4 h-4" />
+                        )}
+                        <span>{option.label}</span>
+                    </span>
                 </button>
             ))}
         </div>
     );
 }
 
-// Boolean Yes/No input
+// Boolean Yes/No input - Aligned with design guide
 function BooleanInput({
     onSelect,
 }: {
@@ -106,31 +111,31 @@ function BooleanInput({
         <div className="flex gap-2">
             <button
                 className={cn(
-                    "flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border transition-colors",
-                    "focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 focus-visible:outline-none",
-                    "bg-card text-foreground border-border hover:bg-foreground hover:text-background"
+                    "flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors",
+                    "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none",
+                    "bg-transparent text-foreground border-border hover:bg-foreground hover:text-background hover:border-foreground"
                 )}
                 onClick={() => onSelect(true)}
             >
                 <Check className="w-4 h-4" />
-                {t("yes")}
+                <span>{t("yes")}</span>
             </button>
             <button
                 className={cn(
-                    "flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border transition-colors",
-                    "focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 focus-visible:outline-none",
-                    "bg-card text-muted-foreground border-border hover:bg-secondary hover:text-foreground"
+                    "flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors",
+                    "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none",
+                    "bg-transparent text-foreground border-border hover:bg-foreground hover:text-background hover:border-foreground"
                 )}
                 onClick={() => onSelect(false)}
             >
                 <X className="w-4 h-4" />
-                {t("no")}
+                <span>{t("no")}</span>
             </button>
         </div>
     );
 }
 
-// Text input field
+// Text input field - Aligned with design guide
 function TextInput({
     onSubmit,
     placeholder,
@@ -169,14 +174,18 @@ function TextInput({
                 onKeyDown={handleKeyDown}
                 placeholder={placeholder || "Type your response..."}
                 rows={1}
-                className="min-h-[38px] max-h-[120px] resize-none flex-1 text-sm"
+                className={cn(
+                    "min-h-[42px] max-h-[120px] resize-none flex-1 text-sm",
+                    "border-border bg-transparent rounded-lg",
+                    "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                    "transition-colors"
+                )}
             />
             <Button
-                size="sm"
                 variant="primary"
                 onClick={handleSubmit}
                 disabled={!value.trim()}
-                className="h-[38px] px-3"
+                className="h-[42px] px-4"
             >
                 <Send className="w-4 h-4" />
             </Button>
@@ -238,12 +247,12 @@ export function AskUserInput({ interrupt, onRespond, onCancel }: AskUserInputPro
     const isConfirm = interrupt.interrupt_type === "confirm";
 
     return (
-        <div className="bg-secondary/30 border border-border/50 rounded-xl p-4 space-y-3 animate-fade-in">
+        <div className="bg-secondary/30 border border-border/50 rounded-xl p-5 space-y-4 animate-fade-in">
             {/* Header with question and timer */}
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2 flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
                     <MessageSquare className="w-4 h-4 text-foreground mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-foreground leading-relaxed">
+                    <p className="text-sm text-foreground leading-relaxed font-medium">
                         {interrupt.message}
                     </p>
                 </div>
@@ -254,7 +263,7 @@ export function AskUserInput({ interrupt, onRespond, onCancel }: AskUserInputPro
             </div>
 
             {/* Input area */}
-            <div className="pl-6">
+            <div className="pl-7">
                 {isDecision && interrupt.options && (
                     <DecisionInput
                         options={interrupt.options}
@@ -273,10 +282,13 @@ export function AskUserInput({ interrupt, onRespond, onCancel }: AskUserInputPro
             </div>
 
             {/* Skip option */}
-            <div className="pl-6">
+            <div className="pl-7 pt-1">
                 <button
                     onClick={handleSkip}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none rounded"
+                    className={cn(
+                        "text-xs text-muted-foreground hover:text-foreground transition-colors",
+                        "focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none rounded px-1 py-0.5"
+                    )}
                 >
                     {t("skip")}
                 </button>

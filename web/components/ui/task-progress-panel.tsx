@@ -5,14 +5,17 @@ import { useTranslations } from "next-intl";
 import { Check, AlertCircle, ChevronRight, Globe, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
-import type { Source } from "@/lib/types";
+import type { Source, AgentEvent } from "@/lib/types";
+
+// Union type for events - can be either timestamped (live) or plain (historical)
+type ProgressEvent = TimestampedEvent | AgentEvent;
 
 // Stage group containing a stage and its child tools
 interface StageGroup {
-    stage: TimestampedEvent;
+    stage: ProgressEvent;
     stageIndex: number;
-    tools: TimestampedEvent[];
-    startTime: number;
+    tools: ProgressEvent[];
+    startTime?: number; // Optional for historical events
     endTime?: number;
 }
 
@@ -31,7 +34,22 @@ const KNOWN_STAGES = [
     "computer", "context", "processing"
 ];
 
-function groupEventsByStage(events: TimestampedEvent[], processingLabel: string): StageGroup[] {
+/**
+ * Helper to get timestamp from event (works for both TimestampedEvent and AgentEvent)
+ */
+function getEventTimestamp(event: ProgressEvent): number | undefined {
+    return (event as TimestampedEvent).timestamp ?? event.timestamp;
+}
+
+function getEventEndTimestamp(event: ProgressEvent): number | undefined {
+    return (event as TimestampedEvent).endTimestamp;
+}
+
+function groupEventsByStage(
+    events: ProgressEvent[],
+    processingLabel: string,
+    isHistorical: boolean = false
+): StageGroup[] {
     const groups: StageGroup[] = [];
     let currentGroup: StageGroup | null = null;
     const stageGroupsByName: Record<string, StageGroup> = {};
@@ -46,46 +64,50 @@ function groupEventsByStage(events: TimestampedEvent[], processingLabel: string)
 
     for (let i = 0; i < events.length; i++) {
         const event = events[i];
+        const eventTimestamp = getEventTimestamp(event);
+        const eventEndTimestamp = getEventEndTimestamp(event);
 
         if ((event as unknown as { type: string }).type === "browser_action") {
             const browserEvent = event as unknown as Record<string, unknown>;
             const action = browserEvent.action as string;
             const description = browserEvent.description as string;
             const target = browserEvent.target as string | undefined;
-            const status = (browserEvent.status as string) || "running";
+            const rawStatus = (browserEvent.status as string) || "running";
+            const effectiveStatus: AgentEvent["status"] = rawStatus === "failed"
+                ? "failed"
+                : (isHistorical ? "completed" : (rawStatus as AgentEvent["status"]));
 
             const stageName = `browser_${action}`;
-            const stageEvent: TimestampedEvent = {
+            const stageEvent: ProgressEvent = {
                 type: "stage",
                 name: stageName,
                 description: target ? `${description}: ${target}` : description,
-                status: status === "completed" ? "completed" : "running",
-                timestamp: event.timestamp,
-                endTimestamp: event.endTimestamp,
+                status: effectiveStatus,
+                timestamp: eventTimestamp,
             };
 
             if (stageEvent.name && HIDDEN_STAGES.has(stageEvent.name)) continue;
 
-            if (stageEvent.status === "running") {
+            const name = stageEvent.name;
+            if (name && stageGroupsByName[name]) {
+                // Update existing group
+                stageGroupsByName[name].stage = {
+                    ...stageGroupsByName[name].stage,
+                    status: stageEvent.status,
+                };
+                if (eventEndTimestamp || eventTimestamp) {
+                    stageGroupsByName[name].endTime = eventEndTimestamp || eventTimestamp;
+                }
+            } else {
                 currentGroup = {
                     stage: stageEvent,
                     stageIndex: i,
                     tools: [],
-                    startTime: stageEvent.timestamp,
-                    endTime: stageEvent.endTimestamp,
+                    startTime: eventTimestamp,
+                    endTime: eventEndTimestamp,
                 };
                 groups.push(currentGroup);
-                if (stageEvent.name) stageGroupsByName[stageEvent.name] = currentGroup;
-            } else if (stageEvent.status === "completed" || stageEvent.status === "failed") {
-                const name = stageEvent.name;
-                if (name && stageGroupsByName[name]) {
-                    stageGroupsByName[name].endTime = stageEvent.endTimestamp || stageEvent.timestamp;
-                    stageGroupsByName[name].stage = {
-                        ...stageGroupsByName[name].stage,
-                        status: stageEvent.status,
-                        endTimestamp: stageEvent.endTimestamp || stageEvent.timestamp,
-                    };
-                }
+                if (name) stageGroupsByName[name] = currentGroup;
             }
             continue;
         }
@@ -93,46 +115,55 @@ function groupEventsByStage(events: TimestampedEvent[], processingLabel: string)
         if (event.type === "stage") {
             if (event.name && HIDDEN_STAGES.has(event.name)) continue;
 
-            if (event.status === "running") {
+            // For historical events, treat everything as completed
+            const effectiveStatus = event.status === "failed"
+                ? "failed"
+                : (isHistorical ? "completed" : event.status);
+
+            if (event.status === "running" && !isHistorical) {
                 currentGroup = {
-                    stage: event,
+                    stage: { ...event, status: effectiveStatus },
                     stageIndex: i,
                     tools: [],
-                    startTime: event.timestamp,
-                    endTime: event.endTimestamp,
+                    startTime: eventTimestamp,
+                    endTime: eventEndTimestamp,
                 };
                 groups.push(currentGroup);
                 if (event.name) stageGroupsByName[event.name] = currentGroup;
-            } else if (event.status === "completed" || event.status === "failed") {
+            } else if (event.status === "completed" || event.status === "failed" || isHistorical) {
                 const stageName = event.name;
                 if (stageName && stageGroupsByName[stageName]) {
-                    stageGroupsByName[stageName].endTime = event.endTimestamp || event.timestamp;
+                    if (eventEndTimestamp || eventTimestamp) {
+                        stageGroupsByName[stageName].endTime = eventEndTimestamp || eventTimestamp;
+                    }
                     stageGroupsByName[stageName].stage = {
                         ...stageGroupsByName[stageName].stage,
-                        status: event.status,
-                        endTimestamp: event.endTimestamp || event.timestamp,
+                        status: effectiveStatus,
                     };
                 } else {
                     currentGroup = {
-                        stage: event,
+                        stage: { ...event, status: effectiveStatus },
                         stageIndex: i,
                         tools: [],
-                        startTime: event.timestamp,
-                        endTime: event.endTimestamp || event.timestamp,
+                        startTime: eventTimestamp,
+                        endTime: eventEndTimestamp || eventTimestamp,
                     };
                     groups.push(currentGroup);
                     if (stageName) stageGroupsByName[stageName] = currentGroup;
                 }
             }
         } else if (event.type === "tool_call") {
-            const toolKey = event.id || `${event.tool || event.name}-${event.timestamp}`;
+            const toolKey = event.id || `${event.tool || event.name}-${i}`;
             if (seenToolIds.has(toolKey)) continue;
             seenToolIds.add(toolKey);
 
-            const toolEvent = { ...event };
-            if (event.id && completedToolIds.has(event.id)) {
-                toolEvent.status = "completed";
-            }
+            const toolEvent: ProgressEvent = {
+                ...event,
+                // For historical events, mark tools as completed
+                status: isHistorical ? "completed" : (
+                    event.id && completedToolIds.has(event.id) ? "completed" : event.status
+                ),
+            };
 
             if (currentGroup) {
                 currentGroup.tools.push(toolEvent);
@@ -142,12 +173,12 @@ function groupEventsByStage(events: TimestampedEvent[], processingLabel: string)
                         type: "stage",
                         name: "processing",
                         description: processingLabel,
-                        status: "running",
-                        timestamp: event.timestamp,
+                        status: isHistorical ? "completed" : "running",
+                        timestamp: eventTimestamp,
                     },
                     stageIndex: -1,
                     tools: [toolEvent],
-                    startTime: event.timestamp,
+                    startTime: eventTimestamp,
                 };
                 groups.push(implicitGroup);
                 currentGroup = implicitGroup;
@@ -159,7 +190,7 @@ function groupEventsByStage(events: TimestampedEvent[], processingLabel: string)
 }
 
 function getStageDescription(
-    stage: TimestampedEvent,
+    stage: ProgressEvent,
     tStages: ReturnType<typeof useTranslations>,
     agentType?: string
 ): string {
@@ -198,8 +229,31 @@ function getStageDescription(
 
 function getToolDisplayName(
     toolName: string,
-    tTools?: ReturnType<typeof useTranslations>
+    tTools?: ReturnType<typeof useTranslations>,
+    skillId?: string
 ): string {
+    // Special case: for invoke_skill, show the skill name instead
+    if (toolName === "invoke_skill" && skillId) {
+        // Try to get translation for the skill
+        const skillToolKey = `skill_${skillId}`;
+        if (tTools) {
+            try {
+                const translated = tTools(skillToolKey as Parameters<typeof tTools>[0]);
+                if (translated && !translated.includes("chat.agent.tools")) {
+                    return translated;
+                }
+            } catch {
+                // Fall through
+            }
+        }
+        // Fallback: format the skill_id nicely
+        return skillId
+            .replace(/_/g, " ")
+            .replace(/([a-z])([A-Z])/g, "$1 $2")
+            .toLowerCase()
+            .replace(/^\w/, (c) => c.toUpperCase());
+    }
+
     if (tTools) {
         try {
             const translated = tTools(toolName as Parameters<typeof tTools>[0]);
@@ -280,21 +334,33 @@ interface GroupedTool {
     completedCount: number;
 }
 
-function groupTools(tools: TimestampedEvent[], tTools?: ReturnType<typeof useTranslations>): GroupedTool[] {
+function groupTools(
+    tools: ProgressEvent[],
+    tTools?: ReturnType<typeof useTranslations>,
+    isHistorical: boolean = false
+): GroupedTool[] {
     const toolMap = new Map<string, GroupedTool>();
 
     for (const tool of tools) {
         const toolName = tool.tool || tool.name || "unknown";
-        const existing = toolMap.get(toolName);
-        const isCompleted = tool.status === "completed" || tool.endTimestamp !== undefined;
+        // For invoke_skill, extract the skill_id from args and use it as part of the key
+        const skillId = toolName === "invoke_skill"
+            ? (tool.args?.skill_id as string | undefined)
+            : undefined;
+        // Use skill_id in the key to group by specific skill
+        const groupKey = skillId ? `invoke_skill:${skillId}` : toolName;
+
+        const existing = toolMap.get(groupKey);
+        const endTimestamp = getEventEndTimestamp(tool);
+        const isCompleted = isHistorical || tool.status === "completed" || endTimestamp !== undefined;
 
         if (existing) {
             existing.count += 1;
             if (isCompleted) existing.completedCount += 1;
         } else {
-            toolMap.set(toolName, {
-                name: toolName,
-                displayName: getToolDisplayName(toolName, tTools),
+            toolMap.set(groupKey, {
+                name: groupKey,
+                displayName: getToolDisplayName(toolName, tTools, skillId),
                 count: 1,
                 completedCount: isCompleted ? 1 : 0,
             });
@@ -312,20 +378,25 @@ function StageItem({
     tools,
     tTools,
     isLast,
+    isHistorical = false,
 }: {
     label: string;
     status: "pending" | "running" | "completed" | "failed";
-    duration?: { start: number; end?: number };
-    tools?: TimestampedEvent[];
+    duration?: { start?: number; end?: number };
+    tools?: ProgressEvent[];
     tTools?: ReturnType<typeof useTranslations>;
     isLast: boolean;
+    isHistorical?: boolean;
 }) {
     const groupedTools = useMemo(() => {
         if (!tools || tools.length === 0) return [];
-        return groupTools(tools, tTools);
-    }, [tools, tTools]);
+        return groupTools(tools, tTools, isHistorical);
+    }, [tools, tTools, isHistorical]);
 
     const hasTools = groupedTools.length > 0;
+
+    // Only show duration if we have valid timestamps and not in historical mode
+    const showDuration = !isHistorical && duration?.start !== undefined;
 
     return (
         <div className="relative">
@@ -352,7 +423,7 @@ function StageItem({
                         )}>
                             {label}
                         </span>
-                        {duration && (
+                        {showDuration && duration?.start !== undefined && (
                             <LiveDuration startMs={duration.start} endMs={duration.end} />
                         )}
                     </div>
@@ -434,37 +505,43 @@ function SourcesSection({ sources }: { sources: Source[] }) {
     );
 }
 
-interface LiveAgentProgressPanelProps {
-    events: TimestampedEvent[];
+interface TaskProgressPanelProps {
+    events: ProgressEvent[];
     sources?: Source[];
-    isStreaming: boolean;
+    isStreaming?: boolean; // Optional - when false or undefined, treats as historical
     agentType?: string;
     className?: string;
 }
 
 /**
- * Live agent progress panel - displays inline within the streaming message bubble
+ * Task progress panel - displays inline within message bubbles
+ * Handles both live streaming events and historical (saved) events
  * Clean, minimal design with clear visual hierarchy
  */
-export function LiveAgentProgressPanel({
+export function TaskProgressPanel({
     events,
     sources = [],
-    isStreaming,
+    isStreaming = false,
     agentType,
     className,
-}: LiveAgentProgressPanelProps) {
-    const [isExpanded, setIsExpanded] = useState(true);
+}: TaskProgressPanelProps) {
+    // Historical mode: not streaming (completed or saved events)
+    const isHistorical = !isStreaming;
+    // Default to collapsed for historical events, expanded for live streaming
+    const [isExpanded, setIsExpanded] = useState(!isHistorical);
     const tProgress = useTranslations("sidebar.progress");
+    const t = useTranslations("chat.agent");
     const tStages = useTranslations("chat.agent.stages");
     const tTools = useTranslations("chat.agent.tools");
 
     const processingLabel = tProgress("processing");
     const stageGroups = useMemo(() => {
-        return groupEventsByStage(events, processingLabel);
-    }, [events, processingLabel]);
+        return groupEventsByStage(events, processingLabel, isHistorical);
+    }, [events, processingLabel, isHistorical]);
 
     const progressSummary = useMemo(() => {
         let completed = 0;
+        let totalTools = 0;
         let hasError = false;
 
         for (const group of stageGroups) {
@@ -472,11 +549,26 @@ export function LiveAgentProgressPanel({
                 hasError = true;
             }
 
+            totalTools += group.tools.length;
+
+            // In historical mode, everything is completed
+            if (isHistorical) {
+                if (group.stage.status !== "failed") {
+                    completed++;
+                }
+                continue;
+            }
+
+            // Live mode: check actual completion status
             const hasTools = group.tools.length > 0;
-            const allToolsCompleted = hasTools && group.tools.every(t => t.endTimestamp || t.status === "completed");
+            const allToolsCompleted = hasTools && group.tools.every(t => {
+                const endTs = getEventEndTimestamp(t);
+                return endTs !== undefined || t.status === "completed";
+            });
+            const stageEndTs = getEventEndTimestamp(group.stage);
             const isCompleted = !isStreaming ||
                 group.stage.status === "completed" ||
-                group.stage.endTimestamp !== undefined ||
+                stageEndTs !== undefined ||
                 allToolsCompleted;
 
             if (isCompleted && group.stage.status !== "failed") {
@@ -484,14 +576,30 @@ export function LiveAgentProgressPanel({
             }
         }
 
-        return { completed, total: stageGroups.length, hasError };
-    }, [stageGroups, isStreaming]);
+        return { completed, total: stageGroups.length, totalTools, hasError };
+    }, [stageGroups, isStreaming, isHistorical]);
+
+    // Build summary text for historical mode (like TaskProgressPanel did)
+    // Must be before the early return to satisfy React hooks rules
+    const summaryText = useMemo(() => {
+        if (!isHistorical) return null;
+        const parts: string[] = [];
+        if (progressSummary.completed > 0) {
+            parts.push(t("completedStages", { count: progressSummary.completed }));
+        }
+        if (progressSummary.totalTools > 0) {
+            parts.push(t("toolsUsed", { count: progressSummary.totalTools }));
+        }
+        return parts.join(" · ") || t("completedStages", { count: 0 });
+    }, [isHistorical, progressSummary, t]);
 
     if (stageGroups.length === 0) return null;
 
     return (
         <div className={cn(
-            "mt-4 mb-6 rounded-lg border border-border/80 bg-card/50 overflow-hidden max-w-full",
+            "rounded-lg border border-border/80 bg-card/50 overflow-hidden max-w-full",
+            // Different margins for live vs historical
+            isHistorical ? "mt-4" : "mt-4 mb-6",
             className
         )}>
             {/* Header */}
@@ -506,21 +614,34 @@ export function LiveAgentProgressPanel({
                     <div className="w-4 h-4 rounded-full bg-destructive/15 flex items-center justify-center">
                         <AlertCircle className="w-2.5 h-2.5 text-destructive" />
                     </div>
+                ) : isHistorical ? (
+                    // Muted icon for historical (like TaskProgressPanel used Zap)
+                    <div className="w-4 h-4 rounded-full bg-muted/80 flex items-center justify-center">
+                        <Check className="w-2.5 h-2.5 text-muted-foreground" strokeWidth={3} />
+                    </div>
                 ) : (
                     <div className="w-4 h-4 rounded-full bg-emerald-500/15 flex items-center justify-center">
                         <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" strokeWidth={3} />
                     </div>
                 )}
 
-                {/* Title */}
-                <span className="flex-1 text-[13px] font-medium text-foreground">
-                    {isStreaming ? tProgress("processing") : tProgress("completed")}
+                {/* Title / Summary */}
+                <span className={cn(
+                    "flex-1 text-[13px] font-medium",
+                    isHistorical ? "text-muted-foreground" : "text-foreground"
+                )}>
+                    {isHistorical
+                        ? summaryText
+                        : (isStreaming ? tProgress("processing") : tProgress("completed"))
+                    }
                 </span>
 
-                {/* Progress count */}
-                <span className="text-[12px] tabular-nums text-muted-foreground">
-                    {progressSummary.completed}/{progressSummary.total}
-                </span>
+                {/* Progress count - only show in live mode */}
+                {!isHistorical && (
+                    <span className="text-[12px] tabular-nums text-muted-foreground">
+                        {progressSummary.completed}/{progressSummary.total}
+                    </span>
+                )}
 
                 {/* Expand chevron */}
                 <ChevronRight className={cn(
@@ -535,20 +656,28 @@ export function LiveAgentProgressPanel({
                     <div className="space-y-0">
                         {stageGroups.map((group, index) => {
                             const hasTools = group.tools.length > 0;
-                            const allToolsCompleted = hasTools &&
-                                group.tools.every(t => t.endTimestamp || t.status === "completed");
+                            const allToolsCompleted = hasTools && group.tools.every(t => {
+                                const endTs = getEventEndTimestamp(t);
+                                return endTs !== undefined || t.status === "completed";
+                            });
 
                             let status: "pending" | "running" | "completed" | "failed" = "pending";
 
                             if (group.stage.status === "failed") {
                                 status = "failed";
-                            } else if (group.stage.status === "completed" ||
-                                       group.stage.endTimestamp !== undefined ||
-                                       allToolsCompleted ||
-                                       !isStreaming) {
+                            } else if (isHistorical) {
+                                // In historical mode, everything is completed
                                 status = "completed";
-                            } else if (group.stage.status === "running") {
-                                status = "running";
+                            } else {
+                                const stageEndTs = getEventEndTimestamp(group.stage);
+                                if (group.stage.status === "completed" ||
+                                    stageEndTs !== undefined ||
+                                    allToolsCompleted ||
+                                    !isStreaming) {
+                                    status = "completed";
+                                } else if (group.stage.status === "running") {
+                                    status = "running";
+                                }
                             }
 
                             const label = getStageDescription(group.stage, tStages, agentType);
@@ -562,6 +691,7 @@ export function LiveAgentProgressPanel({
                                     tools={group.tools}
                                     tTools={tTools}
                                     isLast={index === stageGroups.length - 1}
+                                    isHistorical={isHistorical}
                                 />
                             );
                         })}

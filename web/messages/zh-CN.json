@@ -245,6 +245,9 @@
                 "skill_image_generation": "图片生成",
                 "skill_simple_writing": "写作",
                 "skill_data_visualization": "数据可视化",
+                "skill_task_planning": "任务规划",
+                "invoke_skill": "调用技能",
+                "list_skills": "技能列表",
                 "ask_user": "用户输入",
                 "default": "工具"
             },

@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { ResearchResultView } from "@/components/query/research-report-view";
 import { Button } from "@/components/ui/button";
-import { LiveAgentProgressPanel } from "@/components/chat/live-agent-progress-panel";
+import { TaskProgressPanel } from "@/components/ui/task-progress-panel";
 import { useTaskStore } from "@/lib/stores/task-store";
 import { useAgentProgressStore, type ComputerStreamInfo, type TimestampedEvent } from "@/lib/stores/agent-progress-store";
 import type { ResearchStep, Source, ResearchScenario, AgentEvent } from "@/lib/types";
@@ -718,7 +718,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                         {/* Live progress panel - shown during research */}
                         {isResearching && progressEvents.length > 0 && (
                             <div className="max-w-3xl mx-auto mb-6">
-                                <LiveAgentProgressPanel
+                                <TaskProgressPanel
                                     events={progressEvents as TimestampedEvent[]}
                                     sources={progressSources}
                                     isStreaming={isResearching}

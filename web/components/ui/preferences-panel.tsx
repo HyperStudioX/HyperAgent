@@ -67,10 +67,9 @@ export function PreferencesPanel({
           "flex items-center justify-between",
           "text-base",
           "text-muted-foreground hover:text-foreground",
-          "hover:bg-secondary",
-          "transition-all duration-200",
+          "transition-colors",
           "cursor-pointer",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         )}
       >
         <div className="flex items-center gap-2">
@@ -110,12 +109,12 @@ export function PreferencesPanel({
                   onClick={() => handleThemeChange(value as "light" | "dark" | "auto")}
                   className={cn(
                     "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-colors",
+                    "text-xs font-medium transition-colors bg-transparent",
                     "cursor-pointer",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                     mounted && theme === value
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -139,12 +138,12 @@ export function PreferencesPanel({
                   onClick={() => handleLocaleChange(loc.code)}
                   className={cn(
                     "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-colors",
+                    "text-xs font-medium transition-colors bg-transparent",
                     "cursor-pointer",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                     currentLocale.code === loc.code
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   <Globe className="w-3.5 h-3.5" />

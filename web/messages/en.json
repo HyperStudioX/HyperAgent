@@ -245,6 +245,9 @@
                 "skill_image_generation": "Image Generation",
                 "skill_simple_writing": "Writing",
                 "skill_data_visualization": "Data Visualization",
+                "skill_task_planning": "Task Planning",
+                "invoke_skill": "Skill Invocation",
+                "list_skills": "List Skills",
                 "ask_user": "User Input",
                 "default": "Tool"
             },
