@@ -1,12 +1,12 @@
 # Frontend Style Guide
 
-A radically minimal design system using the Cursor aesthetic - pure neutrals, flat design, and clarity over decoration.
+A warm, minimal design system inspired by natural materials - terracotta accents, warm neutrals, flat design, and clarity over decoration.
 
 ## Design Philosophy
 
 - **Radically Minimal** - No shadows, borders only where structure is needed
-- **Pure Neutrals Only** - Clean white light theme, deep black dark theme (0° saturation)
-- **No Accent Colors** - Use foreground/background inversion for emphasis
+- **Warm Neutrals** - Warm stone light theme, warm charcoal dark theme with subtle brown undertones
+- **Terracotta Primary** - Rich, earthy terracotta as the primary accent color for emphasis
 - **Semantic Tokens** - Use CSS variables for consistency across themes
 - **Ultra-Flat Design** - Borders for structure, no glows or effects
 - **Subtle Interactions** - Minimal hover states, focus on clarity over decoration
@@ -20,37 +20,39 @@ A radically minimal design system using the Cursor aesthetic - pure neutrals, fl
 
 | Token | Light Mode | Dark Mode | Usage |
 |-------|------------|-----------|-------|
-| `bg-background` | Off-white (98%) | Dark gray (7%) | Page backgrounds |
-| `bg-card` | Pure white (100%) | Deep black (4%) | Editor areas (chat input, message list), cards, elevated surfaces |
-| `bg-secondary` | Light gray (96%) | Dark gray (12%) | Sidebars, subtle backgrounds |
-| `bg-muted` | Light gray (94%) | Dark gray (14%) | Disabled states, read items |
-| `text-foreground` | Near black (9%) | Light gray (92%) | Primary text |
-| `text-muted-foreground` | Gray (45%) | Gray (50%) | Secondary text |
-| `border-border` | Light gray (93%) | Dark gray (16%) | Standard borders |
+| `bg-background` | Warm off-white (30 15% 98%) | Warm charcoal (25 8% 7%) | Page backgrounds |
+| `bg-card` | Warm white (30 10% 100%) | Deep warm black (25 10% 4%) | Editor areas (chat input, message list), cards, elevated surfaces |
+| `bg-secondary` | Warm beige (30 12% 96%) | Warm dark gray (25 6% 12%) | Sidebars, subtle backgrounds |
+| `bg-muted` | Warm taupe (28 10% 94%) | Warm dark brown (25 6% 14%) | Disabled states, read items |
+| `text-foreground` | Warm dark brown (25 8% 12%) | Warm off-white (30 10% 92%) | Primary text |
+| `text-muted-foreground` | Warm gray (25 5% 45%) | Warm gray (28 5% 50%) | Secondary text |
+| `border-border` | Warm light beige (28 8% 93%) | Warm dark brown (25 6% 16%) | Standard borders |
 | `border-border/50` | 50% opacity | 50% opacity | Card borders, containers |
 | `border-border/30` | 30% opacity | 30% opacity | Dividers, separators |
-| `bg-primary` | Near black (9%) | Light gray (92%) | Primary buttons, inverted states |
-| `text-primary-foreground` | Pure white (100%) | Near black (4%) | Text on primary |
+| `bg-primary` | Rich terracotta (18 65% 42%) | Bright terracotta (18 70% 58%) | Primary buttons, interactive accents |
+| `text-primary-foreground` | Warm white (30 10% 100%) | Deep warm black (25 10% 4%) | Text on primary |
 | `bg-destructive` | Red (0 72% 51%) | Red (0 72% 55%) | Error states, delete buttons |
 | `text-destructive` | Red | Red | Error text, warning icons |
 
 ### Interactive States
 
-All interactive elements use foreground/background inversion rather than accent colors:
+Interactive elements use terracotta primary for emphasis, warm neutrals for subtle states:
 
 | State | Color Treatment |
 |-------|-----------------|
 | Default | `bg-card text-foreground` |
 | Hover | `bg-secondary text-foreground` or `bg-muted` |
-| Active/Selected | `bg-foreground text-background` (inverted) |
-| Focus | `ring-2 ring-foreground/20` (subtle ring only) |
+| Active/Selected Primary | `bg-primary text-primary-foreground` (terracotta accent) |
+| Active/Selected Subtle | `bg-secondary text-foreground` (warm neutral) |
+| Focus | `ring-2 ring-primary` (terracotta ring) |
 | Disabled | `opacity-50` |
 
-**No Accent Colors Philosophy:**
-- Use pure grays and foreground/background inversion for all states
-- No colored highlights, glows, or decorative effects
-- Focus on hierarchy through typography weight and spacing
-- Links use subtle underline rather than color
+**Warm Accent Philosophy:**
+- Terracotta primary (`bg-primary`) for high-emphasis interactive elements (primary buttons, active states)
+- Warm neutrals for subtle states and secondary actions
+- No glows or decorative effects - flat design maintained
+- Focus on hierarchy through typography weight, spacing, and strategic use of terracotta
+- Links can use terracotta for emphasis or subtle underline for minimal style
 
 ### Do's and Don'ts
 
@@ -112,47 +114,51 @@ Uses native system fonts for optimal performance and a native feel on each platf
 
 ## Color Palette
 
-### CSS Variables (Light Mode - Clean White)
+### CSS Variables (Light Mode - Warm Stone)
 
 ```css
---background: 0 0% 98%;      /* Off-white - site background */
---foreground: 0 0% 9%;        /* Near black */
---primary: 0 0% 9%;           /* Near black */
---primary-foreground: 0 0% 100%;  /* Pure white - matches card */
---secondary: 0 0% 96%;        /* Light gray */
---muted: 0 0% 94%;
---muted-foreground: 0 0% 45%;
---border: 0 0% 93%;           /* Refined from 90% */
---card: 0 0% 100%;            /* Pure white - editor areas (chat input, message list) */
---ring: 0 0% 20%;
+--background: 30 15% 98%;     /* Warm off-white with peachy undertone - site background */
+--foreground: 25 8% 12%;      /* Warm dark brown - primary text */
+--primary: 18 65% 42%;        /* Rich terracotta - primary accent */
+--primary-foreground: 30 10% 100%;  /* Warm white - text on terracotta */
+--secondary: 30 12% 96%;      /* Warm beige */
+--muted: 28 10% 94%;          /* Warm taupe */
+--muted-foreground: 25 5% 45%;
+--border: 28 8% 93%;          /* Warm light beige */
+--card: 30 10% 100%;          /* Warm white - editor areas (chat input, message list) */
+--ring: 18 55% 42%;           /* Terracotta focus ring */
 ```
 
-### CSS Variables (Dark Mode - Deep Black)
+### CSS Variables (Dark Mode - Warm Charcoal)
 
 ```css
---background: 0 0% 7%;        /* Dark gray - site background */
---foreground: 0 0% 92%;       /* Light gray (refined from 89%) */
---primary: 0 0% 92%;
---primary-foreground: 0 0% 4%;
---secondary: 0 0% 12%;        /* Dark gray */
---muted: 0 0% 14%;
---muted-foreground: 0 0% 50%;
---border: 0 0% 16%;           /* Refined from 18% */
---card: 0 0% 4%;              /* Deep black - editor areas (chat input, message list) */
---ring: 0 0% 80%;
+--background: 25 8% 7%;       /* Warm charcoal - site background */
+--foreground: 30 10% 92%;     /* Warm off-white - primary text */
+--primary: 18 70% 58%;        /* Bright terracotta - primary accent */
+--primary-foreground: 25 10% 4%;  /* Deep warm black - text on terracotta */
+--secondary: 25 6% 12%;       /* Warm dark gray */
+--muted: 25 6% 14%;           /* Warm dark brown */
+--muted-foreground: 28 5% 50%;
+--border: 25 6% 16%;          /* Warm dark brown */
+--card: 25 10% 4%;            /* Deep warm black - editor areas (chat input, message list) */
+--ring: 18 60% 65%;           /* Lighter terracotta focus ring */
 ```
 
 ### Status Colors (Both Themes)
 
-Only use color for critical status indicators (errors):
+Use terracotta for primary actions, red for destructive states:
 
 ```css
-/* Destructive/Error - only colored element */
+/* Primary - terracotta accent */
+--primary: 18 65% 42%;        /* Light mode - rich terracotta */
+--primary: 18 70% 58%;        /* Dark mode - bright terracotta */
+
+/* Destructive/Error - red */
 --destructive: 0 72% 51%;     /* Light mode - red */
 --destructive: 0 72% 55%;     /* Dark mode - red */
 
-/* Success/Info use neutral foreground */
-/* No accent colors - use foreground/background inversion instead */
+/* Success/Info use warm neutral foreground */
+/* Terracotta used for emphasis and primary actions */
 ```
 
 ## Brand Title
@@ -220,11 +226,11 @@ className="bg-secondary text-foreground hover:bg-muted border border-border/50 t
 ```
 **Usage:** Non-critical actions, form buttons, secondary CTAs
 
-#### Primary (Inverted for Emphasis)
+#### Primary (Terracotta Accent)
 ```tsx
-className="bg-foreground text-background hover:bg-foreground/90 transition-colors"
+className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
 ```
-**Usage:** Important actions requiring high visibility (Continue, Submit)
+**Usage:** Important actions requiring high visibility (Continue, Submit, primary CTAs)
 
 #### Secondary
 ```tsx
@@ -262,7 +268,7 @@ size="icon"     // h-9 w-9 (square)
 ### Button Best Practices
 
 **DO:**
-- Use `variant="primary"` for primary CTAs (inverted colors)
+- Use `variant="primary"` for primary CTAs (terracotta background)
 - Keep transitions to `transition-colors` only
 - Use clear typography hierarchy instead of effects
 - Maintain 32px minimum touch targets
@@ -270,20 +276,20 @@ size="icon"     // h-9 w-9 (square)
 **DON'T:**
 - Don't use transform effects (scale, translate, rotate)
 - Don't use shadows except on destructive in rare cases
-- Don't use accent colors - use foreground/background inversion
+- Don't use colors beyond terracotta primary and warm neutrals
 - Don't add glow effects or decorative elements
 
 ## Focus States
 
-Use subtle rings for focus states, no glow effects:
+Use terracotta rings for focus states, no glow effects:
 
 ```tsx
 // Focus ring (for all interactive elements)
-className="focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 focus-visible:outline-none"
+className="focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none"
 ```
 
 **Focus Ring Philosophy:**
-- Use subtle `ring-foreground/20` (20% opacity) for accessibility
+- Use warm terracotta `ring-primary` for accessibility and brand consistency
 - Never use box-shadow or glow effects
 - Ring offset of 2px for clear separation
 - Remove default outline with `outline-none`
@@ -292,15 +298,15 @@ className="focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:r
 
 ```tsx
 // Button focus
-<button className="... focus-visible:ring-2 focus-visible:ring-foreground/20">
+<button className="... focus-visible:ring-2 focus-visible:ring-primary">
   Click me
 </button>
 
 // Input focus
-<input className="... focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2" />
+<input className="... focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2" />
 
 // Link focus
-<a className="... focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:rounded">
+<a className="... focus-visible:ring-2 focus-visible:ring-primary focus-visible:rounded">
   Read more
 </a>
 ```
@@ -597,9 +603,9 @@ className="transition-colors duration-150"
 - Complex multi-property animations
 
 **Minimal interaction philosophy:**
-- Hover: Background color change only
-- Active: No visual feedback needed
-- Focus: Subtle ring (via `ring-foreground/20`)
+- Hover: Background color change only (warm neutrals)
+- Active: Terracotta primary for high-emphasis states
+- Focus: Terracotta ring (via `ring-primary`)
 - Loading: Simple opacity fade
 
 ## Touch Targets
@@ -689,18 +695,18 @@ className="font-medium text-foreground"
 
 ## Key Principles
 
-1. **Pure neutrals only** - No warm/cool tints, 0° saturation grays, no accent colors
-2. **No decorative effects** - No shadows, glows, gradients, or transforms
-3. **Foreground/background inversion** - Use inverted colors for emphasis, not color
-4. **Borders for structure** - Never use shadows, always use subtle borders
+1. **Warm neutrals throughout** - Subtle brown undertones (18-30° hue) create organic, inviting feel
+2. **Terracotta primary accent** - Rich, earthy terracotta (18 65% 42%) for emphasis and primary actions
+3. **No decorative effects** - No shadows, glows, gradients, or transforms - maintain flat design
+4. **Borders for structure** - Never use shadows, always use subtle warm-toned borders
 5. **Semantic tokens only** - Never hardcode hex/rgb values in components
 6. **Consistent spacing** - Use Tailwind's spacing scale (p-4, p-6, gap-3, etc.)
 7. **Accessible** - 32px minimum touch targets, 12px minimum font size, WCAG AAA contrast
 8. **Color transitions only** - `transition-colors` for all interactions, no transforms
-9. **Ring for focus** - Use `ring-2 ring-foreground/20` for accessibility
-10. **Typography for hierarchy** - Use weight/size for distinction, not color
+9. **Terracotta focus rings** - Use `ring-2 ring-primary` for accessibility and brand consistency
+10. **Typography for hierarchy** - Use weight/size for distinction, strategic terracotta for emphasis
 11. **Border radius hierarchy** - xl (containers) > lg (buttons) > md (pills)
 12. **Minimal is better** - When in doubt, remove decoration
-13. **No color coding** - All categories use neutral colors
+13. **Warm aesthetic** - All neutrals have brown undertones for cohesive warmth
 14. **Flat design** - Strictly 2D, no depth effects
 15. **Clarity over decoration** - Functionality and usability trump visual flourish

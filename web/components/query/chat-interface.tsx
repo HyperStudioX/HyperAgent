@@ -690,7 +690,9 @@ export function ChatInterface() {
                     message: userMessage,
                     mode: "chat",
                     attachment_ids: combinedAttachmentIds,
-                    conversation_id: conversationId?.startsWith("local-") ? null : conversationId,
+                    // Always send conversation_id (even for local conversations) to enable sandbox reuse
+                    // Backend uses it as task_id for e2b sandbox session management
+                    conversation_id: conversationId,
                     history: history,
                     locale: locale,
                 }),
@@ -1074,7 +1076,9 @@ export function ChatInterface() {
                     message: userMessage,
                     mode: agentType,
                     attachment_ids: combinedAttachmentIds,
-                    conversation_id: conversationId?.startsWith("local-") ? null : conversationId,
+                    // Always send conversation_id (even for local conversations) to enable sandbox reuse
+                    // Backend uses it as task_id for e2b sandbox session management
+                    conversation_id: conversationId,
                     history: history,
                     locale: locale,
                 }),
