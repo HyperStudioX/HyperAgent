@@ -202,7 +202,6 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
                 <div
                     className={cn(
                         "fixed inset-0 bg-black/40 z-40 md:hidden",
-                        "backdrop-blur-sm",
                         "transition-opacity duration-200",
                         "touch-none",
                         isOpen ? "opacity-100" : "opacity-0"
@@ -219,8 +218,8 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
                 onTouchEnd={handleTouchEnd}
                 className={cn(
                     "h-full flex flex-col border-border",
-                    // Solid background for mobile, semi-transparent for desktop
-                    "bg-background md:bg-card/50",
+                    // Sidebar uses secondary background per Design Style Guide
+                    "bg-secondary",
                     // Desktop: fixed width sidebar
                     "md:w-72 md:border-r md:relative",
                     // Mobile: full-screen overlay
@@ -248,22 +247,21 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
             >
                 {/* Header */}
                 <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
-                    <div className="flex items-center gap-3 group cursor-pointer">
-                        <div className="w-8 h-8 flex items-center justify-center relative">
-                            <div className="absolute inset-0 bg-accent-cyan/20 rounded-lg blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 flex items-center justify-center">
                             <Image
                                 src="/images/logo-light.svg"
                                 alt="HyperAgent"
                                 width={32}
                                 height={32}
-                                className="dark:hidden transition-transform duration-200 group-hover:scale-110 relative z-10"
+                                className="dark:hidden"
                             />
                             <Image
                                 src="/images/logo-dark.svg"
                                 alt="HyperAgent"
                                 width={32}
                                 height={32}
-                                className="hidden dark:block transition-transform duration-200 group-hover:scale-110 relative z-10"
+                                className="hidden dark:block"
                             />
                         </div>
                         <span className="brand-title brand-title-sm">HyperAgent</span>

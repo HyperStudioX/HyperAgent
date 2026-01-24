@@ -5,7 +5,7 @@
 
 @layer base {
   :root {
-    /* Cursor Aesthetic Light - Clean white with neutral grays */
+    /* Light Theme - Pure neutrals per Design Style Guide */
     --background: 0 0% 98%;
     --foreground: 0 0% 9%;
     --card: 0 0% 100%;
@@ -26,24 +26,10 @@
     --input: 0 0% 93%;
     --ring: 0 0% 20%;
     --radius: 0.75rem;
-
-    /* Vibrant accent colors */
-    --accent-cyan: 168 60% 68%;
-    --accent-amber: 30 75% 72%;
-    --accent-rose: 310 60% 74%;
-    --accent-blue: 210 75% 76%;
-    --accent-purple: 270 60% 70%;
-    --accent-vibrant: 168 60% 68%;
-    --accent-vibrant-foreground: 0 0% 9%;
-
-    /* Semantic status colors */
-    --accent-success: 142 76% 36%;
-    --accent-warning: 38 92% 50%;
-    --accent-info: 199 89% 48%;
   }
 
   .dark {
-    /* Cursor Aesthetic Dark - Deep black with neutral grays */
+    /* Dark Theme - Pure neutrals per Design Style Guide */
     --background: 0 0% 7%;
     --foreground: 0 0% 92%;
     --card: 0 0% 4%;
@@ -63,20 +49,6 @@
     --border: 0 0% 16%;
     --input: 0 0% 16%;
     --ring: 0 0% 80%;
-
-    /* Vibrant accent colors */
-    --accent-cyan: 168 60% 68%;
-    --accent-amber: 30 75% 72%;
-    --accent-rose: 310 60% 74%;
-    --accent-blue: 210 75% 76%;
-    --accent-purple: 270 60% 70%;
-    --accent-vibrant: 168 60% 68%;
-    --accent-vibrant-foreground: 0 0% 4%;
-
-    /* Semantic status colors */
-    --accent-success: 142 76% 46%;
-    --accent-warning: 38 92% 50%;
-    --accent-info: 199 89% 48%;
   }
 }
 
@@ -193,7 +165,7 @@ code:not(pre code) {
 }
 
 .prose a {
-  @apply text-foreground font-medium underline decoration-accent-cyan/50 underline-offset-2 hover:decoration-accent-cyan transition-colors;
+  @apply text-foreground font-medium underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground transition-colors;
 }
 
 .prose h1 {
@@ -213,7 +185,7 @@ code:not(pre code) {
 }
 
 .prose blockquote {
-  @apply border-l-[3px] border-accent-cyan/40 pl-5 py-1 italic text-muted-foreground text-lg my-4;
+  @apply border-l-[3px] border-border pl-5 py-1 italic text-muted-foreground text-lg my-4;
 }
 
 .prose strong {
@@ -471,31 +443,9 @@ button, a {
   resize: none;
 }
 
-/* Interactive element glow */
-.interactive-glow {
-  transition: box-shadow 0.2s ease-out;
-}
-
-.interactive-glow:hover {
-  box-shadow: 0 0 15px -3px hsl(var(--accent-cyan) / 0.25);
-}
-
-.interactive-glow:active {
-  box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.35);
-}
-
-/* Static glow effects for emphasis elements */
-.shadow-glow-sm {
-  box-shadow: 0 0 10px -3px hsl(var(--accent-cyan) / 0.3);
-}
-
-.shadow-glow-md {
-  box-shadow: 0 0 20px -5px hsl(var(--accent-cyan) / 0.4);
-}
-
-/* Focus state glow */
+/* Focus state - subtle ring per Design Style Guide */
 .focus-glow:focus-visible {
-  box-shadow: 0 0 0 3px hsl(var(--accent-cyan) / 0.2);
+  box-shadow: 0 0 0 2px hsl(var(--foreground) / 0.2);
   outline: none;
 }
 
@@ -541,27 +491,7 @@ button, a {
   }
 }
 
-.gradient-cyan-blue {
-  background: linear-gradient(
-    135deg,
-    hsl(var(--accent-cyan)),
-    hsl(var(--accent-blue)),
-    hsl(var(--accent-cyan))
-  );
-  background-size: 200% 200%;
-  animation: gradient-shift 8s ease infinite;
-}
-
-.gradient-amber-rose {
-  background: linear-gradient(
-    135deg,
-    hsl(var(--accent-amber)),
-    hsl(var(--accent-rose)),
-    hsl(var(--accent-amber))
-  );
-  background-size: 200% 200%;
-  animation: gradient-shift 8s ease infinite;
-}
+/* Gradient classes removed per Design Style Guide - no accent colors */
 
 /* Glassmorphism utilities */
 .glass {
@@ -594,9 +524,4 @@ button, a {
     scroll-behavior: auto !important;
   }
 
-  .gradient-cyan-blue,
-  .gradient-amber-rose {
-    animation: none !important;
-    background-position: 0% 50%;
-  }
 }

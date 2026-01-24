@@ -16,7 +16,11 @@ from app.agents.context_compression import (
     ContextCompressor,
     inject_summary_as_context,
 )
-from app.agents.hitl.interrupt_manager import get_interrupt_manager
+from app.agents.hitl.interrupt_manager import (
+    create_approval_interrupt,
+    get_interrupt_manager,
+)
+from app.agents.hitl.tool_risk import requires_approval
 from app.agents.prompts import CHAT_SYSTEM_PROMPT
 from app.agents.state import ChatState
 from app.agents.tools import (
@@ -285,12 +289,57 @@ async def act_node(state: ChatState) -> dict:
         tool_call_id = tool_call.get("id", "")
         args = tool_call.get("args", {})
 
-        # NOTE: High-risk tool approval is currently disabled because it blocks
-        # the event stream. The ask_user tool uses a proper two-phase approach
-        # that doesn't block. TODO: Implement two-phase approval for high-risk tools.
-        #
-        # For now, all tools execute without approval. The ask_user tool below
-        # allows agents to proactively ask users for decisions/input.
+        # Check if tool requires approval (high-risk tools like browser, code execution)
+        if requires_approval(
+            tool_name,
+            auto_approve_tools=state.get("auto_approve_tools", []),
+            hitl_enabled=state.get("hitl_enabled", True),
+            risk_threshold=settings.hitl_default_risk_threshold,
+        ):
+            thread_id = task_id or user_id or "default"
+
+            # Create approval interrupt event
+            interrupt_event = create_approval_interrupt(
+                tool_name=tool_name,
+                args=args,
+                timeout_seconds=settings.hitl_approval_timeout,
+            )
+            interrupt_id = interrupt_event["interrupt_id"]
+
+            # Emit tool call event first (so frontend knows what's being approved)
+            event_list.append(create_tool_call_event(tool_name, args, tool_call_id))
+            event_list.append(interrupt_event)
+
+            logger.info(
+                "hitl_tool_approval_required",
+                tool_name=tool_name,
+                interrupt_id=interrupt_id,
+                thread_id=thread_id,
+                tool_call_id=tool_call_id,
+            )
+
+            # Store the interrupt in Redis for the frontend to find
+            await interrupt_manager.create_interrupt(
+                thread_id=thread_id,
+                interrupt_id=interrupt_id,
+                interrupt_data=interrupt_event,
+            )
+
+            # Return with pending interrupt - will be handled by wait_interrupt_node
+            lc_messages.extend(tool_results)
+            return {
+                "lc_messages": lc_messages,
+                "events": event_list,
+                "tool_iterations": state.get("tool_iterations", 0) + 1,
+                "pending_interrupt": {
+                    "interrupt_id": interrupt_id,
+                    "thread_id": thread_id,
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "tool_args": args,  # Store for execution after approval
+                    "is_approval": True,
+                },
+            }
 
         # Emit tool call event
         event_list.append(create_tool_call_event(tool_name, args, tool_call_id))
@@ -576,6 +625,13 @@ async def wait_interrupt_node(state: ChatState) -> dict:
         tool_call_id=tool_call_id,
     )
 
+    # Get tools for potential execution (needed for approval flow)
+    all_tools = get_tools_for_agent("chat", include_handoffs=True)
+    tool_map = {tool.name: tool for tool in all_tools}
+
+    # Track auto_approve updates
+    auto_approve_tools = list(state.get("auto_approve_tools", []))
+
     try:
         # Wait for user response
         response = await interrupt_manager.wait_for_response(
@@ -591,18 +647,102 @@ async def wait_interrupt_node(state: ChatState) -> dict:
             "wait_interrupt_response_received",
             interrupt_id=interrupt_id,
             action=action,
+            is_approval=pending.get("is_approval", False),
         )
 
-        # Determine result based on action - include context for LLM
-        if action == "skip":
-            result_str = "User skipped this question."
-        elif action in ("select", "input"):
-            if value:
-                result_str = f"User responded: {value}"
+        # Handle approval responses for high-risk tools
+        if pending.get("is_approval"):
+            tool_args = pending.get("tool_args", {})
+            user_id = state.get("user_id")
+            task_id = state.get("task_id")
+
+            if action == "approve":
+                # Execute the approved tool
+                if tool_name in tool_map:
+                    tool = tool_map[tool_name]
+                    try:
+                        # Add context args for browser tools
+                        browser_tools = {
+                            t.name for t in get_tools_by_category(ToolCategory.BROWSER)
+                        }
+                        if tool_name in browser_tools:
+                            tool_args["user_id"] = user_id
+                            tool_args["task_id"] = task_id
+
+                        result = await tool.ainvoke(tool_args)
+                        result_str = f"Tool executed: {str(result)[:500]}"
+
+                        logger.info(
+                            "hitl_tool_approved_and_executed",
+                            tool_name=tool_name,
+                            tool_call_id=tool_call_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "hitl_approved_tool_failed",
+                            tool=tool_name,
+                            error=str(e),
+                        )
+                        result_str = f"Error executing {tool_name}: {e}"
+                else:
+                    result_str = f"Tool not found: {tool_name}"
+
+            elif action == "approve_always":
+                # Add to auto-approve list and execute
+                if tool_name not in auto_approve_tools:
+                    auto_approve_tools.append(tool_name)
+                    logger.info(
+                        "hitl_tool_auto_approved",
+                        tool_name=tool_name,
+                    )
+
+                # Execute the tool
+                if tool_name in tool_map:
+                    tool = tool_map[tool_name]
+                    try:
+                        browser_tools = {
+                            t.name for t in get_tools_by_category(ToolCategory.BROWSER)
+                        }
+                        if tool_name in browser_tools:
+                            tool_args["user_id"] = user_id
+                            tool_args["task_id"] = task_id
+
+                        result = await tool.ainvoke(tool_args)
+                        result_str = (
+                            f"Tool executed (auto-approved): {str(result)[:500]}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "hitl_approved_tool_failed",
+                            tool=tool_name,
+                            error=str(e),
+                        )
+                        result_str = f"Error executing {tool_name}: {e}"
+                else:
+                    result_str = f"Tool not found: {tool_name}"
+
+            elif action == "deny":
+                result_str = f"User denied execution of {tool_name}. The tool was not executed."
+                logger.info(
+                    "hitl_tool_denied",
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
+
             else:
-                result_str = "User skipped this question."
+                result_str = f"Unknown approval action: {action}. Tool not executed."
+
         else:
-            result_str = f"User action: {action}"
+            # Handle ask_user responses (non-approval interrupts)
+            if action == "skip":
+                result_str = "User skipped this question."
+            elif action in ("select", "input"):
+                if value:
+                    result_str = f"User responded: {value}"
+                else:
+                    result_str = "User skipped this question."
+            else:
+                result_str = f"User action: {action}"
 
         # Add tool result message
         lc_messages.append(
@@ -647,11 +787,17 @@ async def wait_interrupt_node(state: ChatState) -> dict:
             )
         )
 
-    return {
+    result = {
         "lc_messages": lc_messages,
         "events": event_list,
         "pending_interrupt": None,  # Clear the pending interrupt
     }
+
+    # Include auto_approve_tools if it was updated
+    if auto_approve_tools != state.get("auto_approve_tools", []):
+        result["auto_approve_tools"] = auto_approve_tools
+
+    return result
 
 
 def create_chat_graph() -> StateGraph:

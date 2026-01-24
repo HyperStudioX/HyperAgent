@@ -70,7 +70,11 @@ class SupervisorState(TypedDict, total=False):
     pending_interrupt: dict[str, Any] | None  # Current interrupt waiting for response
     interrupt_response: dict[str, Any] | None  # Response to pending interrupt
     interrupt_history: list[dict[str, Any]]  # History of interrupts in this session
-    auto_approve_tools: list[str]  # Tools user has auto-approved for this session
+    # auto_approve_tools: List of tool names the user has approved with "Approve Always"
+    # for this session. When a tool is in this list, it bypasses the approval dialog
+    # and executes directly. Updated when user selects "approve_always" action.
+    # Example: ["execute_code", "browser_navigate"]
+    auto_approve_tools: list[str]
     hitl_enabled: bool  # Whether HITL is enabled for this request
 
     # Output
