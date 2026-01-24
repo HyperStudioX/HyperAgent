@@ -107,56 +107,64 @@ class StreamProcessor:
         if event_type == "on_chain_start":
             async for e in self._handle_chain_start(node_name):
                 yield e
-        
+
         elif event_type == "on_chain_end":
             async for e in self._handle_chain_end(node_name, event):
                 yield e
-        
+
         elif event_type == "on_chat_model_stream":
             async for e in self._handle_chat_stream(event):
                 yield e
-        
+
         elif event_type == "on_tool_start":
             async for e in self._handle_tool_start(event):
                 yield e
-        
+
         elif event_type == "on_tool_end":
             async for e in self._handle_tool_end(event):
                 yield e
-        
+
         elif event_type == "on_chain_error":
             async for e in self._handle_chain_error(node_name, event):
                 yield e
 
     async def _handle_chain_start(self, node_name: str) -> AsyncGenerator[Dict[str, Any], None]:
         self.node_path.append(node_name)
-        
+
         # Track content-generating nodes
-        if any(enabled and self.node_matches_streaming(node_name, node) 
-               for node, enabled in STREAMING_CONFIG.items()):
+        if any(
+            enabled and self.node_matches_streaming(node_name, node)
+            for node, enabled in STREAMING_CONFIG.items()
+        ):
             self.current_content_node = node_name
 
         # Detect and emit stage running events via configuration
         for suffix, stage_name, desc, _ in STAGE_DEFINITIONS:
-            if node_name == suffix or node_name.endswith(f":{suffix}") or node_name.endswith(suffix):
+            if (
+                node_name == suffix
+                or node_name.endswith(f":{suffix}")
+                or node_name.endswith(suffix)
+            ):
                 # Special case for analyze: distinguish research analyze from others if needed
                 if stage_name == "analyze" and not any("research" in p for p in self.node_path):
                     continue
                 # Special case for write: require research path
                 if stage_name == "report" and not any("research" in p for p in self.node_path):
                     continue
-                    
+
                 stage_key = f"{stage_name}:running"
                 if stage_key not in self.emitted_stage_keys:
                     self.emitted_stage_keys.add(stage_key)
                     yield {
-                        "type": "stage", 
-                        "name": stage_name, 
-                        "description": desc, 
-                        "status": "running"
+                        "type": "stage",
+                        "name": stage_name,
+                        "description": desc,
+                        "status": "running",
                     }
 
-    async def _handle_chain_end(self, node_name: str, event: Dict) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _handle_chain_end(
+        self, node_name: str, event: Dict
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         # Update node path
         if self.node_path and self.node_path[-1] == node_name:
             self.node_path.pop()
@@ -177,7 +185,11 @@ class StreamProcessor:
         for suffix, stage_name, _, completed_desc in STAGE_DEFINITIONS:
             if not completed_desc:
                 continue
-            if node_name == suffix or node_name.endswith(f":{suffix}") or node_name.endswith(suffix):
+            if (
+                node_name == suffix
+                or node_name.endswith(f":{suffix}")
+                or node_name.endswith(suffix)
+            ):
                 # Same special cases
                 if stage_name == "analyze" and not any("research" in p for p in self.node_path):
                     continue
@@ -188,10 +200,10 @@ class StreamProcessor:
                 if stage_key not in self.emitted_stage_keys:
                     self.emitted_stage_keys.add(stage_key)
                     yield {
-                        "type": "stage", 
-                        "name": stage_name, 
-                        "description": completed_desc, 
-                        "status": "completed"
+                        "type": "stage",
+                        "name": stage_name,
+                        "description": completed_desc,
+                        "status": "completed",
                     }
 
         # Extract and forward events from subagent output
@@ -208,11 +220,10 @@ class StreamProcessor:
 
     def _should_emit_subevent(self, e: Dict, node_name: str) -> bool:
         event_type = e.get("type")
-        
+
         # Token deduplication
         is_programmatic_node = any(
-            keyword in node_name.lower()
-            for keyword in ["present", "image", "summarize"]
+            keyword in node_name.lower() for keyword in ["present", "image", "summarize"]
         )
         if event_type == "token" and self.streamed_tokens and not is_programmatic_node:
             return False
@@ -272,32 +283,40 @@ class StreamProcessor:
     async def _handle_chat_stream(self, event: Dict) -> AsyncGenerator[Dict[str, Any], None]:
         node_path_str = "/".join(self.node_path)
         chunk = (event.get("data") or {}).get("chunk")
-        
+
         # Tool call chunks
         if chunk and getattr(chunk, "tool_calls", None):
             for tool_call in chunk.tool_calls:
                 if not tool_call or not isinstance(tool_call, dict):
                     continue
-                func = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else None
-                tool_name = tool_call.get("name") or tool_call.get("tool") or (func.get("name") if func else None)
-                
+                func = (
+                    tool_call.get("function")
+                    if isinstance(tool_call.get("function"), dict)
+                    else None
+                )
+                tool_name = (
+                    tool_call.get("name")
+                    or tool_call.get("tool")
+                    or (func.get("name") if func else None)
+                )
+
                 if not tool_name:
                     continue
-                    
+
                 tool_id = tool_call.get("id") or tool_call.get("tool_call_id") or str(uuid.uuid4())
-                
+
                 if tool_id in self.emitted_tool_call_ids:
                     continue
-                    
+
                 self.emitted_tool_call_ids.add(tool_id)
                 tool_args = tool_call.get("args") or {}
-                
+
                 self.pending_tool_calls[tool_id] = {
                     "tool": tool_name,
                     "args": tool_args,
                 }
                 self.pending_tool_calls_by_tool.setdefault(tool_name, []).append(tool_id)
-                
+
                 yield {
                     "type": "tool_call",
                     "tool": tool_name,
@@ -310,6 +329,7 @@ class StreamProcessor:
             chunk = (event.get("data") or {}).get("chunk")
             if chunk and hasattr(chunk, "content") and chunk.content:
                 from app.ai.llm import extract_text_from_content
+
                 content = extract_text_from_content(chunk.content)
                 if content:
                     self.streamed_tokens = True
@@ -323,13 +343,13 @@ class StreamProcessor:
         # Handle Browser Stream (Side Effect)
         if tool_name in BROWSER_TOOLS:
             async for e in self._emit_browser_stream(tool_input):
-                 yield e
+                yield e
 
         # Track tool call
         tool_call_id = None
         if isinstance(tool_input, dict):
             tool_call_id = tool_input.get("tool_call_id")
-        
+
         if run_id and not tool_call_id:
             tool_call_id = str(run_id)
 
@@ -340,7 +360,7 @@ class StreamProcessor:
                 "run_id": run_id,
             }
             self.pending_tool_calls_by_tool.setdefault(tool_name, []).append(tool_call_id)
-            
+
             yield {
                 "type": "tool_call",
                 "tool": tool_name,
@@ -351,7 +371,7 @@ class StreamProcessor:
         # Browser action events
         if tool_name in BROWSER_ACTION_DESCRIPTIONS:
             action, desc = BROWSER_ACTION_DESCRIPTIONS[tool_name]
-            
+
             # Extract target from specific keys based on action
             target = ""
             if isinstance(tool_input, dict):
@@ -406,18 +426,52 @@ class StreamProcessor:
         # Browser action completion
         if tool_name in BROWSER_TOOLS:
             action = BROWSER_ACTION_DESCRIPTIONS.get(tool_name, (tool_name,))[0]
-            readable_name = tool_name.replace('browser_', '').replace('_', ' ').title()
+            readable_name = tool_name.replace("browser_", "").replace("_", " ").title()
             yield agent_events.browser_action(
                 action=action,
                 description=f"{readable_name} completed",
                 status="completed",
             )
 
+        # Extract events from skill invocation output (for streaming to frontend)
+        if tool_name == "invoke_skill" and isinstance(output, str):
+            try:
+                import json
+
+                parsed = json.loads(output)
+                if isinstance(parsed, dict):
+                    # Forward stage events from skill execution
+                    if "events" in parsed:
+                        skill_events = parsed.get("events", [])
+                        for evt in skill_events:
+                            if isinstance(evt, dict) and self._should_emit_subevent(
+                                evt, tool_name
+                            ):
+                                yield evt
+
+                    # Emit skill_output event for frontend to extract preview URLs etc.
+                    if parsed.get("success") and parsed.get("output"):
+                        yield {
+                            "type": "skill_output",
+                            "skill_id": parsed.get("skill_id"),
+                            "output": parsed.get("output"),
+                        }
+            except (json.JSONDecodeError, ValueError):
+                pass
+
         # Resolve tool call ID
         tool_call_id = self._resolve_tool_call_id(run_id, tool_name)
-        
+
         # Emit tool result
-        content = str(output)[:500] if output else ""
+        # Use larger limit for app-related tools to preserve preview URLs
+        # invoke_skill needs extra space for full skill output with preview URLs
+        if tool_name == "invoke_skill":
+            max_content_length = 5000
+        elif tool_name in {"app_start_server", "app_get_preview_url", "create_app_project"}:
+            max_content_length = 2000
+        else:
+            max_content_length = 500
+        content = str(output)[:max_content_length] if output else ""
         yield {
             "type": "tool_result",
             "tool": tool_name,
@@ -437,14 +491,14 @@ class StreamProcessor:
 
     def _resolve_tool_call_id(self, run_id: str, tool_name: str) -> str:
         tool_call_id = None
-        
+
         # Try finding by run_id
         if run_id:
             for tid, info in self.pending_tool_calls.items():
                 if info.get("run_id") == run_id:
                     tool_call_id = tid
                     break
-        
+
         # Try popping from queue by tool name
         if not tool_call_id and tool_name:
             tool_queue = self.pending_tool_calls_by_tool.get(tool_name) or []
@@ -453,7 +507,9 @@ class StreamProcessor:
 
         return tool_call_id or str(run_id) if run_id else str(uuid.uuid4())
 
-    async def _handle_chain_error(self, node_name: str, event: Dict) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _handle_chain_error(
+        self, node_name: str, event: Dict
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         error = (event.get("data") or {}).get("error")
         if error:
             yield {

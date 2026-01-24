@@ -135,6 +135,9 @@ class Settings(BaseSettings):
     guardrails_violation_action: Literal["block", "warn", "log"] = "block"
     guardrails_timeout_ms: int = 500
 
+    # ReAct Loop Configuration
+    react_max_iterations: int = 5  # Maximum number of tool-calling iterations
+
     # Authentication
     nextauth_secret: str = ""
     google_client_id: str = ""

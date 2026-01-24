@@ -246,9 +246,19 @@
                 "skill_simple_writing": "写作",
                 "skill_data_visualization": "数据可视化",
                 "skill_task_planning": "任务规划",
+                "skill_app_builder": "应用构建器",
                 "invoke_skill": "调用技能",
                 "list_skills": "技能列表",
                 "ask_user": "用户输入",
+                "create_app_project": "创建应用项目",
+                "app_write_file": "写入文件",
+                "app_read_file": "读取文件",
+                "app_list_files": "列出文件",
+                "app_install_packages": "安装依赖",
+                "app_start_server": "启动开发服务器",
+                "app_stop_server": "停止服务器",
+                "app_run_command": "运行命令",
+                "app_get_preview_url": "获取预览链接",
                 "default": "工具"
             },
             "stages": {
@@ -444,6 +454,16 @@
                     "failed": "处理失败",
                     "pending": "处理中"
                 },
+                "scaffold": {
+                    "running": "创建项目结构...",
+                    "completed": "项目结构已创建",
+                    "failed": "项目创建失败"
+                },
+                "server": {
+                    "running": "启动开发服务器...",
+                    "completed": "服务器已启动",
+                    "failed": "服务器启动失败"
+                },
                 "default": {
                     "running": "处理中...",
                     "completed": "已完成",
@@ -559,5 +579,18 @@
         "denied": "已拒绝",
         "skipped": "已跳过",
         "timeout": "已超时"
+    },
+    "appPreview": {
+        "appRunning": "应用运行中",
+        "appPreview": "应用预览",
+        "loading": "加载应用...",
+        "copyUrl": "复制链接",
+        "openExternal": "在新标签页打开",
+        "refresh": "刷新",
+        "fullscreen": "全屏",
+        "exitFullscreen": "退出全屏",
+        "expand": "显示预览",
+        "collapse": "隐藏预览",
+        "close": "关闭"
     }
 }

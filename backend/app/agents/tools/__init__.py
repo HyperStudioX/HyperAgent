@@ -49,7 +49,6 @@ from app.agents.tools.handoff import (
 )
 from app.agents.tools.image_generation import generate_image
 from app.agents.tools.react_tool import (
-    AGENT_REACT_CONFIGS,
     ReActLoopConfig,
     ReActLoopResult,
     ToolExecutionError,
@@ -177,7 +176,6 @@ __all__ = [
     "is_transient_error",
     "build_ai_message_from_chunks",
     # ReAct loop utilities
-    "AGENT_REACT_CONFIGS",
     "ReActLoopConfig",
     "ReActLoopResult",
     "execute_react_loop",

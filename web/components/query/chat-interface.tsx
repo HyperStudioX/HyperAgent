@@ -886,9 +886,9 @@ export function ChatInterface() {
                 setStreamingSources([]);
                 setLoading(false);
 
-                // Filter events to only save important ones (stages, tool_calls, sources)
+                // Filter events to only save important ones (stages, tool_calls, sources, skill outputs, tool results)
                 const savedEvents = collectedEvents.filter(
-                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call"
+                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call" || e.type === "skill_output" || e.type === "tool_result"
                 );
 
                 await addMessage(conversationId, {
@@ -1278,9 +1278,9 @@ export function ChatInterface() {
                 setStreamingSources([]);
                 setLoading(false);
 
-                // Filter events to only save important ones (stages, tool_calls, sources)
+                // Filter events to only save important ones (stages, tool_calls, sources, skill outputs, tool results)
                 const savedEvents = collectedEvents.filter(
-                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call"
+                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call" || e.type === "skill_output" || e.type === "tool_result"
                 );
 
                 await addMessage(conversationId, {

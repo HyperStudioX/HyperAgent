@@ -31,7 +31,9 @@ const KNOWN_STAGES = [
     "analyze_image", "generate_image",
     "browser_launch", "browser_navigate", "browser_click", "browser_type",
     "browser_screenshot", "browser_scroll", "browser_key", "browser_computer",
-    "computer", "context", "processing"
+    "computer", "context", "processing",
+    // App builder stages
+    "scaffold", "server"
 ];
 
 /**

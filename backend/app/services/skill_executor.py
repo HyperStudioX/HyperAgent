@@ -103,14 +103,36 @@ class SkillExecutor:
                 "task_id": task_id,
             }
 
+            # Add pending_events for skills that emit stage events during execution
+            # This is not part of the base SkillState but used by specific skills like app_builder
+            initial_state["pending_events"] = []  # type: ignore[typeddict-unknown-key]
+
             # Get compiled graph
             graph = skill.create_graph()
 
-            # Execute with timeout
+            # Execute with timeout using astream to capture intermediate events
             final_state = None
+            emitted_event_count = 0  # Track how many events we've emitted
             try:
                 async with asyncio.timeout(skill.metadata.max_execution_time_seconds):
-                    final_state = await graph.ainvoke(initial_state)
+                    # Use astream to get intermediate states and emit pending events
+                    async for state_update in graph.astream(initial_state):
+                        # state_update is a dict with node name as key
+                        for node_name, node_state in state_update.items():
+                            if not isinstance(node_state, dict):
+                                continue
+
+                            # Emit any pending events from this state
+                            pending_events = node_state.get("pending_events", [])
+                            for event in pending_events[emitted_event_count:]:
+                                yield event
+                            emitted_event_count = len(pending_events)
+
+                            # Update final state
+                            if final_state is None:
+                                final_state = dict(initial_state)
+                            final_state.update(node_state)
+
             except TimeoutError:
                 raise Exception(
                     f"Skill execution timed out after {skill.metadata.max_execution_time_seconds}s"

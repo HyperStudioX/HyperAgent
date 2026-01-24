@@ -4,16 +4,16 @@ Provides a LangChain tool for file operations within E2B sandboxes,
 using session-based sandbox management for sharing with code execution.
 """
 
-import base64
 import json
 from typing import Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.sandbox.execution_sandbox_manager import get_execution_sandbox_manager
 from app.config import settings
 from app.core.logging import get_logger
+from app.sandbox import file_operations
+from app.sandbox.execution_sandbox_manager import get_execution_sandbox_manager
 
 logger = get_logger(__name__)
 
@@ -122,213 +122,32 @@ async def sandbox_file(
 
         sandbox = executor.sandbox
 
-        # Dispatch to operation handler
-        operation_handlers = {
-            "read": lambda: _read_file(sandbox, path),
-            "write": lambda: _write_file(sandbox, path, content, is_binary),
-            "list": lambda: _list_directory(sandbox, path),
-            "delete": lambda: _delete_path(sandbox, path),
-            "exists": lambda: _check_exists(sandbox, path),
-        }
+        # Dispatch to operation handler using shared file_operations
+        if operation == "read":
+            result = await file_operations.read_file(sandbox, path)
+        elif operation == "write":
+            result = await file_operations.write_file(sandbox, path, content or "", is_binary)
+        elif operation == "list":
+            result = await file_operations.list_directory(sandbox, path)
+        elif operation == "delete":
+            result = await file_operations.delete_path(sandbox, path)
+        elif operation == "exists":
+            result = await file_operations.check_exists(sandbox, path)
+        else:
+            result = {
+                "success": False,
+                "operation": operation,
+                "path": path,
+                "error": f"Unknown operation: {operation}",
+            }
 
-        handler = operation_handlers.get(operation)
-        if handler:
-            return await handler()
-
-        return json.dumps({
-            "success": False,
-            "operation": operation,
-            "path": path,
-            "error": f"Unknown operation: {operation}",
-        })
+        return json.dumps(result)
 
     except Exception as e:
         logger.error("sandbox_file_error", operation=operation, path=path, error=str(e))
         return json.dumps({
             "success": False,
             "operation": operation,
-            "path": path,
-            "error": str(e),
-        })
-
-
-async def _read_file(sandbox, path: str) -> str:
-    """Read a file from the sandbox."""
-    try:
-        content = await sandbox.files.read(path)
-
-        # Try to decode as text
-        try:
-            if isinstance(content, bytes):
-                text_content = content.decode("utf-8")
-                is_binary = False
-            else:
-                text_content = content
-                is_binary = False
-        except UnicodeDecodeError:
-            # Binary file - encode as base64
-            text_content = base64.b64encode(content).decode("utf-8")
-            is_binary = True
-
-        logger.info("sandbox_file_read", path=path, size=len(content), is_binary=is_binary)
-
-        return json.dumps({
-            "success": True,
-            "operation": "read",
-            "path": path,
-            "content": text_content,
-            "is_binary": is_binary,
-        })
-
-    except Exception as e:
-        return json.dumps({
-            "success": False,
-            "operation": "read",
-            "path": path,
-            "error": str(e),
-        })
-
-
-async def _write_file(sandbox, path: str, content: str | None, is_binary: bool) -> str:
-    """Write content to a file in the sandbox."""
-    if content is None:
-        return json.dumps({
-            "success": False,
-            "operation": "write",
-            "path": path,
-            "error": "No content provided for write operation",
-        })
-
-    try:
-        if is_binary:
-            # Decode base64 content
-            file_content = base64.b64decode(content)
-        else:
-            # Text content
-            file_content = content.encode("utf-8") if isinstance(content, str) else content
-
-        await sandbox.files.write(path, file_content)
-
-        logger.info("sandbox_file_written", path=path, bytes=len(file_content), is_binary=is_binary)
-
-        return json.dumps({
-            "success": True,
-            "operation": "write",
-            "path": path,
-            "bytes_written": len(file_content),
-            "is_binary": is_binary,
-        })
-
-    except Exception as e:
-        return json.dumps({
-            "success": False,
-            "operation": "write",
-            "path": path,
-            "error": str(e),
-        })
-
-
-async def _list_directory(sandbox, path: str) -> str:
-    """List contents of a directory in the sandbox."""
-    try:
-        # Use sandbox command to list directory
-        result = await sandbox.commands.run(f"ls -la {path}", timeout=30)
-
-        if result.exit_code != 0:
-            return json.dumps({
-                "success": False,
-                "operation": "list",
-                "path": path,
-                "error": result.stderr or "Failed to list directory",
-            })
-
-        # Parse ls output
-        entries = []
-        lines = (result.stdout or "").strip().split("\n")
-        for line in lines[1:]:  # Skip the "total" line
-            parts = line.split()
-            if len(parts) >= 9:
-                entry = {
-                    "permissions": parts[0],
-                    "links": parts[1],
-                    "owner": parts[2],
-                    "group": parts[3],
-                    "size": int(parts[4]) if parts[4].isdigit() else 0,
-                    "date": " ".join(parts[5:8]),
-                    "name": " ".join(parts[8:]),
-                    "is_directory": parts[0].startswith("d"),
-                }
-                entries.append(entry)
-
-        logger.info("sandbox_directory_listed", path=path, count=len(entries))
-
-        return json.dumps({
-            "success": True,
-            "operation": "list",
-            "path": path,
-            "entries": entries,
-        })
-
-    except Exception as e:
-        return json.dumps({
-            "success": False,
-            "operation": "list",
-            "path": path,
-            "error": str(e),
-        })
-
-
-async def _delete_path(sandbox, path: str) -> str:
-    """Delete a file or directory from the sandbox."""
-    try:
-        # Use rm -rf to handle both files and directories
-        result = await sandbox.commands.run(f"rm -rf {path}", timeout=30)
-
-        if result.exit_code != 0:
-            return json.dumps({
-                "success": False,
-                "operation": "delete",
-                "path": path,
-                "error": result.stderr or "Failed to delete path",
-            })
-
-        logger.info("sandbox_path_deleted", path=path)
-
-        return json.dumps({
-            "success": True,
-            "operation": "delete",
-            "path": path,
-        })
-
-    except Exception as e:
-        return json.dumps({
-            "success": False,
-            "operation": "delete",
-            "path": path,
-            "error": str(e),
-        })
-
-
-async def _check_exists(sandbox, path: str) -> str:
-    """Check if a path exists in the sandbox."""
-    try:
-        result = await sandbox.commands.run(f"test -e {path} && echo 'exists'", timeout=10)
-
-        exists = result.exit_code == 0 and "exists" in (result.stdout or "")
-
-        logger.debug("sandbox_path_checked", path=path, exists=exists)
-
-        return json.dumps({
-            "success": True,
-            "operation": "exists",
-            "path": path,
-            "exists": exists,
-        })
-
-    except Exception as e:
-        return json.dumps({
-            "success": False,
-            "operation": "exists",
             "path": path,
             "error": str(e),
         })

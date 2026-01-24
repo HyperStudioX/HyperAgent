@@ -11,6 +11,14 @@ This package contains:
 from typing import Any
 
 from app.config import settings
+from app.sandbox import file_operations
+from app.sandbox.app_sandbox_manager import (
+    APP_TEMPLATES,
+    AppSandboxManager,
+    AppSandboxSession,
+    get_app_sandbox_manager,
+)
+from app.sandbox.desktop_executor import E2B_DESKTOP_AVAILABLE
 from app.sandbox.desktop_sandbox_manager import (
     DesktopSandboxManager,
     DesktopSandboxSession,
@@ -21,7 +29,6 @@ from app.sandbox.execution_sandbox_manager import (
     ExecutionSandboxSession,
     get_execution_sandbox_manager,
 )
-from app.sandbox.desktop_executor import E2B_DESKTOP_AVAILABLE
 from app.sandbox.file import (
     sandbox_file,
     sandbox_file_with_context,
@@ -32,36 +39,49 @@ def get_sandbox_metrics() -> dict[str, Any]:
     """Get unified metrics from all sandbox managers.
 
     Returns:
-        Dict with metrics from execution and desktop sandbox managers:
+        Dict with metrics from execution, desktop, and app sandbox managers:
             - execution: Metrics from execution sandbox manager
             - desktop: Metrics from desktop sandbox manager
+            - app: Metrics from app sandbox manager
             - totals: Aggregated totals across all managers
     """
     execution_manager = get_execution_sandbox_manager()
     desktop_manager = get_desktop_sandbox_manager()
+    app_manager = get_app_sandbox_manager()
 
     execution_metrics = execution_manager.get_metrics()
     desktop_metrics = desktop_manager.get_metrics()
+    app_metrics = app_manager.get_metrics()
 
     return {
         "execution": execution_metrics,
         "desktop": desktop_metrics,
+        "app": app_metrics,
         "totals": {
             "active_sessions": (
-                execution_metrics["active_sessions"] + desktop_metrics["active_sessions"]
+                execution_metrics["active_sessions"]
+                + desktop_metrics["active_sessions"]
+                + app_metrics["active_sessions"]
             ),
             "total_created": (
-                execution_metrics["total_created"] + desktop_metrics["total_created"]
+                execution_metrics["total_created"]
+                + desktop_metrics["total_created"]
+                + app_metrics["total_created"]
             ),
             "total_cleaned": (
-                execution_metrics["total_cleaned"] + desktop_metrics["total_cleaned"]
+                execution_metrics["total_cleaned"]
+                + desktop_metrics["total_cleaned"]
+                + app_metrics["total_cleaned"]
             ),
             "total_reused": (
-                execution_metrics["total_reused"] + desktop_metrics["total_reused"]
+                execution_metrics["total_reused"]
+                + desktop_metrics["total_reused"]
+                + app_metrics["total_reused"]
             ),
             "health_check_failures": (
                 execution_metrics["health_check_failures"]
                 + desktop_metrics["health_check_failures"]
+                + app_metrics["health_check_failures"]
             ),
         },
     }
@@ -113,6 +133,15 @@ def get_sandbox_availability() -> dict[str, Any]:
     }
 
 
+def is_app_sandbox_available() -> bool:
+    """Check if app sandbox functionality is available.
+
+    Returns:
+        True if E2B API key is configured, False otherwise
+    """
+    return bool(settings.e2b_api_key)
+
+
 __all__ = [
     # Execution sandbox management
     "ExecutionSandboxSession",
@@ -122,14 +151,21 @@ __all__ = [
     "DesktopSandboxSession",
     "DesktopSandboxManager",
     "get_desktop_sandbox_manager",
+    # App sandbox management
+    "AppSandboxSession",
+    "AppSandboxManager",
+    "get_app_sandbox_manager",
+    "APP_TEMPLATES",
     # Sandbox file operations
     "sandbox_file",
     "sandbox_file_with_context",
+    "file_operations",
     # Metrics
     "get_sandbox_metrics",
     # Availability checks
     "is_execution_sandbox_available",
     "is_desktop_sandbox_available",
+    "is_app_sandbox_available",
     "get_sandbox_availability",
     "E2B_DESKTOP_AVAILABLE",
 ]

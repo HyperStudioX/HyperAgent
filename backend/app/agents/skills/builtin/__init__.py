@@ -7,6 +7,7 @@ from app.agents.skills.builtin.image_generation_skill import ImageGenerationSkil
 from app.agents.skills.builtin.simple_writing_skill import SimpleWritingSkill
 from app.agents.skills.builtin.code_generation_skill import CodeGenerationSkill
 from app.agents.skills.builtin.task_planning_skill import TaskPlanningSkill
+from app.agents.skills.builtin.app_builder_skill import AppBuilderSkill
 
 __all__ = [
     "WebResearchSkill",
@@ -16,4 +17,5 @@ __all__ = [
     "SimpleWritingSkill",
     "CodeGenerationSkill",
     "TaskPlanningSkill",
+    "AppBuilderSkill",
 ]

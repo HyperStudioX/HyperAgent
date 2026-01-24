@@ -16,6 +16,7 @@ import { usePreviewStore } from "@/lib/stores/preview-store";
 import { GeneratedMedia } from "@/components/chat/generated-media";
 import { TaskProgressPanel } from "@/components/ui/task-progress-panel";
 import { TaskPlanPanel, type TaskPlan } from "@/components/ui/task-plan-panel";
+import { InlineAppPreview } from "@/components/ui/app-preview-panel";
 import type { Message, FileAttachment, GeneratedImage, AgentEvent, Source } from "@/lib/types";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
 
@@ -250,6 +251,82 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
             }
         }
         return plans;
+    }, [streamingEvents, agentEvents]);
+
+    // Extract app preview URLs from tool results (app_start_server or app_builder skill)
+    const appPreviews = useMemo(() => {
+        const previews: Array<{ url: string; template?: string }> = [];
+        const events = streamingEvents || agentEvents || [];
+
+        for (const event of events) {
+            // Check tool_result events for app_start_server results
+            // Tool results come as stringified JSON in the `content` field
+            if (event.type === "tool_result") {
+                const agentEvent = event as AgentEvent;
+                const toolName = agentEvent.tool || agentEvent.name;
+
+                // Check app-related tools directly
+                if (toolName === "app_start_server" || toolName === "app_get_preview_url") {
+                    const content = agentEvent.content;
+                    if (content && typeof content === "string") {
+                        try {
+                            const parsed = JSON.parse(content);
+                            if (parsed.preview_url && typeof parsed.preview_url === "string") {
+                                previews.push({
+                                    url: parsed.preview_url,
+                                    template: parsed.template as string | undefined,
+                                });
+                            }
+                        } catch {
+                            // Not valid JSON, skip
+                        }
+                    }
+                }
+
+                // Check invoke_skill tool result for app_builder skill output
+                if (toolName === "invoke_skill") {
+                    const content = agentEvent.content;
+                    if (content && typeof content === "string") {
+                        try {
+                            const parsed = JSON.parse(content);
+                            // Check if this is an app_builder skill result
+                            if (parsed.skill_id === "app_builder" && parsed.output) {
+                                const output = parsed.output as Record<string, unknown>;
+                                if (output.preview_url && typeof output.preview_url === "string") {
+                                    previews.push({
+                                        url: output.preview_url,
+                                        template: output.template as string | undefined,
+                                    });
+                                }
+                            }
+                        } catch {
+                            // Not valid JSON, skip
+                        }
+                    }
+                }
+            }
+            // Check skill_output for app_builder skill (direct emission)
+            if (event.type === "skill_output") {
+                const skillEvent = event as AgentEvent;
+                if (skillEvent.skill_id === "app_builder" && skillEvent.output) {
+                    const output = skillEvent.output as Record<string, unknown>;
+                    if (output.preview_url && typeof output.preview_url === "string") {
+                        previews.push({
+                            url: output.preview_url,
+                            template: output.template as string | undefined,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Deduplicate by URL
+        const seen = new Set<string>();
+        return previews.filter((p) => {
+            if (seen.has(p.url)) return false;
+            seen.add(p.url);
+            return true;
+        });
     }, [streamingEvents, agentEvents]);
 
 
@@ -606,6 +683,19 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
                                     key={`plan-${index}`}
                                     plan={plan}
                                     defaultExpanded={taskPlans.length === 1}
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Show app previews from tool results */}
+                    {appPreviews.length > 0 && (
+                        <div className="mt-4 space-y-4">
+                            {appPreviews.map((preview, index) => (
+                                <InlineAppPreview
+                                    key={`app-preview-${index}`}
+                                    previewUrl={preview.url}
+                                    template={preview.template}
                                 />
                             ))}
                         </div>

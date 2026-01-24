@@ -246,9 +246,19 @@
                 "skill_simple_writing": "Writing",
                 "skill_data_visualization": "Data Visualization",
                 "skill_task_planning": "Task Planning",
+                "skill_app_builder": "App Builder",
                 "invoke_skill": "Skill Invocation",
                 "list_skills": "List Skills",
                 "ask_user": "User Input",
+                "create_app_project": "Create App Project",
+                "app_write_file": "Write File",
+                "app_read_file": "Read File",
+                "app_list_files": "List Files",
+                "app_install_packages": "Install Packages",
+                "app_start_server": "Start Dev Server",
+                "app_stop_server": "Stop Server",
+                "app_run_command": "Run Command",
+                "app_get_preview_url": "Get Preview URL",
                 "default": "Tool"
             },
             "stages": {
@@ -444,6 +454,16 @@
                     "failed": "Processing failed",
                     "pending": "Processing"
                 },
+                "scaffold": {
+                    "running": "Creating project structure...",
+                    "completed": "Project structure created",
+                    "failed": "Project creation failed"
+                },
+                "server": {
+                    "running": "Starting development server...",
+                    "completed": "Server started",
+                    "failed": "Server start failed"
+                },
                 "default": {
                     "running": "Processing...",
                     "completed": "Complete",
@@ -559,5 +579,18 @@
         "denied": "Denied",
         "skipped": "Skipped",
         "timeout": "Timed out"
+    },
+    "appPreview": {
+        "appRunning": "App Running",
+        "appPreview": "App Preview",
+        "loading": "Loading app...",
+        "copyUrl": "Copy URL",
+        "openExternal": "Open in new tab",
+        "refresh": "Refresh",
+        "fullscreen": "Fullscreen",
+        "exitFullscreen": "Exit fullscreen",
+        "expand": "Show preview",
+        "collapse": "Hide preview",
+        "close": "Close"
     }
 }

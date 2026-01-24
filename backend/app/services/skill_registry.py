@@ -1,14 +1,13 @@
 """Skill registry service for managing and loading skills."""
 
-import json
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 from app.core.logging import get_logger
 from app.db.models import SkillDefinition
-from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 from app.skills.validator import skill_code_validator
 
 logger = get_logger(__name__)
@@ -100,49 +99,60 @@ def _create_safe_namespace() -> dict[str, Any]:
     # Import allowed modules and add them to namespace
     # These must match the ALLOWED_IMPORTS in validator.py
     try:
-        from typing import Any, Optional, Literal, TypedDict
-        namespace["Any"] = Any
-        namespace["Optional"] = Optional
+        from typing import Any as TypingAny
+        from typing import Literal, TypedDict
+        from typing import Optional as TypingOptional
+
+        namespace["Any"] = TypingAny
+        namespace["Optional"] = TypingOptional
         namespace["Literal"] = Literal
         namespace["TypedDict"] = TypedDict
 
         import json as json_module
+
         namespace["json"] = json_module
 
         import re as re_module
+
         namespace["re"] = re_module
 
         import datetime as datetime_module
+
         namespace["datetime"] = datetime_module
 
-        from langgraph.graph import StateGraph, END
+        from langgraph.graph import END, StateGraph
+
         namespace["StateGraph"] = StateGraph
         namespace["END"] = END
 
-        from langchain_core.messages import (
-            AIMessage, HumanMessage, SystemMessage, ToolMessage
-        )
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
         namespace["AIMessage"] = AIMessage
         namespace["HumanMessage"] = HumanMessage
         namespace["SystemMessage"] = SystemMessage
         namespace["ToolMessage"] = ToolMessage
 
         from pydantic import BaseModel, Field
+
         namespace["BaseModel"] = BaseModel
         namespace["Field"] = Field
 
         # App-specific imports for skills
         from app.agents import events
+
         namespace["events"] = events
 
-        from app.ai.llm import llm_service, LLMService
+        from app.ai.llm import LLMService, llm_service
+
         namespace["llm_service"] = llm_service
         namespace["LLMService"] = LLMService
 
         from app.services.search import search_service
+
         namespace["search_service"] = search_service
 
         from app.core.logging import get_logger
+
         namespace["get_logger"] = get_logger
 
     except ImportError as e:
@@ -174,6 +184,7 @@ class SkillRegistry:
         try:
             # Import builtin skills
             from app.agents.skills.builtin import (
+                AppBuilderSkill,
                 CodeGenerationSkill,
                 CodeReviewSkill,
                 DataVisualizationSkill,
@@ -192,6 +203,7 @@ class SkillRegistry:
                 SimpleWritingSkill,
                 CodeGenerationSkill,
                 TaskPlanningSkill,
+                AppBuilderSkill,
             ]:
                 skill = skill_class()
                 self._loaded_skills[skill.metadata.id] = skill
@@ -214,8 +226,8 @@ class SkillRegistry:
             # Query enabled non-builtin skills
             result = await db.execute(
                 select(SkillDefinition).where(
-                    SkillDefinition.enabled == True,
-                    SkillDefinition.is_builtin == False,
+                    SkillDefinition.enabled.is_(True),
+                    SkillDefinition.is_builtin.is_(False),
                 )
             )
             skill_defs = result.scalars().all()
@@ -289,7 +301,9 @@ class SkillRegistry:
                 skill_id=skill_def.id,
                 error=str(e),
             )
-            raise ValueError(f"Undefined name in skill code (may be using forbidden operation): {e}")
+            raise ValueError(
+                f"Undefined name in skill code (may be using forbidden operation): {e}"
+            )
         except Exception as e:
             logger.error(
                 "dynamic_skill_execution_failed",
@@ -301,11 +315,7 @@ class SkillRegistry:
         # Find and instantiate the skill class
         skill_class = None
         for item in namespace.values():
-            if (
-                isinstance(item, type)
-                and issubclass(item, Skill)
-                and item is not Skill
-            ):
+            if isinstance(item, type) and issubclass(item, Skill) and item is not Skill:
                 skill_class = item
                 break
 
@@ -410,9 +420,7 @@ class SkillRegistry:
         """
         for skill_id, skill_class in self._builtin_skills.items():
             # Check if skill already exists in database
-            result = await db.execute(
-                select(SkillDefinition).where(SkillDefinition.id == skill_id)
-            )
+            result = await db.execute(select(SkillDefinition).where(SkillDefinition.id == skill_id))
             existing = result.scalar_one_or_none()
 
             if not existing:

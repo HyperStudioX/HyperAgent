@@ -7,8 +7,8 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
-from app.services.skill_registry import skill_registry
 from app.services.skill_executor import skill_executor
+from app.services.skill_registry import skill_registry
 
 logger = get_logger(__name__)
 
@@ -64,26 +64,32 @@ async def invoke_skill(
     # Get skill from registry
     skill = skill_registry.get_skill(skill_id)
     if not skill:
-        error_msg = f"Skill '{skill_id}' not found. Available skills: {[s.id for s in skill_registry.list_skills()]}"
+        available = [s.id for s in skill_registry.list_skills()]
+        error_msg = f"Skill '{skill_id}' not found. Available skills: {available}"
         logger.warning("skill_not_found", skill_id=skill_id)
-        return json.dumps({
-            "error": error_msg,
-            "skill_id": skill_id,
-        })
+        return json.dumps(
+            {
+                "error": error_msg,
+                "skill_id": skill_id,
+            }
+        )
 
     # Validate input
     is_valid, error_msg = skill.validate_input(params)
     if not is_valid:
         logger.warning("skill_input_invalid", skill_id=skill_id, error=error_msg)
-        return json.dumps({
-            "error": f"Invalid parameters for skill '{skill_id}': {error_msg}",
-            "skill_id": skill_id,
-            "expected_parameters": [p.model_dump() for p in skill.metadata.parameters],
-        })
+        return json.dumps(
+            {
+                "error": f"Invalid parameters for skill '{skill_id}': {error_msg}",
+                "skill_id": skill_id,
+                "expected_parameters": [p.model_dump() for p in skill.metadata.parameters],
+            }
+        )
 
     try:
         output = None
         error = None
+        collected_events: list[dict] = []  # Collect stage events for streaming
         effective_user_id = user_id or "anonymous"
 
         async for event in skill_executor.execute_skill(
@@ -99,32 +105,48 @@ async def invoke_skill(
                 output = event.get("output", {})
             elif event.get("type") == "error":
                 error = event.get("error")
+            elif event.get("type") == "stage":
+                # Collect stage events for streaming to frontend
+                collected_events.append(event)
 
         if error:
             logger.error("skill_execution_error", skill_id=skill_id, error=error)
-            return json.dumps({
-                "error": error,
-                "skill_id": skill_id,
-            })
+            return json.dumps(
+                {
+                    "error": error,
+                    "skill_id": skill_id,
+                    "events": collected_events,  # Include events even on error
+                }
+            )
 
         if output is None:
             output = {}
 
-        logger.debug("skill_executed_successfully", skill_id=skill_id, output_keys=list(output.keys()) if isinstance(output, dict) else None)
+        logger.debug(
+            "skill_executed_successfully",
+            skill_id=skill_id,
+            output_keys=list(output.keys()) if isinstance(output, dict) else None,
+        )
 
-        return json.dumps({
-            "skill_id": skill_id,
-            "output": output,
-            "success": True,
-        }, indent=2)
+        return json.dumps(
+            {
+                "skill_id": skill_id,
+                "output": output,
+                "success": True,
+                "events": collected_events,  # Include collected stage events
+            },
+            indent=2,
+        )
 
     except Exception as e:
         error_msg = str(e)
         logger.error("skill_execution_failed", skill_id=skill_id, error=error_msg)
-        return json.dumps({
-            "error": f"Skill execution failed: {error_msg}",
-            "skill_id": skill_id,
-        })
+        return json.dumps(
+            {
+                "error": f"Skill execution failed: {error_msg}",
+                "skill_id": skill_id,
+            }
+        )
 
 
 class ListSkillsInput(BaseModel):
@@ -166,36 +188,43 @@ async def list_skills(category: str | None = None) -> str:
     skills = skill_registry.list_skills(category=category)
 
     if not skills:
-        return json.dumps({
-            "message": "No skills found" + (f" in category '{category}'" if category else ""),
-            "skills": [],
-        })
+        return json.dumps(
+            {
+                "message": "No skills found" + (f" in category '{category}'" if category else ""),
+                "skills": [],
+            }
+        )
 
     skills_data = []
     for skill_metadata in skills:
-        skills_data.append({
-            "id": skill_metadata.id,
-            "name": skill_metadata.name,
-            "description": skill_metadata.description,
-            "category": skill_metadata.category,
-            "parameters": [
-                {
-                    "name": p.name,
-                    "type": p.type,
-                    "description": p.description,
-                    "required": p.required,
-                    "default": p.default,
-                }
-                for p in skill_metadata.parameters
-            ],
-            "tags": skill_metadata.tags,
-        })
+        skills_data.append(
+            {
+                "id": skill_metadata.id,
+                "name": skill_metadata.name,
+                "description": skill_metadata.description,
+                "category": skill_metadata.category,
+                "parameters": [
+                    {
+                        "name": p.name,
+                        "type": p.type,
+                        "description": p.description,
+                        "required": p.required,
+                        "default": p.default,
+                    }
+                    for p in skill_metadata.parameters
+                ],
+                "tags": skill_metadata.tags,
+            }
+        )
 
-    return json.dumps({
-        "skills": skills_data,
-        "count": len(skills_data),
-        "category": category,
-    }, indent=2)
+    return json.dumps(
+        {
+            "skills": skills_data,
+            "count": len(skills_data),
+            "category": category,
+        },
+        indent=2,
+    )
 
 
 def get_skill_tools() -> list:

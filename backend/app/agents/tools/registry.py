@@ -27,6 +27,7 @@ from app.agents.tools.vision import analyze_image
 from app.agents.tools.code_execution import execute_code
 from app.agents.tools.skill_invocation import get_skill_tools
 from app.agents.tools.hitl_tool import ask_user_tool
+from app.agents.tools.app_builder import get_app_builder_tools
 from app.sandbox import sandbox_file
 from app.core.logging import get_logger
 
@@ -41,6 +42,7 @@ class ToolCategory(str, Enum):
     BROWSER = "browser"  # Browser automation (E2B Desktop sandbox)
     CODE_EXEC = "code_exec"  # Code execution in sandbox
     DATA = "data"  # Data processing and analysis
+    APP_BUILDER = "app_builder"  # App building and running tools
     HANDOFF = "handoff"  # Agent-to-agent delegation
     SKILL = "skill"  # Skill invocation
     HITL = "hitl"  # Human-in-the-loop tools (ask user for input/decisions)
@@ -62,6 +64,7 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
     ],
     ToolCategory.CODE_EXEC: [execute_code],
     ToolCategory.DATA: [sandbox_file],
+    ToolCategory.APP_BUILDER: get_app_builder_tools(),
     # HANDOFF tools are created dynamically per agent
     ToolCategory.HANDOFF: [],
     # SKILL tools for invoking skills
@@ -78,6 +81,7 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.IMAGE,
         ToolCategory.BROWSER,
         ToolCategory.CODE_EXEC,  # For execute_code tool
+        ToolCategory.APP_BUILDER,  # For building and running apps
         ToolCategory.SKILL,
         ToolCategory.HANDOFF,
         ToolCategory.HITL,  # For asking user for input/decisions

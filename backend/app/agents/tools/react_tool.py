@@ -755,7 +755,7 @@ class ReActLoopConfig:
         max_message_tokens: Token budget for message history (approximate)
         preserve_recent_messages: Number of recent messages to always preserve
     """
-    max_iterations: int = 5
+    max_iterations: int = field(default_factory=lambda: _get_default_max_iterations())
     max_retries_per_tool: int = 2
     retry_base_delay: float = 1.0
     enable_streaming: bool = True
@@ -767,27 +767,48 @@ class ReActLoopConfig:
     preserve_recent_messages: int = 4  # Keep last N messages when truncating
 
 
+def _get_default_max_iterations() -> int:
+    """Get default max_iterations from settings."""
+    from app.config import settings
+    return settings.react_max_iterations
+
+
 # Agent-specific preset configurations
-AGENT_REACT_CONFIGS: dict[str, ReActLoopConfig] = {
-    "chat": ReActLoopConfig(
-        max_iterations=5,
-        handoff_behavior="immediate",
-        truncate_tool_results=True,
-        tool_result_max_chars=2000,
-    ),
-    "data": ReActLoopConfig(
-        max_iterations=3,
-        handoff_behavior="deferred",
-        truncate_tool_results=True,
-        tool_result_max_chars=2000,
-    ),
-    "research": ReActLoopConfig(
-        max_iterations=5,
-        handoff_behavior="deferred",
-        truncate_tool_results=True,
-        tool_result_max_chars=3000,
-    ),
-}
+def _get_agent_react_configs() -> dict[str, ReActLoopConfig]:
+    """Get agent-specific ReAct configurations using settings."""
+    from app.config import settings
+
+    return {
+        "chat": ReActLoopConfig(
+            max_iterations=settings.react_max_iterations,
+            handoff_behavior="immediate",
+            truncate_tool_results=True,
+            tool_result_max_chars=2000,
+        ),
+        "data": ReActLoopConfig(
+            max_iterations=max(3, settings.react_max_iterations - 2),  # Slightly lower for data agent
+            handoff_behavior="deferred",
+            truncate_tool_results=True,
+            tool_result_max_chars=2000,
+        ),
+        "research": ReActLoopConfig(
+            max_iterations=settings.react_max_iterations,
+            handoff_behavior="deferred",
+            truncate_tool_results=True,
+            tool_result_max_chars=3000,
+        ),
+    }
+
+
+# Lazy-load agent configs to avoid circular imports
+_agent_configs_cache: dict[str, ReActLoopConfig] | None = None
+
+def _get_agent_configs() -> dict[str, ReActLoopConfig]:
+    """Get cached agent configs."""
+    global _agent_configs_cache
+    if _agent_configs_cache is None:
+        _agent_configs_cache = _get_agent_react_configs()
+    return _agent_configs_cache
 
 
 def get_react_config(agent_type: str) -> ReActLoopConfig:
@@ -799,7 +820,8 @@ def get_react_config(agent_type: str) -> ReActLoopConfig:
     Returns:
         ReActLoopConfig for the specified agent type, or default if not found
     """
-    return AGENT_REACT_CONFIGS.get(agent_type, ReActLoopConfig())
+    configs = _get_agent_configs()
+    return configs.get(agent_type, ReActLoopConfig())
 
 
 def estimate_message_tokens(message: BaseMessage) -> int:
@@ -1298,9 +1320,6 @@ async def execute_react_loop(
                 # Truncate result if configured
                 if config.truncate_tool_results and llm_result:
                     llm_result = truncate_tool_result(llm_result, config.tool_result_max_chars)
-
-                if tool_args.get("action") == "launch_browser":
-                    computer_browser_launched = True
 
                 if on_tool_result:
                     on_tool_result(tool_name, llm_result[:500] if llm_result else "", tool_call_id)
