@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import conversations, files, health, hitl, query, skills, tasks
 from app.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.base import close_db, init_db
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.api import conversations, files, health, hitl, query, skills, tasks
 
 # Initialize logging first
 setup_logging(
@@ -48,8 +48,8 @@ async def lifespan(app: FastAPI):
         # Continue without queue in development
 
     # Initialize skill registry
-    from app.services.skill_registry import skill_registry
     from app.db.base import get_db_session
+    from app.services.skill_registry import skill_registry
 
     try:
         async with get_db_session() as db:
@@ -58,6 +58,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("skill_registry_init_failed", error=str(e))
         # Continue without skills in development
+
+    # Initialize guardrails (lazy init on first use, but log config)
+    if settings.guardrails_enabled:
+        logger.info(
+            "guardrails_enabled",
+            input=settings.guardrails_input_enabled,
+            output=settings.guardrails_output_enabled,
+            tool=settings.guardrails_tool_enabled,
+            action=settings.guardrails_violation_action,
+        )
+    else:
+        logger.info("guardrails_disabled")
 
     yield
 

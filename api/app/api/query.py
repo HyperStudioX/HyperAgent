@@ -18,6 +18,7 @@ from app.core.logging import get_logger
 from app.db.base import get_db
 from app.db.models import Conversation, ConversationMessage
 from app.db.models import File as FileModel
+from app.guardrails.scanners.input_scanner import input_scanner
 from app.models.schemas import (
     LLMProvider,
     QueryMode,
@@ -28,8 +29,8 @@ from app.models.schemas import (
     UnifiedQueryRequest,
     UnifiedQueryResponse,
 )
-from app.services.file_storage import file_storage_service
 from app.repository import deep_research_repository
+from app.services.file_storage import file_storage_service
 from app.workers.task_queue import task_queue
 
 logger = get_logger(__name__)
@@ -369,6 +370,32 @@ async def stream_query(
         # Generate task_id for browser session management if not provided
         # Use request.task_id, conversation_id as fallback, or generate a new one
         chat_task_id = request.task_id or request.conversation_id or str(uuid.uuid4())
+
+        # Input guardrails check
+        scan_result = await input_scanner.scan(request.message)
+        if scan_result.blocked:
+            logger.warning(
+                "input_guardrail_blocked",
+                violations=[v.value for v in scan_result.violations],
+                reason=scan_result.reason,
+            )
+
+            async def blocked_generator() -> AsyncGenerator[str, None]:
+                error_message = (
+                    "I'm unable to process this request due to safety concerns. "
+                    "Please rephrase your message and try again."
+                )
+                yield f"data: {json.dumps({'type': 'token', 'data': error_message})}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
+
+            return StreamingResponse(
+                blocked_generator(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
 
         # Stream agent response using supervisor
         async def agent_generator() -> AsyncGenerator[str, None]:

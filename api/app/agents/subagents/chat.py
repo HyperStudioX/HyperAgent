@@ -24,10 +24,10 @@ from app.agents.hitl.tool_risk import requires_approval
 from app.agents.prompts import CHAT_SYSTEM_PROMPT
 from app.agents.state import ChatState
 from app.agents.tools import (
-    get_react_config,
-    get_tools_for_agent,
-    get_tools_by_category,
     ToolCategory,
+    get_react_config,
+    get_tools_by_category,
+    get_tools_for_agent,
 )
 from app.agents.tools.react_tool import (
     truncate_messages_to_budget,
@@ -44,6 +44,8 @@ from app.agents.utils import (
 from app.ai.llm import extract_text_from_content, llm_service
 from app.config import settings
 from app.core.logging import get_logger
+from app.guardrails.scanners.output_scanner import output_scanner
+from app.guardrails.scanners.tool_scanner import tool_scanner
 from app.models.schemas import LLMProvider
 
 logger = get_logger(__name__)
@@ -196,6 +198,22 @@ async def reason_node(state: ChatState) -> dict:
         if not ai_message.tool_calls:
             response_text = extract_text_from_content(ai_message.content)
             if response_text:
+                # Apply output guardrails
+                scan_result = await output_scanner.scan(response_text, query)
+                if scan_result.blocked:
+                    logger.warning(
+                        "output_guardrail_blocked",
+                        violations=[v.value for v in scan_result.violations],
+                        reason=scan_result.reason,
+                    )
+                    response_text = (
+                        "I apologize, but I cannot provide that response. "
+                        "Please ask a different question."
+                    )
+                elif scan_result.sanitized_content:
+                    logger.info("output_guardrail_sanitized")
+                    response_text = scan_result.sanitized_content
+
                 event_list.append(events.token(response_text))
 
         result = {
@@ -427,6 +445,27 @@ async def act_node(state: ChatState) -> dict:
 
         if tool_name in tool_map:
             tool = tool_map[tool_name]
+
+            # Tool guardrails check
+            tool_scan_result = await tool_scanner.scan(tool_name, args)
+            if tool_scan_result.blocked:
+                logger.warning(
+                    "tool_guardrail_blocked",
+                    tool_name=tool_name,
+                    violations=[v.value for v in tool_scan_result.violations],
+                    reason=tool_scan_result.reason,
+                )
+                error_msg = f"Tool blocked: {tool_scan_result.reason}"
+                event_list.append(create_tool_result_event(tool_name, error_msg, tool_call_id))
+                tool_results.append(
+                    ToolMessage(
+                        content=error_msg,
+                        tool_call_id=tool_call_id,
+                        name=tool_name,
+                    )
+                )
+                continue
+
             try:
                 # Add context args for tools that need them
                 if tool_name in BROWSER_TOOLS:

@@ -127,6 +127,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "console"
 
+    # Guardrails
+    guardrails_enabled: bool = True
+    guardrails_input_enabled: bool = True
+    guardrails_output_enabled: bool = True
+    guardrails_tool_enabled: bool = True
+    guardrails_violation_action: Literal["block", "warn", "log"] = "block"
+    guardrails_timeout_ms: int = 500
+
     # Authentication
     nextauth_secret: str = ""
     google_client_id: str = ""
@@ -140,7 +148,7 @@ class Settings(BaseSettings):
     @property
     def tier_mappings(self) -> dict:
         """Get tier mappings from configuration."""
-        from app.ai.model_tiers import ModelTier, ModelMapping
+        from app.ai.model_tiers import ModelMapping, ModelTier
 
         return {
             ModelTier.MAX: ModelMapping(
