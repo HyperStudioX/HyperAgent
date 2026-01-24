@@ -1,0 +1,167 @@
+{
+  "name": "tool_selection_test_cases",
+  "description": "Test cases for evaluating tool and skill selection accuracy",
+  "version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "skill_image_generate",
+      "input": "Create a beautiful picture of mountains at sunset",
+      "expected_skill": "image_generation",
+      "expected_tool": null,
+      "category": "image",
+      "description": "Image generation request should invoke image_generation skill"
+    },
+    {
+      "id": "skill_image_draw",
+      "input": "Draw me a cartoon cat wearing a hat",
+      "expected_skill": "image_generation",
+      "expected_tool": null,
+      "category": "image",
+      "description": "Drawing request should invoke image_generation skill"
+    },
+    {
+      "id": "skill_code_gen_function",
+      "input": "Write a Python function that calculates fibonacci numbers",
+      "expected_skill": "code_generation",
+      "expected_tool": null,
+      "category": "code",
+      "description": "Code writing should invoke code_generation skill"
+    },
+    {
+      "id": "skill_code_gen_class",
+      "input": "Create a JavaScript class for handling user authentication",
+      "expected_skill": "code_generation",
+      "expected_tool": null,
+      "category": "code",
+      "description": "Class creation should invoke code_generation skill"
+    },
+    {
+      "id": "skill_code_review",
+      "input": "Review this code for potential bugs and security issues: def login(user, password): return db.query(f'SELECT * FROM users WHERE user={user}')",
+      "expected_skill": "code_review",
+      "expected_tool": null,
+      "category": "code",
+      "description": "Code review request should invoke code_review skill"
+    },
+    {
+      "id": "skill_code_review_style",
+      "input": "Check this function for style issues and best practices",
+      "expected_skill": "code_review",
+      "expected_tool": null,
+      "category": "code",
+      "description": "Style check should invoke code_review skill"
+    },
+    {
+      "id": "skill_writing_email",
+      "input": "Write a professional email to decline a meeting invitation",
+      "expected_skill": "simple_writing",
+      "expected_tool": null,
+      "category": "writing",
+      "description": "Email writing should invoke simple_writing skill"
+    },
+    {
+      "id": "skill_writing_article",
+      "input": "Write a short article about the benefits of meditation",
+      "expected_skill": "simple_writing",
+      "expected_tool": null,
+      "category": "writing",
+      "description": "Article writing should invoke simple_writing skill"
+    },
+    {
+      "id": "skill_web_research",
+      "input": "Research the latest trends in sustainable energy",
+      "expected_skill": "web_research",
+      "expected_tool": null,
+      "category": "research",
+      "description": "Web research should invoke web_research skill"
+    },
+    {
+      "id": "skill_web_research_news",
+      "input": "Find recent news about SpaceX launches",
+      "expected_skill": "web_research",
+      "expected_tool": null,
+      "category": "research",
+      "description": "News research should invoke web_research skill"
+    },
+    {
+      "id": "skill_data_viz",
+      "input": "Create a bar chart showing monthly sales data",
+      "expected_skill": "data_visualization",
+      "expected_tool": null,
+      "category": "data",
+      "description": "Data visualization should invoke data_visualization skill"
+    },
+    {
+      "id": "skill_data_viz_pie",
+      "input": "Generate a pie chart from this market share data",
+      "expected_skill": "data_visualization",
+      "expected_tool": null,
+      "category": "data",
+      "description": "Chart generation should invoke data_visualization skill"
+    },
+    {
+      "id": "tool_web_search",
+      "input": "Search for the latest news about AI regulations",
+      "expected_skill": null,
+      "expected_tool": "web_search",
+      "category": "search",
+      "description": "Web search should use web_search tool"
+    },
+    {
+      "id": "tool_execute_code",
+      "input": "Run this Python code and show me the output: print('Hello World')",
+      "expected_skill": null,
+      "expected_tool": "execute_code",
+      "category": "code",
+      "description": "Code execution should use execute_code tool"
+    },
+    {
+      "id": "tool_browser_navigate",
+      "input": "Navigate to github.com and show me the trending repositories",
+      "expected_skill": null,
+      "expected_tool": "browser_navigate",
+      "category": "browser",
+      "description": "Browser navigation should use browser_navigate tool"
+    },
+    {
+      "id": "no_tool_greeting",
+      "input": "Hello, how are you doing today?",
+      "expected_skill": null,
+      "expected_tool": null,
+      "category": "general",
+      "description": "Simple greeting should not require tools"
+    },
+    {
+      "id": "no_tool_thanks",
+      "input": "Thank you for your help!",
+      "expected_skill": null,
+      "expected_tool": null,
+      "category": "general",
+      "description": "Thanks message should not require tools"
+    },
+    {
+      "id": "no_tool_simple_question",
+      "input": "What is 2 + 2?",
+      "expected_skill": null,
+      "expected_tool": null,
+      "category": "general",
+      "description": "Simple math should not require tools"
+    },
+    {
+      "id": "no_tool_explanation",
+      "input": "Explain what photosynthesis is",
+      "expected_skill": null,
+      "expected_tool": null,
+      "category": "general",
+      "description": "Explanation from knowledge should not require tools"
+    },
+    {
+      "id": "skill_image_realistic",
+      "input": "Generate a realistic photo of a futuristic city",
+      "expected_skill": "image_generation",
+      "expected_tool": null,
+      "category": "image",
+      "description": "Realistic image generation should invoke image_generation skill"
+    }
+  ]
+}

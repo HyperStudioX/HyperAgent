@@ -66,6 +66,16 @@ Comprehensive safety scanning at multiple integration points:
 
 Powered by `llm-guard` with configurable violation actions (block, warn, log).
 
+### 🧪 Evaluation Framework
+
+Comprehensive testing framework for agent quality:
+
+- **Routing Accuracy** - Validates correct agent selection (≥90% threshold)
+- **Tool Selection** - Validates skill/tool usage (≥85% threshold)
+- **Response Quality** - LLM-as-judge evaluation (≥0.7 threshold)
+
+Mock LLMs enable deterministic testing. LangSmith integration for tracking.
+
 ## Architecture Highlights
 
 - **Simplified Hybrid Architecture** - Chat agent handles 80%+ of requests using skills
@@ -83,6 +93,7 @@ Powered by `llm-guard` with configurable violation actions (block, warn, log).
 - ✅ Composable skills system for extensibility
 - ✅ Context compression for long conversations
 - ✅ Safety guardrails (prompt injection, toxicity, PII detection)
+- ✅ Agent evaluation framework with mock LLMs
 - ✅ File attachments with vision support
 - ✅ Browser automation with E2B Desktop
 - ✅ Code execution in secure sandboxes
@@ -94,6 +105,7 @@ Powered by `llm-guard` with configurable violation actions (block, warn, log).
 ## Documentation
 
 - **[Agent System Design](docs/Agent-System-Design.md)** — Multi-agent system and skills architecture
+- **[Agent Evaluations](docs/Agent-Evals-Design.md)** — Evaluation framework and testing
 - **[Development Guide](docs/Development.md)** — Setup, tech stack, and API reference
 - **[Design Style Guide](docs/Design-Style-Guide.md)** — UI components, colors, and typography
 

@@ -8,21 +8,63 @@ Refer to these docs for detailed guidelines:
 
 - `docs/Development.md` — Setup, tech stack, project structure, and API reference
 - `docs/Design-Style-Guide.md` — UI components, semantic color tokens, typography, and design patterns
+- `docs/Agent-System-Design.md` — Multi-agent architecture and skills system
+- `docs/Agent-Evals-Design.md` — Agent evaluation framework and testing
 
 ## Development Commands
 
 ```bash
+# Installation
+make install      # Install all dependencies (frontend + backend)
+make install-web  # Install frontend dependencies
+make install-api  # Install backend dependencies
+
 # Development
-npm run dev              # Start Next.js dev server on http://localhost:3000
+make dev-web      # Start Next.js dev server on http://localhost:5000
+make dev-api      # Start backend API server on http://localhost:8080
+make dev-worker   # Start background worker for async tasks
+make dev-worker-watch  # Start worker with auto-reload (development)
+make dev-worker-burst  # Process all queued jobs and exit (useful for testing)
+make dev-worker-high   # Start worker with high concurrency (20 jobs)
+make dev-all      # Start all services concurrently (frontend, backend, worker)
 
 # Build & Production
-npm run build            # Build for production
-npm start                # Start production server
-npm run clean            # Remove .next build directory
+make build-web    # Build frontend for production
+make start-web    # Start production server (requires build first)
 
 # Code Quality
-npm run lint             # Run ESLint
-npx tsc --noEmit        # Type-check without emitting files
+make lint         # Run all linters (frontend + backend)
+make lint-web     # Run ESLint
+make lint-api     # Lint backend code (ruff check + format check)
+make format-api   # Format backend code
+make type-check   # Type-check frontend without emitting files
+make test         # Run all tests
+make test-api     # Run backend tests
+
+# Agent Evaluations
+make eval           # Run all agent evaluations
+make eval-routing   # Run routing accuracy evaluations
+make eval-tools     # Run tool/skill selection evaluations
+make eval-quality   # Run response quality evaluations
+make eval-langsmith # Run evals with LangSmith tracking
+
+# Database Migrations
+make migrate           # Apply all pending database migrations
+make migrate-down      # Rollback last database migration
+make migrate-new msg='description'  # Create new migration
+make migrate-status    # Show current migration status
+
+# Utilities
+make health       # Check health of all services
+make clean        # Remove build artifacts and caches
+
+# Job Queue Management
+make queue-stats   # Show job queue statistics
+make queue-monitor # Monitor job queue in real-time
+make queue-list    # List all queued jobs
+make queue-clear   # Clear all jobs from queue (DESTRUCTIVE)
+make queue-health  # Check worker and queue health
+make queue-test    # Submit a test task to verify worker
 ```
 
 ## Architecture Overview
@@ -154,6 +196,22 @@ The Chat agent has access to composable skills:
 - `data_visualization` - Generate visualization code
 
 Skills are LangGraph subgraphs that agents invoke as tools using `invoke_skill` and `list_skills`.
+
+**Context Compression:**
+- LLM-based summarization for long conversations
+- Preserves recent messages (configurable, default: 10)
+- Triggers automatically at token threshold (default: 60k)
+- Falls back to truncation if compression fails
+
+**Safety Guardrails:**
+Comprehensive safety scanning at multiple integration points:
+- **Input Scanner** - Prompt injection, jailbreak detection (`api/app/guardrails/scanners/input_scanner.py`)
+- **Output Scanner** - Toxicity, PII, harmful content (`api/app/guardrails/scanners/output_scanner.py`)
+- **Tool Scanner** - URL validation, code safety (`api/app/guardrails/scanners/tool_scanner.py`)
+
+Configuration via environment variables:
+- `GUARDRAILS_ENABLED` - Master toggle (default: true)
+- `GUARDRAILS_VIOLATION_ACTION` - block, warn, or log (default: block)
 
 See `docs/Agent-System-Design.md` for detailed architecture documentation.
 

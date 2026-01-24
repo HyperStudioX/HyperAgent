@@ -1,4 +1,4 @@
-.PHONY: help install install-web install-api dev dev-web dev-api dev-worker dev-worker-watch dev-worker-burst dev-worker-high dev-all build build-web lint lint-web lint-api format-api test test-api clean migrate migrate-down migrate-new migrate-status health queue-stats queue-monitor queue-list queue-clear queue-health queue-test
+.PHONY: help install install-web install-api dev dev-web dev-api dev-worker dev-worker-watch dev-worker-burst dev-worker-high dev-all build build-web start-web lint lint-web lint-api format-api type-check test test-api clean migrate migrate-down migrate-new migrate-status health queue-stats queue-monitor queue-list queue-clear queue-health queue-test eval eval-routing eval-tools eval-quality eval-langsmith
 
 # Colors
 CYAN := \033[36m
@@ -78,6 +78,10 @@ build-web: ## Build frontend for production
 	@echo "$(CYAN)Building frontend...$(RESET)"
 	cd web && npm run build
 
+start-web: ## Start production server (requires build first)
+	@echo "$(CYAN)Starting production server on http://localhost:3000$(RESET)"
+	cd web && npm start
+
 # =============================================================================
 # Linting & Testing
 # =============================================================================
@@ -87,6 +91,10 @@ lint: lint-web lint-api ## Run all linters
 lint-web: ## Lint frontend code
 	@echo "$(CYAN)Linting frontend...$(RESET)"
 	cd web && npm run lint
+
+type-check: ## Type-check frontend code
+	@echo "$(CYAN)Type-checking frontend...$(RESET)"
+	cd web && npx tsc --noEmit
 
 lint-api: ## Lint backend code
 	@echo "$(CYAN)Linting backend...$(RESET)"
@@ -101,6 +109,28 @@ test: test-api ## Run all tests
 test-api: ## Run backend tests
 	@echo "$(CYAN)Running backend tests...$(RESET)"
 	cd api && uv run pytest -v
+
+# =============================================================================
+# Agent Evaluations
+# =============================================================================
+
+eval: eval-routing eval-tools eval-quality ## Run all agent evaluations
+
+eval-routing: ## Run routing accuracy evaluations
+	@echo "$(CYAN)Running routing evaluations...$(RESET)"
+	cd api && uv run pytest evals/test_routing.py -v --tb=short
+
+eval-tools: ## Run tool/skill selection evaluations
+	@echo "$(CYAN)Running tool selection evaluations...$(RESET)"
+	cd api && uv run pytest evals/test_tool_selection.py -v --tb=short
+
+eval-quality: ## Run response quality evaluations
+	@echo "$(CYAN)Running response quality evaluations...$(RESET)"
+	cd api && uv run pytest evals/test_response_quality.py -v --tb=short
+
+eval-langsmith: ## Run evals with LangSmith tracking
+	@echo "$(CYAN)Running evaluations with LangSmith...$(RESET)"
+	cd api && LANGCHAIN_TRACING_V2=true uv run pytest evals/ -v -m langsmith
 
 # =============================================================================
 # Migrations

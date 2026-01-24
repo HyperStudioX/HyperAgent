@@ -35,6 +35,7 @@ dependencies = [
     "xlrd>=2.0.0",
     "google-genai>=1.57.0",
     "llm-guard>=0.3.0",
+    "langsmith>=0.1.0",
 ]
 
 [project.optional-dependencies]
