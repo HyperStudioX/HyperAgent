@@ -1,4 +1,4 @@
-.PHONY: help install install-web install-api dev dev-web dev-api dev-worker dev-worker-watch dev-worker-burst dev-worker-high dev-all build build-web start-web lint lint-web lint-api format-api type-check test test-api clean migrate migrate-down migrate-new migrate-status health queue-stats queue-monitor queue-list queue-clear queue-health queue-test eval eval-routing eval-tools eval-quality eval-langsmith
+.PHONY: help install install-web install-backend dev dev-web dev-backend dev-worker dev-worker-watch dev-worker-burst dev-worker-high dev-all build build-web start-web lint lint-web lint-backend format-backend type-check test test-backend clean migrate migrate-down migrate-new migrate-status health queue-stats queue-monitor queue-list queue-clear queue-health queue-test eval eval-routing eval-tools eval-quality eval-langsmith
 
 # Colors
 CYAN := \033[36m
@@ -19,15 +19,15 @@ help: ## Show this help message
 # Installation
 # =============================================================================
 
-install: install-web install-api ## Install all dependencies
+install: install-web install-backend ## Install all dependencies
 
 install-web: ## Install frontend dependencies
 	@echo "$(CYAN)Installing frontend dependencies...$(RESET)"
 	cd web && npm install
 
-install-api: ## Install backend dependencies
+install-backend: ## Install backend dependencies
 	@echo "$(CYAN)Installing backend dependencies...$(RESET)"
-	cd api && uv sync --all-extras
+	cd backend && uv sync --all-extras
 
 # =============================================================================
 # Development
@@ -35,36 +35,36 @@ install-api: ## Install backend dependencies
 
 dev: ## Start both frontend and backend (requires tmux or run in separate terminals)
 	@echo "$(CYAN)Starting development servers...$(RESET)"
-	@echo "$(YELLOW)Run 'make dev-web' and 'make dev-api' in separate terminals$(RESET)"
+	@echo "$(YELLOW)Run 'make dev-web' and 'make dev-backend' in separate terminals$(RESET)"
 
 dev-web: ## Start frontend development server
 	@echo "$(CYAN)Starting frontend on http://localhost:5000$(RESET)"
 	cd web && npm run dev -- -p 5000
 
-dev-api: ## Start backend development server
+dev-backend: ## Start backend development server
 	@echo "$(CYAN)Starting backend on http://localhost:8080$(RESET)"
-	cd api && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
+	cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 
 dev-worker: ## Start background worker for async tasks
 	@echo "$(CYAN)Starting background worker...$(RESET)"
-	cd api && uv run python worker.py
+	cd backend && uv run python worker.py
 
 dev-worker-watch: ## Start background worker with auto-reload (development)
 	@echo "$(CYAN)Starting background worker with auto-reload...$(RESET)"
-	cd api && uv run python worker.py --watch
+	cd backend && uv run python worker.py --watch
 
 dev-worker-burst: ## Process all queued jobs and exit (useful for testing)
 	@echo "$(CYAN)Running worker in burst mode...$(RESET)"
-	cd api && uv run python worker.py --burst
+	cd backend && uv run python worker.py --burst
 
 dev-worker-high: ## Start worker with high concurrency (20 jobs)
 	@echo "$(CYAN)Starting worker with high concurrency...$(RESET)"
-	cd api && uv run python worker.py --concurrency 20
+	cd backend && uv run python worker.py --concurrency 20
 
 dev-all: ## Start all services concurrently (frontend, backend, worker)
 	@echo "$(CYAN)Starting all services...$(RESET)"
 	@echo "$(YELLOW)Note: Ensure PostgreSQL and Redis are running$(RESET)"
-	$(MAKE) dev-api &
+	$(MAKE) dev-backend &
 	$(MAKE) dev-worker &
 	$(MAKE) dev-web
 
@@ -86,7 +86,7 @@ start-web: ## Start production server (requires build first)
 # Linting & Testing
 # =============================================================================
 
-lint: lint-web lint-api ## Run all linters
+lint: lint-web lint-backend ## Run all linters
 
 lint-web: ## Lint frontend code
 	@echo "$(CYAN)Linting frontend...$(RESET)"
@@ -96,19 +96,19 @@ type-check: ## Type-check frontend code
 	@echo "$(CYAN)Type-checking frontend...$(RESET)"
 	cd web && npx tsc --noEmit
 
-lint-api: ## Lint backend code
+lint-backend: ## Lint backend code
 	@echo "$(CYAN)Linting backend...$(RESET)"
-	cd api && uv run ruff check . && uv run ruff format --check .
+	cd backend && uv run ruff check . && uv run ruff format --check .
 
-format-api: ## Format backend code
+format-backend: ## Format backend code
 	@echo "$(CYAN)Formatting backend...$(RESET)"
-	cd api && uv run ruff format .
+	cd backend && uv run ruff format .
 
-test: test-api ## Run all tests
+test: test-backend ## Run all tests
 
-test-api: ## Run backend tests
+test-backend: ## Run backend tests
 	@echo "$(CYAN)Running backend tests...$(RESET)"
-	cd api && uv run pytest -v
+	cd backend && uv run pytest -v
 
 # =============================================================================
 # Agent Evaluations
@@ -118,19 +118,19 @@ eval: eval-routing eval-tools eval-quality ## Run all agent evaluations
 
 eval-routing: ## Run routing accuracy evaluations
 	@echo "$(CYAN)Running routing evaluations...$(RESET)"
-	cd api && uv run pytest evals/test_routing.py -v --tb=short
+	cd backend && uv run pytest evals/test_routing.py -v --tb=short
 
 eval-tools: ## Run tool/skill selection evaluations
 	@echo "$(CYAN)Running tool selection evaluations...$(RESET)"
-	cd api && uv run pytest evals/test_tool_selection.py -v --tb=short
+	cd backend && uv run pytest evals/test_tool_selection.py -v --tb=short
 
 eval-quality: ## Run response quality evaluations
 	@echo "$(CYAN)Running response quality evaluations...$(RESET)"
-	cd api && uv run pytest evals/test_response_quality.py -v --tb=short
+	cd backend && uv run pytest evals/test_response_quality.py -v --tb=short
 
 eval-langsmith: ## Run evals with LangSmith tracking
 	@echo "$(CYAN)Running evaluations with LangSmith...$(RESET)"
-	cd api && LANGCHAIN_TRACING_V2=true uv run pytest evals/ -v -m langsmith
+	cd backend && LANGCHAIN_TRACING_V2=true uv run pytest evals/ -v -m langsmith
 
 # =============================================================================
 # Migrations
@@ -138,11 +138,11 @@ eval-langsmith: ## Run evals with LangSmith tracking
 
 migrate: ## Apply all pending database migrations
 	@echo "$(CYAN)Applying database migrations...$(RESET)"
-	cd api && uv run alembic upgrade head
+	cd backend && uv run alembic upgrade head
 
 migrate-down: ## Rollback last database migration
 	@echo "$(CYAN)Rolling back last migration...$(RESET)"
-	cd api && uv run alembic downgrade -1
+	cd backend && uv run alembic downgrade -1
 
 migrate-new: ## Create new migration (usage: make migrate-new msg='description')
 	@if [ -z "$(msg)" ]; then \
@@ -150,14 +150,14 @@ migrate-new: ## Create new migration (usage: make migrate-new msg='description')
 		exit 1; \
 	fi
 	@echo "$(CYAN)Creating new migration: $(msg)$(RESET)"
-	cd api && uv run alembic revision --autogenerate -m "$(msg)"
+	cd backend && uv run alembic revision --autogenerate -m "$(msg)"
 
 migrate-status: ## Show current migration status
 	@echo "$(CYAN)Migration status:$(RESET)"
-	cd api && uv run alembic current
+	cd backend && uv run alembic current
 	@echo ""
 	@echo "$(CYAN)Migration history:$(RESET)"
-	cd api && uv run alembic history
+	cd backend && uv run alembic history
 
 # =============================================================================
 # Utilities
@@ -167,10 +167,10 @@ clean: ## Clean build artifacts and caches
 	@echo "$(CYAN)Cleaning build artifacts...$(RESET)"
 	rm -rf web/.next
 	rm -rf web/node_modules/.cache
-	rm -rf api/__pycache__
-	rm -rf api/.pytest_cache
-	rm -rf api/.ruff_cache
-	find api -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	rm -rf backend/__pycache__
+	rm -rf backend/.pytest_cache
+	rm -rf backend/.ruff_cache
+	find backend -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
 health: ## Check health of all services
 	@echo "$(CYAN)Checking service health...$(RESET)"
@@ -185,7 +185,7 @@ health: ## Check health of all services
 
 queue-stats: ## Show job queue statistics
 	@echo "$(CYAN)Job Queue Statistics:$(RESET)"
-	@cd api && uv run python -c "import asyncio; from app.workers.task_queue import task_queue; asyncio.run((lambda: task_queue.get_queue_stats())()).then(print)"
+	@cd backend && uv run python -c "import asyncio; from app.workers.task_queue import task_queue; asyncio.run((lambda: task_queue.get_queue_stats())()).then(print)"
 
 queue-monitor: ## Monitor job queue in real-time (requires redis-cli)
 	@echo "$(CYAN)Monitoring job queue (Ctrl+C to stop)...$(RESET)"
@@ -219,7 +219,7 @@ queue-health: ## Check worker and queue health
 
 queue-test: ## Submit a test task to verify worker is processing
 	@echo "$(CYAN)Testing worker with a sample research task...$(RESET)"
-	@cd api && uv run python test_worker.py
+	@cd backend && uv run python test_worker.py
 
 # Default target
 .DEFAULT_GOAL := help

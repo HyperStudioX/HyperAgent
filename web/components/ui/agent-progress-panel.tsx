@@ -232,8 +232,8 @@ function StatusIndicator({ status }: { status: string }) {
 
     if (status === "failed") {
         return (
-            <div className="w-4 h-4 rounded-full bg-red-500/15 flex items-center justify-center">
-                <AlertCircle className="w-2.5 h-2.5 text-red-600 dark:text-red-400" strokeWidth={2.5} />
+            <div className="w-4 h-4 rounded-full bg-destructive/15 flex items-center justify-center">
+                <AlertCircle className="w-2.5 h-2.5 text-destructive" strokeWidth={2.5} />
             </div>
         );
     }
@@ -335,7 +335,7 @@ export function AgentProgressPanel({ events, className }: AgentProgressPanelProp
                                             <span className={cn(
                                                 "text-[13px] leading-relaxed",
                                                 status === "completed" && "text-muted-foreground",
-                                                status === "failed" && "text-red-600 dark:text-red-400"
+                                                status === "failed" && "text-destructive"
                                             )}>
                                                 {stageLabel}
                                             </span>

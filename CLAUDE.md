@@ -17,11 +17,11 @@ Refer to these docs for detailed guidelines:
 # Installation
 make install      # Install all dependencies (frontend + backend)
 make install-web  # Install frontend dependencies
-make install-api  # Install backend dependencies
+make install-backend  # Install backend dependencies
 
 # Development
 make dev-web      # Start Next.js dev server on http://localhost:5000
-make dev-api      # Start backend API server on http://localhost:8080
+make dev-backend  # Start backend API server on http://localhost:8080
 make dev-worker   # Start background worker for async tasks
 make dev-worker-watch  # Start worker with auto-reload (development)
 make dev-worker-burst  # Process all queued jobs and exit (useful for testing)
@@ -35,11 +35,11 @@ make start-web    # Start production server (requires build first)
 # Code Quality
 make lint         # Run all linters (frontend + backend)
 make lint-web     # Run ESLint
-make lint-api     # Lint backend code (ruff check + format check)
-make format-api   # Format backend code
+make lint-backend # Lint backend code (ruff check + format check)
+make format-backend # Format backend code
 make type-check   # Type-check frontend without emitting files
 make test         # Run all tests
-make test-api     # Run backend tests
+make test-backend # Run backend tests
 
 # Agent Evaluations
 make eval           # Run all agent evaluations
@@ -205,9 +205,9 @@ Skills are LangGraph subgraphs that agents invoke as tools using `invoke_skill` 
 
 **Safety Guardrails:**
 Comprehensive safety scanning at multiple integration points:
-- **Input Scanner** - Prompt injection, jailbreak detection (`api/app/guardrails/scanners/input_scanner.py`)
-- **Output Scanner** - Toxicity, PII, harmful content (`api/app/guardrails/scanners/output_scanner.py`)
-- **Tool Scanner** - URL validation, code safety (`api/app/guardrails/scanners/tool_scanner.py`)
+- **Input Scanner** - Prompt injection, jailbreak detection (`backend/app/guardrails/scanners/input_scanner.py`)
+- **Output Scanner** - Toxicity, PII, harmful content (`backend/app/guardrails/scanners/output_scanner.py`)
+- **Tool Scanner** - URL validation, code safety (`backend/app/guardrails/scanners/tool_scanner.py`)
 
 Configuration via environment variables:
 - `GUARDRAILS_ENABLED` - Master toggle (default: true)

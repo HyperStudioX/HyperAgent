@@ -22,9 +22,9 @@
 
 ```bash
 cd HyperAgent
-cp api/.env.example api/.env
+cp backend/.env.example backend/.env
 cp web/.env.example web/.env
-# Edit api/.env and add your API keys
+# Edit backend/.env and add your API keys
 ```
 
 ### 2. Start Database Services (Docker)
@@ -44,13 +44,13 @@ make install
 Or install separately:
 ```bash
 make install-web  # Frontend dependencies
-make install-api  # Backend dependencies
+make install-backend  # Backend dependencies
 ```
 
 ### 4. Start Backend
 
 ```bash
-make dev-api
+make dev-backend
 ```
 
 ### 5. Start Frontend
@@ -61,7 +61,7 @@ make dev-web
 
 Or start both in separate terminals:
 ```bash
-make dev  # Shows instructions to run dev-web and dev-api separately
+make dev  # Shows instructions to run dev-web and dev-backend separately
 ```
 
 ### 6. Open Application
@@ -81,7 +81,7 @@ HyperAgent/
 │   │   └── layout/       # Layout components
 │   └── lib/              # Utilities, stores, types
 │
-├── api/                    # Python backend
+├── backend/                # Python backend
 │   ├── app/
 │   │   ├── routers/      # API endpoints
 │   │   ├── agents/       # LangGraph agents
@@ -105,7 +105,7 @@ HyperAgent/
 
 ## Environment Variables
 
-### API (`api/.env`)
+### Backend (`backend/.env`)
 
 | Variable | Description | Required |
 |----------|-------------|----------|
@@ -133,14 +133,14 @@ All commands use the Makefile. Run `make help` to see all available commands.
 ```bash
 make install          # Install all dependencies
 make install-web      # Install frontend dependencies only
-make install-api      # Install backend dependencies only
+make install-backend  # Install backend dependencies only
 ```
 
 ### Development
 
 ```bash
 make dev-web          # Start frontend dev server (port 5000)
-make dev-api          # Start backend dev server (port 8080)
+make dev-backend          # Start backend dev server (port 8080)
 make dev-worker       # Start background worker
 make dev-all          # Start all services (frontend, backend, worker)
 ```
@@ -157,15 +157,15 @@ make build-web        # Build frontend only
 ```bash
 make lint             # Run all linters
 make lint-web         # Lint frontend code
-make lint-api         # Lint backend code
-make format-api       # Format backend code
+make lint-backend     # Lint backend code
+make format-backend   # Format backend code
 ```
 
 ### Testing
 
 ```bash
 make test             # Run all tests
-make test-api         # Run backend tests
+make test-backend     # Run backend tests
 ```
 
 ### Database Migrations

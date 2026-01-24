@@ -11,7 +11,7 @@ HyperAgent includes a comprehensive evaluation framework for testing the multi-a
 ## Architecture
 
 ```
-api/evals/
+backend/evals/
 ├── __init__.py              # Module exports
 ├── conftest.py              # Pytest fixtures with mock LLMs
 ├── datasets/
@@ -253,7 +253,7 @@ make eval-langsmith
 
 ### Adding Routing Test Cases
 
-Edit `api/evals/datasets/routing.json`:
+Edit `backend/evals/datasets/routing.json`:
 
 ```json
 {
@@ -271,7 +271,7 @@ Edit `api/evals/datasets/routing.json`:
 
 ### Adding Tool Selection Test Cases
 
-Edit `api/evals/datasets/tool_selection.json`:
+Edit `backend/evals/datasets/tool_selection.json`:
 
 ```json
 {
@@ -290,7 +290,7 @@ Edit `api/evals/datasets/tool_selection.json`:
 
 ### Adding Response Quality Test Cases
 
-Edit `api/evals/datasets/response_quality.json`:
+Edit `backend/evals/datasets/response_quality.json`:
 
 ```json
 {

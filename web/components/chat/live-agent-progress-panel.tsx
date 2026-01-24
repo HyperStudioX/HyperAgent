@@ -263,8 +263,8 @@ function StatusIndicator({ status }: { status: "pending" | "running" | "complete
 
     if (status === "failed") {
         return (
-            <div className="w-4 h-4 rounded-full bg-red-500/15 flex items-center justify-center">
-                <AlertCircle className="w-2.5 h-2.5 text-red-600 dark:text-red-400" strokeWidth={2.5} />
+            <div className="w-4 h-4 rounded-full bg-destructive/15 flex items-center justify-center">
+                <AlertCircle className="w-2.5 h-2.5 text-destructive" strokeWidth={2.5} />
             </div>
         );
     }
@@ -347,7 +347,7 @@ function StageItem({
                             "text-[13px] leading-relaxed",
                             status === "running" && "text-foreground font-medium",
                             status === "completed" && "text-muted-foreground",
-                            status === "failed" && "text-red-600 dark:text-red-400",
+                            status === "failed" && "text-destructive",
                             status === "pending" && "text-muted-foreground/50"
                         )}>
                             {label}
@@ -503,8 +503,8 @@ export function LiveAgentProgressPanel({
                 {isStreaming ? (
                     <PulsingDot />
                 ) : progressSummary.hasError ? (
-                    <div className="w-4 h-4 rounded-full bg-red-500/15 flex items-center justify-center">
-                        <AlertCircle className="w-2.5 h-2.5 text-red-600 dark:text-red-400" />
+                    <div className="w-4 h-4 rounded-full bg-destructive/15 flex items-center justify-center">
+                        <AlertCircle className="w-2.5 h-2.5 text-destructive" />
                     </div>
                 ) : (
                     <div className="w-4 h-4 rounded-full bg-emerald-500/15 flex items-center justify-center">

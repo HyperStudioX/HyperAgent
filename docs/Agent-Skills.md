@@ -17,17 +17,17 @@ User Request → Agent Reasoning → invoke_skill(skill_id, params)
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| Skill Base Classes | `api/app/agents/skills/skill_base.py` | Base class and metadata definitions |
-| Builtin Skills | `api/app/agents/skills/builtin/` | Pre-built skill implementations |
-| Skill Registry | `api/app/services/skill_registry.py` | Skill discovery and management |
-| Skill Executor | `api/app/services/skill_executor.py` | Skill execution and event streaming |
-| Invocation Tools | `api/app/agents/tools/skill_invocation.py` | LangChain tools for agents |
-| Tool Registry | `api/app/agents/tools/registry.py` | Tool-to-agent mapping |
+| Skill Base Classes | `backend/app/agents/skills/skill_base.py` | Base class and metadata definitions |
+| Builtin Skills | `backend/app/agents/skills/builtin/` | Pre-built skill implementations |
+| Skill Registry | `backend/app/services/skill_registry.py` | Skill discovery and management |
+| Skill Executor | `backend/app/services/skill_executor.py` | Skill execution and event streaming |
+| Invocation Tools | `backend/app/agents/tools/skill_invocation.py` | LangChain tools for agents |
+| Tool Registry | `backend/app/agents/tools/registry.py` | Tool-to-agent mapping |
 
 ### Skill Definition Structure
 
 ```python
-# api/app/agents/skills/skill_base.py
+# backend/app/agents/skills/skill_base.py
 
 class SkillParameter(BaseModel):
     name: str              # Parameter name (e.g., "topic")
@@ -79,7 +79,7 @@ class Skill:
 
 ## Builtin Skills
 
-Six skills are available out of the box in `api/app/agents/skills/builtin/`:
+Six skills are available out of the box in `backend/app/agents/skills/builtin/`:
 
 | Skill ID | Category | Description |
 |----------|----------|-------------|
@@ -93,7 +93,7 @@ Six skills are available out of the box in `api/app/agents/skills/builtin/`:
 ### Example: Web Research Skill
 
 ```python
-# api/app/agents/skills/builtin/web_research_skill.py
+# backend/app/agents/skills/builtin/web_research_skill.py
 
 class WebResearchSkill(Skill):
     metadata = SkillMetadata(
@@ -124,7 +124,7 @@ class WebResearchSkill(Skill):
 ### Example: Code Generation Skill
 
 ```python
-# api/app/agents/skills/builtin/code_generation_skill.py
+# backend/app/agents/skills/builtin/code_generation_skill.py
 
 class CodeGenerationSkill(Skill):
     metadata = SkillMetadata(
@@ -149,7 +149,7 @@ class CodeGenerationSkill(Skill):
 
 ### Invocation Tools
 
-Agents invoke skills through two LangChain tools defined in `api/app/agents/tools/skill_invocation.py`:
+Agents invoke skills through two LangChain tools defined in `backend/app/agents/tools/skill_invocation.py`:
 
 #### invoke_skill
 
@@ -228,7 +228,7 @@ async def list_skills(category: str | None = None) -> str:
 
 ## Skill Registry
 
-The registry manages skill lifecycle in `api/app/services/skill_registry.py`:
+The registry manages skill lifecycle in `backend/app/services/skill_registry.py`:
 
 ```python
 class SkillRegistry:
@@ -271,7 +271,7 @@ skill_registry = SkillRegistry()
 
 ## Skill Executor
 
-The executor handles skill execution in `api/app/services/skill_executor.py`:
+The executor handles skill execution in `backend/app/services/skill_executor.py`:
 
 ```python
 class SkillExecutor:
@@ -326,7 +326,7 @@ skill_executor = SkillExecutor()
 
 ## Tool Registry Integration
 
-Skills are integrated as tools via `api/app/agents/tools/registry.py`:
+Skills are integrated as tools via `backend/app/agents/tools/registry.py`:
 
 ```python
 class ToolCategory(str, Enum):
@@ -382,7 +382,7 @@ def get_tools_for_agent(agent_type: str) -> list[BaseTool]:
 
 ## Event System
 
-Skills emit structured events during execution via `api/app/agents/events.py`:
+Skills emit structured events during execution via `backend/app/agents/events.py`:
 
 ```python
 class SkillOutputEvent(BaseModel):
@@ -402,7 +402,7 @@ Events emitted during skill execution:
 
 ## REST API Endpoints
 
-Skills are exposed via REST in `api/app/api/skills.py`:
+Skills are exposed via REST in `backend/app/api/skills.py`:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -461,10 +461,10 @@ Skills are exposed via REST in `api/app/api/skills.py`:
 
 To create a new skill:
 
-1. **Define the skill class** in `api/app/agents/skills/builtin/`:
+1. **Define the skill class** in `backend/app/agents/skills/builtin/`:
 
 ```python
-from api.app.agents.skills.skill_base import (
+from backend.app.agents.skills.skill_base import (
     Skill, SkillMetadata, SkillParameter, SkillState
 )
 from langgraph.graph import StateGraph, START, END
@@ -514,7 +514,7 @@ class MyCustomSkill(Skill):
 2. **Register in `__init__.py`**:
 
 ```python
-# api/app/agents/skills/builtin/__init__.py
+# backend/app/agents/skills/builtin/__init__.py
 from .my_custom_skill import MyCustomSkill
 
 __all__ = [

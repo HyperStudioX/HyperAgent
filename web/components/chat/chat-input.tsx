@@ -66,7 +66,7 @@ export const ChatInput = memo(
 
     return (
       <div className={cn("relative", className)}>
-        <div className="relative flex items-end bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors duration-200">
+        <div className="relative flex items-end bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors">
           <textarea
             ref={textareaRef}
             value={value}
@@ -74,7 +74,7 @@ export const ChatInput = memo(
             onKeyDown={handleKeyDown}
             placeholder={placeholder || t("typeMessage")}
             disabled={isLoading}
-            className="flex-1 min-h-[52px] max-h-[160px] px-4 py-3.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 textarea-auto-resize"
+            className="flex-1 min-h-[52px] max-h-[160px] px-4 py-3.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 disabled:opacity-50 textarea-auto-resize"
             rows={1}
           />
           <div className="p-2">

@@ -453,8 +453,8 @@ Guardrails are configurable via environment variables:
 
 Guardrails are integrated into:
 
-1. **`api/app/api/query.py`**: Input guardrails in `stream_query`
-2. **`api/app/agents/subagents/chat.py`**: Output guardrails in `reason_node`, tool guardrails in `act_node`
+1. **`backend/app/api/query.py`**: Input guardrails in `stream_query`
+2. **`backend/app/agents/subagents/chat.py`**: Output guardrails in `reason_node`, tool guardrails in `act_node`
 
 ### Example: Blocked Request
 
@@ -489,7 +489,7 @@ scan_result = await tool_scanner.scan(
 Run guardrails tests:
 
 ```bash
-cd api
+cd backend
 uv run pytest tests/test_guardrails.py -v
 ```
 

@@ -113,7 +113,7 @@ Mock LLMs enable deterministic testing. LangSmith integration for tracking.
 
 ### Backend (Python/FastAPI)
 ```bash
-cd api
+cd backend
 uv sync                    # Install dependencies
 uv run alembic upgrade head # Run migrations
 uv run uvicorn app.main:app --reload
