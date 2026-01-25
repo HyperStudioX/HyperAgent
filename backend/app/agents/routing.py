@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 ROUTER_PROMPT = """You are a routing assistant that determines which specialized agent should handle a user query.
 
 Available agents:
-1. chat - Primary agent for most tasks: conversation, Q&A, image generation, writing, coding, and general requests. Has powerful skills for specialized tasks.
+1. chat - Primary agent for most tasks: conversation, Q&A, image generation, writing, coding, app building, and general requests. Has powerful skills for specialized tasks.
 2. research - ONLY for deep, comprehensive research requiring extensive web search, multi-source analysis, and detailed reports
 3. data - ONLY for data analytics: CSV/JSON processing, statistical analysis, and data visualization
 
@@ -26,6 +26,7 @@ IMPORTANT: Route almost everything to CHAT agent. It has skills for:
 - Code generation (code_generation skill)
 - Code review (code_review skill)
 - Code execution (execute_code tool)
+- App building (app_builder skill)
 - Web search (web_search tool)
 - Quick research (web_research skill)
 
@@ -87,11 +88,11 @@ Query: "Create a detailed academic research paper on quantum computing"
 ROUTER_PROMPT_LEGACY = """You are a routing assistant that determines which specialized agent should handle a user query.
 
 Available agents:
-1. CHAT - Primary agent for most tasks: conversation, Q&A, images, writing, coding, web search. Has powerful skills.
+1. CHAT - Primary agent for most tasks: conversation, Q&A, images, writing, coding, app building, web search. Has powerful skills.
 2. RESEARCH - ONLY for deep, comprehensive research with detailed analysis
 3. DATA - ONLY for data analytics, CSV processing, and data visualization
 
-IMPORTANT: Route almost everything to CHAT (including ALL writing tasks). Only use specialized agents for:
+IMPORTANT: Route almost everything to CHAT (including ALL writing and coding tasks). Only use specialized agents for:
 - RESEARCH: Comprehensive multi-step research with synthesis
 - DATA: Data analytics and visualization
 
@@ -123,9 +124,13 @@ AGENT_NAME_MAP = {
     "chat": AgentType.CHAT,
     "research": AgentType.RESEARCH,
     "data": AgentType.DATA,
+    "app": AgentType.CHAT,  # App mode routes to chat agent with app_builder skill
+    "image": AgentType.CHAT,  # Image mode routes to chat agent with image_generation skill
     "CHAT": AgentType.CHAT,
     "RESEARCH": AgentType.RESEARCH,
     "DATA": AgentType.DATA,
+    "APP": AgentType.CHAT,
+    "IMAGE": AgentType.CHAT,
 }
 
 
@@ -241,12 +246,8 @@ async def route_query(state: SupervisorState) -> dict:
         # Normalize mode string
         mode_lower = explicit_mode.lower().strip()
 
-        # Map deprecated modes to chat
-        if mode_lower in {"code", "writing", "image"}:
-            mode_lower = "chat"
-
-        # Check if it's a valid agent type
-        valid_modes = {"chat", "research", "data"}
+        # Check if it's a valid agent type (including image/app which map to chat)
+        valid_modes = {"chat", "research", "data", "app", "image"}
         if mode_lower in valid_modes:
             agent_type = AGENT_NAME_MAP.get(mode_lower, AgentType.CHAT)
             logger.info(

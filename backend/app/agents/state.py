@@ -20,8 +20,7 @@ class AgentType(str, Enum):
     - RESEARCH: Deep research workflows with comprehensive analysis
     - DATA: Data analytics and visualization
 
-    Note: Deprecated agent types (IMAGE, WRITING, CODE) have been removed.
-    They are mapped to CHAT at the routing layer via AGENT_NAME_MAP.
+    Note: Deprecated agent type (IMAGE) is mapped to CHAT at the routing layer via AGENT_NAME_MAP.
     """
 
     CHAT = "chat"

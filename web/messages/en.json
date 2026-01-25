@@ -30,9 +30,8 @@
         "task": "Task",
         "research": "Research",
         "chat": "Chat",
-        "code": "Code",
-        "writing": "Writing",
         "data": "Data",
+        "app": "App",
         "image": "Image",
         "noResults": "No items found",
         "chatDescription": "Quick questions & conversations",
@@ -65,9 +64,8 @@
         "welcomeSubtitle": "Ask anything or select a specialized mode for your task",
         "inputPlaceholder": "Ask anything...",
         "researchPlaceholder": "Research: {scenario}...",
-        "codePlaceholder": "Describe what code you need...",
-        "writingPlaceholder": "What would you like me to write?",
         "dataPlaceholder": "Describe the data analysis you need...",
+        "appPlaceholder": "Describe the app you want to build...",
         "imagePlaceholder": "Describe the image you want to create...",
         "selectMode": "Select Mode",
         "deepResearch": "Deep Research"
@@ -81,17 +79,13 @@
             "name": "Deep Research",
             "description": "In-depth analysis & comprehensive reports"
         },
-        "code": {
-            "name": "Code Assistant",
-            "description": "Write, explain & execute code"
-        },
-        "writing": {
-            "name": "Writing",
-            "description": "Articles, docs & long-form content"
-        },
         "data": {
             "name": "Data Analysis",
             "description": "Analyze data & generate insights"
+        },
+        "app": {
+            "name": "Create App",
+            "description": "Build web applications"
         },
         "image": {
             "name": "Image",
@@ -531,8 +525,18 @@
         "loadingContent": "Loading content...",
         "failedToLoad": "Failed to load file content. Please try downloading the file.",
         "failedToLoadImage": "Error loading image: {error}",
+        "failedToLoadImageSimple": "Failed to load image",
         "loadingImage": "Loading image...",
-        "loadingPdf": "Loading PDF..."
+        "loadingPdf": "Loading PDF...",
+        "generatedImageAlt": "Generated image",
+        "interactiveContentTitle": "Interactive content",
+        "generatedImageLabel": "GENERATED IMAGE",
+        "interactiveChartLabel": "INTERACTIVE CHART",
+        "viewFullscreen": "View fullscreen",
+        "downloadImage": "Download image",
+        "generatedImage": "Generated Image",
+        "interactiveChart": "Interactive Chart",
+        "close": "Close"
     },
     "settings": {
         "modelTier": "Model Tier",

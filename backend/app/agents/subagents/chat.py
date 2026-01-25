@@ -142,6 +142,7 @@ async def reason_node(state: ChatState) -> dict:
         Dict with updated messages and events
     """
     query = state.get("query") or ""
+    mode = state.get("mode")
     system_prompt = state.get("system_prompt") or CHAT_SYSTEM_PROMPT
     image_attachments = state.get("image_attachments") or []
     provider = state.get("provider") or LLMProvider.ANTHROPIC
@@ -166,8 +167,18 @@ async def reason_node(state: ChatState) -> dict:
             lc_messages.append(image_message)
             logger.info("image_context_added_to_chat", image_count=len(image_attachments))
 
-        # Add current query
-        lc_messages.append(HumanMessage(content=query))
+        # For specific modes, enhance the query to guide the agent
+        if mode == "image":
+            enhanced_query = f"Generate an image based on this description: {query}\n\nUse the image_generation skill to create the image."
+            lc_messages.append(HumanMessage(content=enhanced_query))
+            logger.info("image_mode_query_enhanced", original_query=query[:100])
+        elif mode == "app":
+            enhanced_query = f"Build a web application based on this description: {query}\n\nUse the app_builder skill to create the application."
+            lc_messages.append(HumanMessage(content=enhanced_query))
+            logger.info("app_mode_query_enhanced", original_query=query[:100])
+        else:
+            # Add current query
+            lc_messages.append(HumanMessage(content=query))
 
     # Debug: Log messages before deduplication
     logger.info(
@@ -537,6 +548,27 @@ async def act_node(state: ChatState) -> dict:
                     image_event_count = sum(
                         1 for e in event_list if isinstance(e, dict) and e.get("type") == "image"
                     )
+
+                # Extract image events from invoke_skill with image_generation skill
+                if tool_name == "invoke_skill" and result_str:
+                    try:
+                        import json
+                        parsed = json.loads(result_str)
+                        if parsed.get("skill_id") == "image_generation":
+                            output = parsed.get("output") or {}
+                            images = output.get("images") or []
+                            if images:
+                                # Wrap images in expected format for extract_and_add_image_events
+                                extract_and_add_image_events(
+                                    json.dumps({"success": True, "images": images}),
+                                    event_list,
+                                    start_index=image_event_count,
+                                )
+                                image_event_count = sum(
+                                    1 for e in event_list if isinstance(e, dict) and e.get("type") == "image"
+                                )
+                    except Exception as e:
+                        logger.warning("invoke_skill_image_extraction_failed", error=str(e))
 
                 # Truncate tool result to avoid context overflow
                 config = get_react_config("chat")

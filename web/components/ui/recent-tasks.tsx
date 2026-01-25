@@ -13,13 +13,12 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
-  Code2,
-  PenTool,
   BarChart3,
   ListFilter,
   ChevronDown,
   Check,
   ImageIcon,
+  AppWindow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationType } from "@/lib/types";
@@ -36,9 +35,8 @@ type FilterType = "all" | ConversationType | "task";
 const CONVERSATION_TYPE_ICONS: Record<ConversationType, React.ReactNode> = {
   chat: <MessageCircle className="w-4 h-4" />,
   research: <Search className="w-4 h-4" />,
-  code: <Code2 className="w-4 h-4" />,
-  writing: <PenTool className="w-4 h-4" />,
   data: <BarChart3 className="w-4 h-4" />,
+  app: <AppWindow className="w-4 h-4" />,
   image: <ImageIcon className="w-4 h-4" />,
 };
 
@@ -46,9 +44,8 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   all: <ListFilter className="w-3.5 h-3.5" />,
   chat: <MessageCircle className="w-3.5 h-3.5" />,
   research: <Search className="w-3.5 h-3.5" />,
-  code: <Code2 className="w-3.5 h-3.5" />,
-  writing: <PenTool className="w-3.5 h-3.5" />,
   data: <BarChart3 className="w-3.5 h-3.5" />,
+  app: <AppWindow className="w-3.5 h-3.5" />,
   image: <ImageIcon className="w-3.5 h-3.5" />,
   task: <Search className="w-3.5 h-3.5" />,
 };
@@ -198,9 +195,8 @@ export function RecentTasks({
     all: t("all") || "All",
     chat: t("chat"),
     research: t("research"),
-    code: t("code"),
-    writing: t("writing"),
     data: t("data"),
+    app: t("app") || "App",
     image: t("image") || "Image",
     task: t("task") || "Task",
   };

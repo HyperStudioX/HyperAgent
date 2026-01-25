@@ -30,9 +30,8 @@
         "task": "任务",
         "research": "研究",
         "chat": "对话",
-        "code": "代码",
-        "writing": "写作",
         "data": "数据",
+        "app": "应用",
         "image": "图片",
         "noResults": "没有找到项目",
         "chatDescription": "快速提问与对话",
@@ -65,9 +64,8 @@
         "welcomeSubtitle": "随时提问或选择专业模式完成任务",
         "inputPlaceholder": "随便问...",
         "researchPlaceholder": "研究：{scenario}...",
-        "codePlaceholder": "描述您需要的代码...",
-        "writingPlaceholder": "您想让我写什么？",
         "dataPlaceholder": "描述您需要的数据分析...",
+        "appPlaceholder": "描述您想要构建的应用...",
         "imagePlaceholder": "描述您想要创建的图片...",
         "selectMode": "选择模式",
         "deepResearch": "深度研究"
@@ -81,17 +79,13 @@
             "name": "深度研究",
             "description": "深度分析与综合报告"
         },
-        "code": {
-            "name": "代码助手",
-            "description": "编写、解释和执行代码"
-        },
-        "writing": {
-            "name": "写作",
-            "description": "文章、文档和长篇内容"
-        },
         "data": {
             "name": "数据分析",
             "description": "分析数据并生成洞察"
+        },
+        "app": {
+            "name": "创建应用",
+            "description": "构建网页应用"
         },
         "image": {
             "name": "图片生成",
@@ -531,8 +525,18 @@
         "loadingContent": "正在加载内容...",
         "failedToLoad": "加载文件内容失败。请尝试下载文件。",
         "failedToLoadImage": "加载图片出错：{error}",
+        "failedToLoadImageSimple": "加载图片失败",
         "loadingImage": "正在加载图片...",
-        "loadingPdf": "正在加载 PDF..."
+        "loadingPdf": "正在加载 PDF...",
+        "generatedImageAlt": "生成的图片",
+        "interactiveContentTitle": "交互式内容",
+        "generatedImageLabel": "生成的图片",
+        "interactiveChartLabel": "交互式图表",
+        "viewFullscreen": "全屏查看",
+        "downloadImage": "下载图片",
+        "generatedImage": "生成的图片",
+        "interactiveChart": "交互式图表",
+        "close": "关闭"
     },
     "settings": {
         "modelTier": "模型等级",

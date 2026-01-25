@@ -16,6 +16,8 @@ import {
     Check,
     Zap,
     Layers,
+    AppWindow,
+    ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
@@ -54,11 +56,13 @@ import {
 } from "@/lib/utils/streaming-helpers";
 
 // Larger icons for better visual presence
-const AGENT_KEYS = ["research", "data"] as const;
+const AGENT_KEYS = ["research", "data", "app", "image"] as const;
 type VisibleAgent = (typeof AGENT_KEYS)[number];
 const AGENT_ICONS: Record<VisibleAgent, React.ReactNode> = {
     research: <Search className="w-5 h-5" />,
     data: <BarChart3 className="w-5 h-5" />,
+    app: <AppWindow className="w-5 h-5" />,
+    image: <ImageIcon className="w-5 h-5" />,
 };
 
 const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
@@ -531,9 +535,25 @@ export function ChatInterface() {
 
         if (selectedAgent === "research" && selectedScenario) {
             handleResearch(userMessage);
-        } else if (selectedAgent === "data") {
+        } else if (selectedAgent === "data" || selectedAgent === "app" || selectedAgent === "image") {
             await handleAgentTask(userMessage, selectedAgent, attachmentIds, messageAttachments);
+            // Clear agent selection after first message - let conversation type take over
+            setSelectedAgent(null);
         } else if (!selectedAgent && activeConversation?.type === "data") {
+            await handleAgentTask(
+                userMessage,
+                activeConversation.type as AgentType,
+                attachmentIds,
+                messageAttachments
+            );
+        } else if (!selectedAgent && activeConversation?.type === "app") {
+            await handleAgentTask(
+                userMessage,
+                activeConversation.type as AgentType,
+                attachmentIds,
+                messageAttachments
+            );
+        } else if (!selectedAgent && activeConversation?.type === "image") {
             await handleAgentTask(
                 userMessage,
                 activeConversation.type as AgentType,
@@ -1240,7 +1260,8 @@ export function ChatInterface() {
 
         // Check conversation type and call the appropriate handler
         const conversationType = activeConversation?.type;
-        if (conversationType === "data") {
+        if (conversationType === "data" || conversationType === "image" || conversationType === "app") {
+            // For specialized agent types, use handleAgentTask to maintain conversation type
             await handleAgentTask(userMessage, conversationType as AgentType, attachmentIds, userMessageAttachments);
         } else {
             // For chat type, use handleChat
@@ -1360,6 +1381,8 @@ export function ChatInterface() {
             return t("researchPlaceholder", { scenario: tResearch(`${selectedScenario}.name`) });
         }
         if (selectedAgent === "data") return t("dataPlaceholder");
+        if (selectedAgent === "app") return t("appPlaceholder");
+        if (selectedAgent === "image") return t("imagePlaceholder");
         return t("inputPlaceholder");
     };
 

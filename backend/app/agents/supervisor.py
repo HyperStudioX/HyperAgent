@@ -529,7 +529,7 @@ def create_supervisor_graph(checkpointer=None):
     graph.set_entry_point("router")
 
     # Conditional edges from router to appropriate agent
-    # Note: Deprecated agent types (code, writing, image) are automatically
+    # Note: Deprecated agent type (image) is automatically
     # mapped to CHAT in routing.py via AGENT_NAME_MAP before reaching here
     graph.add_conditional_edges(
         "router",
@@ -620,7 +620,7 @@ class AgentSupervisor:
 
         Args:
             query: User query to process
-            mode: Optional explicit agent mode (chat, research, code, writing, data)
+            mode: Optional explicit agent mode (chat, research, app, data, image)
             task_id: Optional task ID for tracking
             user_id: Optional user ID
             messages: Optional chat history
@@ -633,18 +633,14 @@ class AgentSupervisor:
         from app.agents.stream_processor import StreamProcessor
 
         effective_task_id = task_id or str(uuid.uuid4())
-        normalized_mode = mode
-        if isinstance(mode, str):
-            mode_lower = mode.lower()
-            if mode_lower in {"code", "writing", "image"}:
-                normalized_mode = "chat"
-            else:
-                normalized_mode = mode_lower
+        # Preserve original mode for subagents (important for image/app modes)
+        # The router will handle normalization for routing decisions
+        original_mode = mode.lower() if isinstance(mode, str) else mode
 
         # Build initial state
         initial_state: SupervisorState = {
             "query": query,
-            "mode": normalized_mode,
+            "mode": original_mode,  # Preserve original mode (e.g., "image", "app")
             "task_id": effective_task_id,
             "user_id": user_id,
             "messages": messages or [],
@@ -674,7 +670,7 @@ class AgentSupervisor:
         logger.info(
             "supervisor_run_started",
             query=query[:50],
-            mode=normalized_mode,
+            mode=original_mode,
             thread_id=thread_id,
             depth=initial_state.get("depth"),
             scenario=initial_state.get("scenario"),

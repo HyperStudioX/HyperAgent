@@ -277,7 +277,7 @@ async def query(
                 provider=request.provider,
             )
 
-        elif request.mode in (QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA, QueryMode.IMAGE):
+        elif request.mode in (QueryMode.APP, QueryMode.DATA, QueryMode.IMAGE):
             # Use agent supervisor for specialized modes
             result = await agent_supervisor.invoke(
                 query=request.message,
@@ -341,7 +341,7 @@ async def stream_query(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Stream response for chat, research, and other agent modes."""
-    if request.mode in (QueryMode.CHAT, QueryMode.CODE, QueryMode.WRITING, QueryMode.DATA, QueryMode.IMAGE):
+    if request.mode in (QueryMode.CHAT, QueryMode.APP, QueryMode.DATA, QueryMode.IMAGE):
         history = [m.model_dump() for m in request.history]
         if not history and request.conversation_id:
             history = await get_conversation_history(

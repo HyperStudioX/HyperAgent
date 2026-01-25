@@ -28,9 +28,8 @@ class ModelTier(str, Enum):
 class QueryMode(str, Enum):
     CHAT = "chat"
     RESEARCH = "research"
-    CODE = "code"
-    WRITING = "writing"
     DATA = "data"
+    APP = "app"
     IMAGE = "image"
 
 
@@ -184,9 +183,8 @@ class UnifiedQueryResponse(BaseModel):
 class ConversationType(str, Enum):
     CHAT = "chat"
     RESEARCH = "research"
-    CODE = "code"
-    WRITING = "writing"
     DATA = "data"
+    APP = "app"
     IMAGE = "image"
 
 
