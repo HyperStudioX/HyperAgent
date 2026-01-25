@@ -11,7 +11,6 @@ import { useTheme } from "@/lib/hooks/use-theme";
 import { usePreviewStore } from "@/lib/stores/preview-store";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { MenuToggle } from "@/components/ui/menu-toggle";
 
 // Map file extensions to language identifiers for syntax highlighting
@@ -55,7 +54,6 @@ function getLanguageFromFilename(filename: string): string | null {
 export function FilePreviewSidebar() {
     const { previewFile: file, isOpen, closePreview } = usePreviewStore();
     const [isExpanded, setIsExpanded] = useState(false);
-    const { resolvedTheme } = useTheme();
 
     if (!file || !isOpen) return null;
 

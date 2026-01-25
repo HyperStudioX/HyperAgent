@@ -41,6 +41,17 @@ import type {
 } from "@/lib/types";
 import { AskUserInput } from "@/components/hitl/ask-user-input";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
+import {
+    type StreamEvent,
+    createStreamingContext,
+    getEventKey,
+    createTimestampedEvent,
+    mergeTokenContent,
+    parseSourceFromEvent,
+    parseImageFromEvent,
+    filterEventsForSaving,
+    isSearchTool,
+} from "@/lib/utils/streaming-helpers";
 
 // Larger icons for better visual presence
 const AGENT_KEYS = ["research", "data"] as const;
@@ -63,22 +74,6 @@ const DEPTH_KEYS: ResearchDepth[] = ["fast", "deep"];
 const DEPTH_ICONS: Record<ResearchDepth, React.ReactNode> = {
     fast: <Zap className="w-4 h-4" />,
     deep: <Layers className="w-4 h-4" />,
-};
-
-type StreamEvent = AgentEvent & {
-    content?: string;
-    data?: string;
-    index?: number;
-    url?: string;
-    storage_key?: string;
-    file_id?: string;
-    stream_url?: string;
-    sandbox_id?: string;
-    auth_key?: string;
-    action?: string;
-    target?: string;
-    skill_id?: string;
-    output?: Record<string, unknown>;
 };
 
 // Memoized message list to prevent re-renders on input changes
@@ -617,63 +612,31 @@ export function ChatInterface() {
             description: tChat("agent.thinking"),
             status: "running",
         };
-        // Events managed in sidebar panel
         addAgentEvent(thinkingEvent);
 
-        let fullContent = "";
-        const mergeTokenContent = (tokenContent: string) => {
-            if (tokenContent.startsWith(fullContent)) {
-                fullContent = tokenContent;
-            } else {
-                fullContent += tokenContent;
-            }
-            updateStreamingContent(fullContent);
-        };
-        const collectedEvents: AgentEvent[] = [thinkingEvent];
-        const collectedImages: GeneratedImage[] = [];
-        const collectedSources: Source[] = [];
-        const seenEventKeys = new Set<string>();
+        // Initialize streaming context for tracking collected data
+        const ctx = createStreamingContext(thinkingEvent);
 
-        // Helper to generate a unique key for deduplication
-        const getEventKey = (event: AgentEvent): string => {
-            if (event.type === "tool_call") {
-                if (event.id) return `tool_call:${event.id}`;
-                const toolName = (event.tool || event.name || "").toLowerCase();
-                const argsStr = JSON.stringify(event.args || {});
-                return `tool_call:${toolName}:${argsStr}`;
-            } else if (event.type === "tool_result") {
-                return event.id ? `tool_result:${event.id}` : `tool_result:${Date.now()}`;
-            } else if (event.type === "stage") {
-                return `stage:${event.name}:${event.status}`;
-            }
-            return `${event.type}:${Date.now()}`;
+        // Helper to merge token content and update UI
+        const handleTokenContent = (tokenContent: string): void => {
+            ctx.fullContent = mergeTokenContent(ctx.fullContent, tokenContent);
+            updateStreamingContent(ctx.fullContent);
         };
 
         // Helper to add event and update streaming state (with deduplication)
-        const addStreamingEvent = (event: AgentEvent) => {
-            const timestamp = Date.now();
-            const timestampedEvent: TimestampedEvent = { ...event, timestamp };
+        const addStreamingEvent = (event: AgentEvent): void => {
             const eventKey = getEventKey(event);
+            if (ctx.seenEventKeys.has(eventKey)) return;
+            ctx.seenEventKeys.add(eventKey);
 
-            // Check if we've seen this event before
-            if (seenEventKeys.has(eventKey)) {
-                return; // Skip duplicate
-            }
-            seenEventKeys.add(eventKey);
-
-            // Add to store (has its own deduplication)
             addAgentEvent(event);
-
-            // Add to local state
-            setStreamingEvents(prev => [...prev, timestampedEvent]);
-
-            // Add to collectedEvents for saving
-            collectedEvents.push(event);
+            setStreamingEvents(prev => [...prev, createTimestampedEvent(event)]);
+            ctx.collectedEvents.push(event);
         };
 
         // Helper to add source and update streaming state
-        const addStreamingSource = (source: Source) => {
-            collectedSources.push(source);
+        const addStreamingSource = (source: Source): void => {
+            ctx.collectedSources.push(source);
             setStreamingSources(prev => [...prev, source]);
         };
 
@@ -727,22 +690,22 @@ export function ChatInterface() {
                             const event = JSON.parse(jsonStr) as StreamEvent;
 
                             if (event.type === "token" && (event.data || event.content)) {
-                                const tokenContent = event.data || event.content;
-                                // Handle both delta and full-content token payloads.
-                                mergeTokenContent(tokenContent);
-                                // Status now shown in sidebar panel
+                                const tokenContent = (typeof event.data === "string" ? event.data : event.content) || "";
+                                handleTokenContent(tokenContent);
                             } else if (event.type === "stage") {
-                                // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
-                                const stageDescription = event.description || event.data?.description;
+                                const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
+                                const stageDescription = event.description || eventData?.description || null;
                                 updateAgentStage(stageDescription);
                                 addStreamingEvent(event);
                             } else if (event.type === "tool_call") {
-                                // Handle both flat structure and legacy data wrapper
-                                const toolName = event.tool || event.data?.tool || "web";
-                                const args = event.args || event.data?.args || {};
-                                if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
-                                    updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
+                                const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
+                                const toolName = event.tool || eventData?.tool || "web";
+                                const args = event.args || eventData?.args || {};
+                                const rawQuery = typeof args === "object" && args !== null ? (args as Record<string, unknown>).query : undefined;
+                                const queryArg = typeof rawQuery === "string" ? rawQuery : "web";
+                                if (isSearchTool(toolName)) {
+                                    updateAgentStage(tChat("agent.searching", { query: queryArg }));
                                 } else {
                                     updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
                                 }
@@ -756,52 +719,22 @@ export function ChatInterface() {
                                 updateAgentStage(tChat("agent.handoffTo", { target }));
                                 addStreamingEvent(event);
                             } else if (event.type === "source") {
-                                // Handle source events from search - also update inline sources
                                 addStreamingEvent(event);
-                                const sourceData = event.data as Record<string, unknown> | undefined;
-                                if (sourceData) {
-                                    const newSource: Source = {
-                                        id: (sourceData.id as string) || `source-${collectedSources.length}`,
-                                        title: (sourceData.title as string) || event.name || "Source",
-                                        url: (sourceData.url as string) || "",
-                                        snippet: sourceData.snippet as string | undefined,
-                                    };
+                                const newSource = parseSourceFromEvent(event, ctx.collectedSources.length);
+                                if (newSource) {
                                     addStreamingSource(newSource);
                                 }
                             } else if (event.type === "code_result") {
                                 addStreamingEvent(event);
                             } else if (event.type === "image") {
-                                // Handle image event - images rendered inline via placeholder
-                                // Accept images with either data (base64) or url
-                                console.log("[Image Event] Received:", {
-                                    hasData: !!event.data,
-                                    dataLength: event.data ? event.data.length : 0,
-                                    hasUrl: !!event.url,
-                                    mimeType: event.mime_type,
-                                    index: event.index,
-                                });
-                                if ((event.data || event.url) && event.mime_type) {
-                                    const imageIndex = event.index as number ?? collectedImages.length;
-                                    // Deduplicate: check if image with same index already exists
-                                    const isDuplicate = collectedImages.some(img => img.index === imageIndex);
+                                const imageData = parseImageFromEvent(event, ctx.collectedImages.length);
+                                if (imageData) {
+                                    const isDuplicate = ctx.collectedImages.some(img => img.index === imageData.index);
                                     if (!isDuplicate) {
-                                        const imageData = {
-                                            index: imageIndex,
-                                            data: event.data as string | undefined,
-                                            url: event.url as string | undefined,
-                                            storageKey: event.storage_key as string | undefined,
-                                            fileId: event.file_id as string | undefined,
-                                            mimeType: event.mime_type as "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html",
-                                        };
-                                        collectedImages.push(imageData);
+                                        ctx.collectedImages.push(imageData);
                                         setStreamingImages(prev => [...prev, imageData]);
-                                        collectedEvents.push(event);
-                                        console.log("[Image Event] Added to streaming, total images:", collectedImages.length);
-                                    } else {
-                                        console.log("[Image Event] Skipping duplicate at index:", imageIndex);
+                                        ctx.collectedEvents.push(event);
                                     }
-                                } else {
-                                    console.warn("[Image Event] Missing data/url or mime_type, event:", event);
                                 }
                             } else if (event.type === "browser_stream") {
                                 // Handle browser stream event - show live browser view
@@ -835,7 +768,6 @@ export function ChatInterface() {
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "interrupt") {
-                                // Handle interrupt event (HITL) - show approval dialog
                                 const interruptEvent: InterruptEvent = {
                                     type: "interrupt",
                                     interrupt_id: event.interrupt_id as string,
@@ -846,7 +778,7 @@ export function ChatInterface() {
                                     tool_info: event.tool_info,
                                     default_action: event.default_action,
                                     timeout_seconds: (event.timeout_seconds as number) || 120,
-                                    timestamp: event.timestamp || Date.now(),
+                                    timestamp: (event.timestamp as number | undefined) ?? Date.now(),
                                 };
                                 console.log("[HITL] Interrupt received:", {
                                     interrupt_id: interruptEvent.interrupt_id,
@@ -859,8 +791,9 @@ export function ChatInterface() {
                                 });
                                 addStreamingEvent(event);
                             } else if (event.type === "error") {
-                                fullContent = tChat("agent.error", { error: event.data });
-                                updateStreamingContent(fullContent);
+                                const errorData = typeof event.data === "string" ? event.data : "Unknown error";
+                                ctx.fullContent = tChat("agent.error", { error: errorData });
+                                updateStreamingContent(ctx.fullContent);
                             } else if (event.type === "complete") {
                                 // Stream complete, break out of loop
                                 break;
@@ -875,8 +808,7 @@ export function ChatInterface() {
                 }
             }
 
-            if (fullContent || collectedImages.length > 0) {
-                const sanitizedContent = fullContent;
+            if (ctx.fullContent || ctx.collectedImages.length > 0) {
                 // Clear streaming state BEFORE saving to prevent duplicate rendering
                 flushTokenBatch();
                 setStreamingContent("");
@@ -886,22 +818,18 @@ export function ChatInterface() {
                 setStreamingSources([]);
                 setLoading(false);
 
-                // Filter events to only save important ones (stages, tool_calls, sources, skill outputs, tool results)
-                const savedEvents = collectedEvents.filter(
-                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call" || e.type === "skill_output" || e.type === "tool_result"
-                );
+                const savedEvents = filterEventsForSaving(ctx.collectedEvents);
 
                 await addMessage(conversationId, {
                     role: "assistant",
-                    content: sanitizedContent,
+                    content: ctx.fullContent,
                     metadata: {
-                        ...(collectedImages.length ? { images: collectedImages } : {}),
+                        ...(ctx.collectedImages.length ? { images: ctx.collectedImages } : {}),
                         ...(savedEvents.length ? { agentEvents: savedEvents } : {}),
                     },
                 });
             }
         } catch (error) {
-            // Don't show error message if request was cancelled by user
             if (error instanceof Error && error.name === 'AbortError') {
                 console.log("Chat request cancelled by user");
             } else {
@@ -1003,63 +931,31 @@ export function ChatInterface() {
             description: tChat("agent.thinking"),
             status: "running",
         };
-        // Events managed in sidebar panel
         addAgentEvent(thinkingEvent);
 
-        let fullContent = "";
-        const mergeTokenContent = (tokenContent: string) => {
-            if (tokenContent.startsWith(fullContent)) {
-                fullContent = tokenContent;
-            } else {
-                fullContent += tokenContent;
-            }
-            updateStreamingContent(fullContent);
-        };
-        const collectedEvents: AgentEvent[] = [thinkingEvent];
-        const collectedImages: GeneratedImage[] = [];
-        const collectedSources: Source[] = [];
-        const seenEventKeys = new Set<string>();
+        // Initialize streaming context for tracking collected data
+        const ctx = createStreamingContext(thinkingEvent);
 
-        // Helper to generate a unique key for deduplication
-        const getEventKey = (event: AgentEvent): string => {
-            if (event.type === "tool_call") {
-                if (event.id) return `tool_call:${event.id}`;
-                const toolName = (event.tool || event.name || "").toLowerCase();
-                const argsStr = JSON.stringify(event.args || {});
-                return `tool_call:${toolName}:${argsStr}`;
-            } else if (event.type === "tool_result") {
-                return event.id ? `tool_result:${event.id}` : `tool_result:${Date.now()}`;
-            } else if (event.type === "stage") {
-                return `stage:${event.name}:${event.status}`;
-            }
-            return `${event.type}:${Date.now()}`;
+        // Helper to merge token content and update UI
+        const handleTokenContent = (tokenContent: string): void => {
+            ctx.fullContent = mergeTokenContent(ctx.fullContent, tokenContent);
+            updateStreamingContent(ctx.fullContent);
         };
 
         // Helper to add event and update streaming state (with deduplication)
-        const addStreamingEvent = (event: AgentEvent) => {
-            const timestamp = Date.now();
-            const timestampedEvent: TimestampedEvent = { ...event, timestamp };
+        const addStreamingEvent = (event: AgentEvent): void => {
             const eventKey = getEventKey(event);
+            if (ctx.seenEventKeys.has(eventKey)) return;
+            ctx.seenEventKeys.add(eventKey);
 
-            // Check if we've seen this event before
-            if (seenEventKeys.has(eventKey)) {
-                return; // Skip duplicate
-            }
-            seenEventKeys.add(eventKey);
-
-            // Add to store (has its own deduplication)
             addAgentEvent(event);
-
-            // Add to local state
-            setStreamingEvents(prev => [...prev, timestampedEvent]);
-
-            // Add to collectedEvents for saving
-            collectedEvents.push(event);
+            setStreamingEvents(prev => [...prev, createTimestampedEvent(event)]);
+            ctx.collectedEvents.push(event);
         };
 
         // Helper to add source and update streaming state
-        const addStreamingSource = (source: Source) => {
-            collectedSources.push(source);
+        const addStreamingSource = (source: Source): void => {
+            ctx.collectedSources.push(source);
             setStreamingSources(prev => [...prev, source]);
         };
 
@@ -1113,22 +1009,22 @@ export function ChatInterface() {
                             const event = JSON.parse(jsonStr) as StreamEvent;
 
                             if (event.type === "token" && (event.data || event.content)) {
-                                const tokenContent = event.data || event.content;
-                                // Handle both delta and full-content token payloads.
-                                mergeTokenContent(tokenContent);
-                                // Status now shown in sidebar panel
+                                const tokenContent = (typeof event.data === "string" ? event.data : event.content) || "";
+                                handleTokenContent(tokenContent);
                             } else if (event.type === "stage") {
-                                // Flush tokens before stage change for immediate visual feedback
                                 flushTokenBatch();
-                                const stageDescription = event.description || event.data?.description;
+                                const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
+                                const stageDescription = event.description || eventData?.description || null;
                                 updateAgentStage(stageDescription);
                                 addStreamingEvent(event);
                             } else if (event.type === "tool_call") {
-                                // Handle both flat structure and legacy data wrapper
-                                const toolName = event.tool || event.data?.tool || "tool";
-                                const args = event.args || event.data?.args || {};
-                                if (toolName === "web_search" || toolName === "google_search" || toolName === "web") {
-                                    updateAgentStage(tChat("agent.searching", { query: args.query || "web" }));
+                                const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
+                                const toolName = event.tool || eventData?.tool || "tool";
+                                const args = event.args || eventData?.args || {};
+                                const rawQuery = typeof args === "object" && args !== null ? (args as Record<string, unknown>).query : undefined;
+                                const queryArg = typeof rawQuery === "string" ? rawQuery : "web";
+                                if (isSearchTool(toolName)) {
+                                    updateAgentStage(tChat("agent.searching", { query: queryArg }));
                                 } else {
                                     updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
                                 }
@@ -1142,52 +1038,22 @@ export function ChatInterface() {
                                 updateAgentStage(tChat("agent.handoffTo", { target }));
                                 addStreamingEvent(event);
                             } else if (event.type === "source") {
-                                // Handle source events from search - also update inline sources
                                 addStreamingEvent(event);
-                                const sourceData = event.data as Record<string, unknown> | undefined;
-                                if (sourceData) {
-                                    const newSource: Source = {
-                                        id: (sourceData.id as string) || `source-${collectedSources.length}`,
-                                        title: (sourceData.title as string) || event.name || "Source",
-                                        url: (sourceData.url as string) || "",
-                                        snippet: sourceData.snippet as string | undefined,
-                                    };
+                                const newSource = parseSourceFromEvent(event, ctx.collectedSources.length);
+                                if (newSource) {
                                     addStreamingSource(newSource);
                                 }
                             } else if (event.type === "code_result") {
                                 addStreamingEvent(event);
                             } else if (event.type === "image") {
-                                // Handle image event - images rendered inline via placeholder
-                                // Accept images with either data (base64) or url
-                                console.log("[Image Event] Received:", {
-                                    hasData: !!event.data,
-                                    dataLength: event.data ? event.data.length : 0,
-                                    hasUrl: !!event.url,
-                                    mimeType: event.mime_type,
-                                    index: event.index,
-                                });
-                                if ((event.data || event.url) && event.mime_type) {
-                                    const imageIndex = event.index as number ?? collectedImages.length;
-                                    // Deduplicate: check if image with same index already exists
-                                    const isDuplicate = collectedImages.some(img => img.index === imageIndex);
+                                const imageData = parseImageFromEvent(event, ctx.collectedImages.length);
+                                if (imageData) {
+                                    const isDuplicate = ctx.collectedImages.some(img => img.index === imageData.index);
                                     if (!isDuplicate) {
-                                        const imageData = {
-                                            index: imageIndex,
-                                            data: event.data as string | undefined,
-                                            url: event.url as string | undefined,
-                                            storageKey: event.storage_key as string | undefined,
-                                            fileId: event.file_id as string | undefined,
-                                            mimeType: event.mime_type as "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html",
-                                        };
-                                        collectedImages.push(imageData);
+                                        ctx.collectedImages.push(imageData);
                                         setStreamingImages(prev => [...prev, imageData]);
-                                        collectedEvents.push(event);
-                                        console.log("[Image Event] Added to streaming, total images:", collectedImages.length);
-                                    } else {
-                                        console.log("[Image Event] Skipping duplicate at index:", imageIndex);
+                                        ctx.collectedEvents.push(event);
                                     }
-                                } else {
-                                    console.warn("[Image Event] Missing data/url or mime_type, event:", event);
                                 }
                             } else if (event.type === "browser_stream") {
                                 // Handle browser stream event - show live browser view
@@ -1223,7 +1089,6 @@ export function ChatInterface() {
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "interrupt") {
-                                // Handle interrupt event (HITL) - show approval dialog
                                 const interruptEvent: InterruptEvent = {
                                     type: "interrupt",
                                     interrupt_id: event.interrupt_id as string,
@@ -1234,7 +1099,7 @@ export function ChatInterface() {
                                     tool_info: event.tool_info,
                                     default_action: event.default_action,
                                     timeout_seconds: (event.timeout_seconds as number) || 120,
-                                    timestamp: event.timestamp || Date.now(),
+                                    timestamp: (event.timestamp as number | undefined) ?? Date.now(),
                                 };
                                 console.log("[HITL] Interrupt received:", {
                                     interrupt_id: interruptEvent.interrupt_id,
@@ -1247,28 +1112,23 @@ export function ChatInterface() {
                                 });
                                 addStreamingEvent(event);
                             } else if (event.type === "error") {
-                                fullContent = tChat("agent.error", { error: event.data });
-                                updateStreamingContent(fullContent);
+                                const errorData = typeof event.data === "string" ? event.data : "Unknown error";
+                                ctx.fullContent = tChat("agent.error", { error: errorData });
+                                updateStreamingContent(ctx.fullContent);
                                 addAgentEvent(event);
                             } else if (event.type === "complete") {
-                                // Stream complete, break out of loop
                                 break;
                             }
                         } catch (e) {
                             console.error("[SSE Parse Error]", e, "Line:", line);
                         }
                     } else if (line.startsWith("event: ")) {
-                        // SSE event type line, can be ignored as we parse data lines
                         continue;
                     }
                 }
             }
 
-            if (fullContent || collectedImages.length > 0) {
-                const sanitizedContent = fullContent;
-                if (collectedImages.length > 0) {
-                    console.log("[Message Save] Saving agent message with images:", collectedImages.length);
-                }
+            if (ctx.fullContent || ctx.collectedImages.length > 0) {
                 // Clear streaming state BEFORE saving to prevent duplicate rendering
                 flushTokenBatch();
                 setStreamingContent("");
@@ -1278,22 +1138,18 @@ export function ChatInterface() {
                 setStreamingSources([]);
                 setLoading(false);
 
-                // Filter events to only save important ones (stages, tool_calls, sources, skill outputs, tool results)
-                const savedEvents = collectedEvents.filter(
-                    (e) => e.type === "stage" || e.type === "source" || e.type === "tool_call" || e.type === "skill_output" || e.type === "tool_result"
-                );
+                const savedEvents = filterEventsForSaving(ctx.collectedEvents);
 
                 await addMessage(conversationId, {
                     role: "assistant",
-                    content: sanitizedContent,
+                    content: ctx.fullContent,
                     metadata: {
-                        ...(collectedImages.length ? { images: collectedImages } : {}),
+                        ...(ctx.collectedImages.length ? { images: ctx.collectedImages } : {}),
                         ...(savedEvents.length ? { agentEvents: savedEvents } : {}),
                     },
                 });
             }
         } catch (error) {
-            // Don't show error message if request was cancelled by user
             if (error instanceof Error && error.name === 'AbortError') {
                 console.log("Agent task cancelled by user");
             } else {

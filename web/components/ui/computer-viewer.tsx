@@ -16,7 +16,6 @@ type ViewerSize = "small" | "medium" | "large";
 
 // E2B Desktop default resolution is 1024x768 (4:3 aspect ratio)
 const E2B_RESOLUTION = { width: 1024, height: 768 };
-const ASPECT_RATIO = E2B_RESOLUTION.width / E2B_RESOLUTION.height; // ~1.33
 
 const SIZE_CONFIG: Record<ViewerSize, { width: number; height: number }> = {
     small: { width: 384, height: 288 },   // 384/288 = 1.33

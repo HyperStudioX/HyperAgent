@@ -25,7 +25,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
     const router = useRouter();
     const [isResizing, setIsResizing] = useState(false);
     const sidebarRef = useRef<HTMLElement>(null);
-    const { data: session, status } = useSession();
+    const { status } = useSession();
     const {
         conversations,
         activeConversationId,

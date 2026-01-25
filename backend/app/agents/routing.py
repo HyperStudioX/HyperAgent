@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.state import AgentType, SupervisorState
-from app.core.logging import get_logger
 from app.ai.llm import llm_service
 from app.ai.model_tiers import ModelTier
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -216,6 +216,9 @@ def parse_router_response(response: str) -> RoutingResult:
     result = parse_router_response_json(response)
     if result:
         return result
+
+    # Fallback to legacy text parsing
+    return parse_router_response_legacy(response)
 
 
 async def route_query(state: SupervisorState) -> dict:

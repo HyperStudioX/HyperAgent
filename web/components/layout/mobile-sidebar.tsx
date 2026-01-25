@@ -18,7 +18,7 @@ interface MobileSidebarProps {
 
 export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
     const router = useRouter();
-    const { data: session, status } = useSession();
+    const { status } = useSession();
     const {
         conversations,
         activeConversationId,

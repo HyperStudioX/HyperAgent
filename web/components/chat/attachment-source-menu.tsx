@@ -4,7 +4,7 @@ import React, { useRef } from "react";
 import { Upload, Cloud, HardDrive, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
-import { ALL_ACCEPTED_FILES, SUPPORTED_FILE_TYPES } from "@/lib/types";
+import { ALL_ACCEPTED_FILES } from "@/lib/types";
 
 interface AttachmentSource {
     id: string;

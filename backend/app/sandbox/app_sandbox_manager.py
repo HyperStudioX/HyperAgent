@@ -35,28 +35,30 @@ def get_default_app_session_timeout() -> timedelta:
 CLEANUP_INTERVAL_SECONDS = 60
 
 # Supported app templates
+# Note: Using vite@5 instead of vite@latest because E2B sandbox has Node.js 20.9.0
+# and Vite 6+ requires Node.js 20.19+ or 22.12+
 APP_TEMPLATES = {
     "react": {
         "name": "React (Vite)",
-        "scaffold_cmd": "npm create vite@latest app -- --template react && cd app && npm install",
+        "scaffold_cmd": "npm create vite@5 app -- --template react && cd app && npm install",
         "start_cmd": "cd app && npm run dev -- --host 0.0.0.0",
         "port": 5173,
     },
     "react-ts": {
         "name": "React TypeScript (Vite)",
-        "scaffold_cmd": "npm create vite@latest app -- --template react-ts && cd app && npm install",
+        "scaffold_cmd": "npm create vite@5 app -- --template react-ts && cd app && npm install",
         "start_cmd": "cd app && npm run dev -- --host 0.0.0.0",
         "port": 5173,
     },
     "nextjs": {
         "name": "Next.js",
-        "scaffold_cmd": "npx create-next-app@latest app --typescript --tailwind --eslint --app --src-dir --use-npm --no-git",
+        "scaffold_cmd": "npx create-next-app@14 app --typescript --tailwind --eslint --app --src-dir --use-npm --no-git",
         "start_cmd": "cd app && npm run dev",
         "port": 3000,
     },
     "vue": {
         "name": "Vue 3 (Vite)",
-        "scaffold_cmd": "npm create vite@latest app -- --template vue && cd app && npm install",
+        "scaffold_cmd": "npm create vite@5 app -- --template vue && cd app && npm install",
         "start_cmd": "cd app && npm run dev -- --host 0.0.0.0",
         "port": 5173,
     },
@@ -376,25 +378,45 @@ class AppSandboxManager:
             if session.app_process and session.app_process.is_running:
                 await self.stop_dev_server(session)
 
-            # Start the dev server in background using nohup to prevent it from being killed
-            # Use a wrapper script that keeps the server running
-            background_cmd = f"nohup {start_cmd} > /tmp/dev_server.log 2>&1 &"
-            await session.sandbox.commands.run(
+            # Get the public URL for the port first (before starting server)
+            preview_url = session.sandbox.get_host(server_port)
+
+            # Start the dev server using E2B's background mode
+            # The background=True flag runs the command asynchronously
+            logger.info(
+                "app_dev_server_launching",
+                command=start_cmd,
+                sandbox_id=session.sandbox_id,
+            )
+
+            # Use setsid with bash -c to create a new session and disown the process
+            # This ensures the process continues running even after the command returns
+            # We need to wrap in bash -c because setsid needs an executable, not shell built-ins
+            background_cmd = f"setsid bash -c '{start_cmd} > /tmp/dev_server.log 2>&1' &"
+            result = await session.sandbox.commands.run(
                 background_cmd,
-                timeout=30,  # Just to start the background process
+                timeout=30,
                 cwd="/home/user",
             )
 
-            # Get the public URL for the port
-            preview_url = session.sandbox.get_host(server_port)
+            logger.info(
+                "app_dev_server_background_started",
+                exit_code=result.exit_code,
+                stdout=result.stdout[:200] if result.stdout else "",
+                stderr=result.stderr[:200] if result.stderr else "",
+                sandbox_id=session.sandbox_id,
+            )
 
             # Store process info
             session.app_process = AppProcess(
-                pid=None,  # PID not easily available with nohup
+                pid=None,  # PID not easily available with background process
                 command=start_cmd,
                 is_running=True,
             )
             session.preview_url = f"https://{preview_url}"
+
+            # Give the server a moment to initialize before polling
+            await asyncio.sleep(2)
 
             # Poll to check if the server is actually listening on the port
             server_ready = False
@@ -409,10 +431,24 @@ class AppSandboxManager:
             )
 
             for attempt in range(max_attempts):
-                # Check if something is listening on the port
+                # Check if something is listening on the port using multiple methods
+                # Try: 1) curl, 2) /dev/tcp (bash built-in), 3) lsof, 4) ss
+                port_check_script = f"""
+if curl -s --connect-timeout 2 http://localhost:{server_port} >/dev/null 2>&1; then
+    echo 'PORT_OPEN'
+elif (echo >/dev/tcp/localhost/{server_port}) 2>/dev/null; then
+    echo 'PORT_OPEN'
+elif lsof -i:{server_port} -sTCP:LISTEN >/dev/null 2>&1; then
+    echo 'PORT_OPEN'
+elif ss -tlnp | grep -q ':{server_port} ' 2>/dev/null; then
+    echo 'PORT_OPEN'
+else
+    echo 'PORT_CLOSED'
+fi
+"""
                 check_result = await session.sandbox.commands.run(
-                    f"nc -z localhost {server_port} && echo 'PORT_OPEN' || echo 'PORT_CLOSED'",
-                    timeout=5,
+                    port_check_script,
+                    timeout=10,
                     cwd="/home/user",
                 )
 

@@ -4,7 +4,7 @@ import asyncio
 import base64
 import json
 import uuid
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -150,7 +150,19 @@ async def get_file_context(
 
 
 # Image MIME types that can be processed by vision tools
-IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+IMAGE_MIME_TYPES: set[str] = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def _sse_data(payload: dict[str, Any]) -> str:
+    """Format a payload as an SSE data line.
+
+    Args:
+        payload: Dictionary to serialize as JSON
+
+    Returns:
+        SSE formatted data string
+    """
+    return f"data: {json.dumps(payload)}\n\n"
 
 
 async def get_image_attachments(
@@ -385,8 +397,8 @@ async def stream_query(
                     "I'm unable to process this request due to safety concerns. "
                     "Please rephrase your message and try again."
                 )
-                yield f"data: {json.dumps({'type': 'token', 'data': error_message})}\n\n"
-                yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
+                yield _sse_data({"type": "token", "data": error_message})
+                yield _sse_data({"type": "complete", "data": ""})
 
             return StreamingResponse(
                 blocked_generator(),
@@ -403,7 +415,7 @@ async def stream_query(
                 async for event in agent_supervisor.run(
                     query=request.message,
                     mode=request.mode.value,
-                    task_id=chat_task_id,  # Pass task_id for browser session management
+                    task_id=chat_task_id,
                     user_id=current_user.id,
                     messages=history,
                     system_prompt=system_prompt,
@@ -413,132 +425,127 @@ async def stream_query(
                     image_attachments=image_attachments,
                     locale=request.locale,
                 ):
-                    if event["type"] == "token":
-                        data = json.dumps({"type": "token", "data": event["content"]})
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "stage":
-                        # Stream stage event directly (already has type field)
-                        data = json.dumps(event)
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "tool_call":
-                        # Stream tool calls with flat structure (no data wrapper)
-                        data = json.dumps({
+                    event_type = event["type"]
+
+                    if event_type == "token":
+                        yield _sse_data({"type": "token", "data": event["content"]})
+
+                    elif event_type == "stage":
+                        yield _sse_data(event)
+
+                    elif event_type == "tool_call":
+                        yield _sse_data({
                             "type": "tool_call",
                             "tool": event.get("tool", ""),
                             "args": event.get("args", {}),
                             "id": event.get("id"),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "tool_result":
-                        # Stream tool results with flat structure
-                        data = json.dumps({
+
+                    elif event_type == "tool_result":
+                        yield _sse_data({
                             "type": "tool_result",
                             "tool": event.get("tool", ""),
                             "content": event.get("content", ""),
                             "id": event.get("id"),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "routing":
-                        # Stream routing decision events
-                        data = json.dumps({
+
+                    elif event_type == "routing":
+                        yield _sse_data({
                             "type": "routing",
                             "agent": event.get("agent", ""),
                             "reason": event.get("reason", ""),
                             "confidence": event.get("confidence"),
                             "low_confidence": event.get("low_confidence", False),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "handoff":
-                        # Stream agent handoff events
-                        data = json.dumps({
+
+                    elif event_type == "handoff":
+                        yield _sse_data({
                             "type": "handoff",
                             "source": event.get("source", ""),
                             "target": event.get("target", ""),
                             "task": event.get("task", ""),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "source":
-                        # Stream source events from search results
-                        data = json.dumps({
+
+                    elif event_type == "source":
+                        yield _sse_data({
                             "type": "source",
                             "title": event.get("title", ""),
                             "url": event.get("url", ""),
                             "snippet": event.get("snippet", ""),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "code_result":
-                        # Stream code execution results
-                        data = json.dumps({
+
+                    elif event_type == "code_result":
+                        yield _sse_data({
                             "type": "code_result",
                             "output": event.get("output", ""),
                             "exit_code": event.get("exit_code"),
                             "error": event.get("error"),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "browser_stream":
-                        # Stream browser stream events for live E2B desktop viewing
-                        data = json.dumps({
+
+                    elif event_type == "browser_stream":
+                        logger.info(
+                            "streaming_browser_stream_event",
+                            sandbox_id=event.get("sandbox_id", "")[:8],
+                        )
+                        yield _sse_data({
                             "type": "browser_stream",
                             "stream_url": event.get("stream_url", ""),
                             "sandbox_id": event.get("sandbox_id", ""),
                             "auth_key": event.get("auth_key"),
                         })
-                        logger.info("streaming_browser_stream_event",
-                                   sandbox_id=event.get("sandbox_id", "")[:8])
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "browser_action":
-                        # Stream browser action events to sync progress with browser stream
-                        data = json.dumps({
+
+                    elif event_type == "browser_action":
+                        yield _sse_data({
                             "type": "browser_action",
                             "action": event.get("action", ""),
                             "description": event.get("description", ""),
                             "target": event.get("target"),
                             "status": event.get("status", "running"),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "skill_output":
-                        # Stream skill output events
-                        data = json.dumps({
+
+                    elif event_type == "skill_output":
+                        yield _sse_data({
                             "type": "skill_output",
                             "skill_id": event.get("skill_id", ""),
                             "output": event.get("output", {}),
                         })
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "image":
-                        # Stream image events (generated images)
-                        # Include data (base64), url, storage_key, file_id
+
+                    elif event_type == "image":
                         img_data = event.get("data")
                         img_url = event.get("url")
-                        if img_data or img_url:  # Send if either data or url is present
-                            payload = {
+                        if img_data or img_url:
+                            payload: dict[str, Any] = {
                                 "type": "image",
                                 "mime_type": event.get("mime_type", "image/png"),
-                                "index": event.get("index"),  # Include index for inline rendering
+                                "index": event.get("index"),
                             }
-                            # Include base64 data if available (for immediate display)
                             if img_data:
                                 payload["data"] = img_data
-                            # Include persistent URL if available
                             if img_url:
                                 payload["url"] = img_url
-                            # Include storage metadata if available
                             if event.get("storage_key"):
                                 payload["storage_key"] = event["storage_key"]
                             if event.get("file_id"):
                                 payload["file_id"] = event["file_id"]
 
-                            data = json.dumps(payload)
-                            logger.info("streaming_image_event",
-                                       mime_type=event.get("mime_type", "image/png"),
-                                       has_data=bool(img_data),
-                                       has_url=bool(img_url),
-                                       index=event.get("index"))
-                            yield f"data: {data}\n\n"
+                            logger.info(
+                                "streaming_image_event",
+                                mime_type=event.get("mime_type", "image/png"),
+                                has_data=bool(img_data),
+                                has_url=bool(img_url),
+                                index=event.get("index"),
+                            )
+                            yield _sse_data(payload)
                         else:
                             logger.warning("skipping_empty_image_event", event=event)
-                    elif event["type"] == "interrupt":
-                        # Stream HITL interrupt events for user approval/input
-                        data = json.dumps({
+
+                    elif event_type == "interrupt":
+                        logger.info(
+                            "streaming_interrupt_event",
+                            interrupt_id=event.get("interrupt_id", "")[:8],
+                            interrupt_type=event.get("interrupt_type"),
+                        )
+                        yield _sse_data({
                             "type": "interrupt",
                             "interrupt_id": event.get("interrupt_id", ""),
                             "interrupt_type": event.get("interrupt_type", "input"),
@@ -550,18 +557,19 @@ async def stream_query(
                             "timeout_seconds": event.get("timeout_seconds", 120),
                             "timestamp": event.get("timestamp"),
                         })
-                        logger.info("streaming_interrupt_event",
-                                   interrupt_id=event.get("interrupt_id", "")[:8],
-                                   interrupt_type=event.get("interrupt_type"))
-                        yield f"data: {data}\n\n"
-                    elif event["type"] == "complete":
-                        yield f"data: {json.dumps({'type': 'complete', 'data': ''})}\n\n"
-                    elif event["type"] == "error":
-                        yield f"data: {json.dumps({'type': 'error', 'data': event.get('error', 'Unknown error')})}\n\n"
+
+                    elif event_type == "complete":
+                        yield _sse_data({"type": "complete", "data": ""})
+
+                    elif event_type == "error":
+                        yield _sse_data({
+                            "type": "error",
+                            "data": event.get("error", "Unknown error"),
+                        })
 
             except Exception as e:
                 logger.error("agent_stream_error", mode=request.mode.value, error=str(e))
-                yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+                yield _sse_data({"type": "error", "data": str(e)})
 
         return StreamingResponse(
             agent_generator(),
@@ -584,7 +592,7 @@ async def stream_query(
         task_id = request.task_id or str(uuid.uuid4())
 
         # Create task in database
-        task = await deep_research_repository.create_task(
+        await deep_research_repository.create_task(
             db=db,
             task_id=task_id,
             query=request.message,

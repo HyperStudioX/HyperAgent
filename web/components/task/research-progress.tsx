@@ -13,7 +13,6 @@ import {
     ArrowLeft,
     AlertCircle,
     Monitor,
-    ChevronRight,
     X,
     PanelRightClose,
     PanelRight,

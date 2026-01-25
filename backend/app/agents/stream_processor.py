@@ -1,7 +1,7 @@
 """Stream processor for normalizing and handling agent events."""
 
 import uuid
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
+from typing import Any, AsyncGenerator
 
 from app.agents import events as agent_events
 from app.core.logging import get_logger
@@ -10,7 +10,7 @@ from app.sandbox import get_desktop_sandbox_manager, is_desktop_sandbox_availabl
 logger = get_logger(__name__)
 
 # Streaming configuration - declarative mapping of which nodes should stream tokens
-STREAMING_CONFIG = {
+STREAMING_CONFIG: dict[str, bool] = {
     "summarize": True,
     "agent": True,
     "reason": True,  # Chat agent's reason node - stream LLM responses to user
@@ -30,7 +30,7 @@ STREAMING_CONFIG = {
 }
 
 # Browser tools set
-BROWSER_TOOLS = {
+BROWSER_TOOLS: set[str] = {
     "browser_navigate",
     "browser_click",
     "browser_type",
@@ -41,7 +41,7 @@ BROWSER_TOOLS = {
 
 # Mapping of node suffixes to stage information
 # Format: (suffix, stage_name, running_desc, completed_desc)
-STAGE_DEFINITIONS: List[Tuple[str, str, str, Optional[str]]] = [
+STAGE_DEFINITIONS: list[tuple[str, str, str, str | None]] = [
     ("plan", "plan", "Planning analysis...", "Analysis planned"),
     ("generate", "generate", "Generating code...", "Code generated"),
     ("execute", "execute", "Executing code...", "Code executed"),
@@ -56,7 +56,7 @@ STAGE_DEFINITIONS: List[Tuple[str, str, str, Optional[str]]] = [
 ]
 
 # Browser action descriptions
-BROWSER_ACTION_DESCRIPTIONS = {
+BROWSER_ACTION_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "browser_navigate": ("navigate", "Navigating to URL"),
     "browser_click": ("click", "Clicking on element"),
     "browser_type": ("type", "Typing text"),
@@ -64,6 +64,15 @@ BROWSER_ACTION_DESCRIPTIONS = {
     "browser_scroll": ("scroll", "Scrolling page"),
     "browser_press_key": ("key", "Pressing key"),
 }
+
+# Content length limits for tool results
+TOOL_CONTENT_LIMITS: dict[str, int] = {
+    "invoke_skill": 5000,  # Extra space for skill output with preview URLs
+    "app_start_server": 2000,
+    "app_get_preview_url": 2000,
+    "create_app_project": 2000,
+}
+DEFAULT_CONTENT_LIMIT = 500
 
 
 class StreamProcessor:
@@ -75,14 +84,14 @@ class StreamProcessor:
         self.thread_id = thread_id
 
         # State tracking
-        self.emitted_tool_call_ids: Set[str] = set()
-        self.emitted_stage_keys: Set[str] = set()
-        self.emitted_image_indices: Set[int] = set()
-        self.emitted_interrupt_ids: Set[str] = set()  # Track emitted HITL interrupts
-        self.pending_tool_calls: Dict[str, Dict] = {}
-        self.pending_tool_calls_by_tool: Dict[str, List[str]] = {}
-        self.node_path: List[str] = []
-        self.current_content_node: Optional[str] = None
+        self.emitted_tool_call_ids: set[str] = set()
+        self.emitted_stage_keys: set[str] = set()
+        self.emitted_image_indices: set[int] = set()
+        self.emitted_interrupt_ids: set[str] = set()  # Track emitted HITL interrupts
+        self.pending_tool_calls: dict[str, dict] = {}
+        self.pending_tool_calls_by_tool: dict[str, list[str]] = {}
+        self.node_path: list[str] = []
+        self.current_content_node: str | None = None
         self.streamed_tokens: bool = False
 
     def node_matches_streaming(self, node_name: str, node_key: str) -> bool:
@@ -99,7 +108,7 @@ class StreamProcessor:
                     return True
         return False
 
-    async def process_event(self, event: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
+    async def process_event(self, event: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Process a single LangGraph event and yield normalized events."""
         event_type = event.get("event")
         node_name = event.get("name", "")
@@ -128,7 +137,7 @@ class StreamProcessor:
             async for e in self._handle_chain_error(node_name, event):
                 yield e
 
-    async def _handle_chain_start(self, node_name: str) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _handle_chain_start(self, node_name: str) -> AsyncGenerator[dict[str, Any], None]:
         self.node_path.append(node_name)
 
         # Track content-generating nodes
@@ -155,16 +164,15 @@ class StreamProcessor:
                 stage_key = f"{stage_name}:running"
                 if stage_key not in self.emitted_stage_keys:
                     self.emitted_stage_keys.add(stage_key)
-                    yield {
-                        "type": "stage",
-                        "name": stage_name,
-                        "description": desc,
-                        "status": "running",
-                    }
+                    yield agent_events.stage(
+                        name=stage_name,
+                        description=desc,
+                        status="running",
+                    )
 
     async def _handle_chain_end(
-        self, node_name: str, event: Dict
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        self, node_name: str, event: dict
+    ) -> AsyncGenerator[dict[str, Any], None]:
         # Update node path
         if self.node_path and self.node_path[-1] == node_name:
             self.node_path.pop()
@@ -174,12 +182,11 @@ class StreamProcessor:
         # Thinking stage completion
         if node_name == "router" and "thinking" not in self.emitted_stage_keys:
             self.emitted_stage_keys.add("thinking")
-            yield {
-                "type": "stage",
-                "name": "thinking",
-                "description": "Request processed",
-                "status": "completed",
-            }
+            yield agent_events.stage(
+                name="thinking",
+                description="Request processed",
+                status="completed",
+            )
 
         # Stage completions via configuration
         for suffix, stage_name, _, completed_desc in STAGE_DEFINITIONS:
@@ -199,12 +206,11 @@ class StreamProcessor:
                 stage_key = f"{stage_name}:completed"
                 if stage_key not in self.emitted_stage_keys:
                     self.emitted_stage_keys.add(stage_key)
-                    yield {
-                        "type": "stage",
-                        "name": stage_name,
-                        "description": completed_desc,
-                        "status": "completed",
-                    }
+                    yield agent_events.stage(
+                        name=stage_name,
+                        description=completed_desc,
+                        status="completed",
+                    )
 
         # Extract and forward events from subagent output
         event_data = event.get("data") or {}
@@ -218,7 +224,7 @@ class StreamProcessor:
                         if self._should_emit_subevent(e, node_name):
                             yield e
 
-    def _should_emit_subevent(self, e: Dict, node_name: str) -> bool:
+    def _should_emit_subevent(self, e: dict, node_name: str) -> bool:
         event_type = e.get("type")
 
         # Token deduplication
@@ -280,7 +286,7 @@ class StreamProcessor:
 
         return True
 
-    async def _handle_chat_stream(self, event: Dict) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _handle_chat_stream(self, event: dict) -> AsyncGenerator[dict[str, Any], None]:
         node_path_str = "/".join(self.node_path)
         chunk = (event.get("data") or {}).get("chunk")
 
@@ -317,12 +323,11 @@ class StreamProcessor:
                 }
                 self.pending_tool_calls_by_tool.setdefault(tool_name, []).append(tool_id)
 
-                yield {
-                    "type": "tool_call",
-                    "tool": tool_name,
-                    "args": tool_args,
-                    "id": tool_id,
-                }
+                yield agent_events.tool_call(
+                    tool=tool_name,
+                    args=tool_args,
+                    tool_id=tool_id,
+                )
 
         # Streaming content tokens
         if self.path_has_streamable_node(node_path_str):
@@ -335,7 +340,7 @@ class StreamProcessor:
                     self.streamed_tokens = True
                     yield {"type": "token", "content": content}
 
-    async def _handle_tool_start(self, event: Dict) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _handle_tool_start(self, event: dict) -> AsyncGenerator[dict[str, Any], None]:
         run_id = event.get("run_id", "")
         tool_name = event.get("name", "")
         tool_input = (event.get("data") or {}).get("input") or {}
@@ -361,12 +366,11 @@ class StreamProcessor:
             }
             self.pending_tool_calls_by_tool.setdefault(tool_name, []).append(tool_call_id)
 
-            yield {
-                "type": "tool_call",
-                "tool": tool_name,
-                "args": tool_input if isinstance(tool_input, dict) else {},
-                "id": tool_call_id,
-            }
+            yield agent_events.tool_call(
+                tool=tool_name,
+                args=tool_input if isinstance(tool_input, dict) else {},
+                tool_id=tool_call_id,
+            )
 
         # Browser action events
         if tool_name in BROWSER_ACTION_DESCRIPTIONS:
@@ -393,7 +397,7 @@ class StreamProcessor:
                 status="running",
             )
 
-    async def _emit_browser_stream(self, tool_input: Any) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _emit_browser_stream(self, tool_input: Any) -> AsyncGenerator[dict[str, Any], None]:
         if not is_desktop_sandbox_available():
             return
 
@@ -418,7 +422,7 @@ class StreamProcessor:
         except Exception as e:
             logger.warning("browser_stream_emit_failed", error=str(e))
 
-    async def _handle_tool_end(self, event: Dict) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _handle_tool_end(self, event: dict) -> AsyncGenerator[dict[str, Any], None]:
         run_id = event.get("run_id", "")
         tool_name = event.get("name", "")
         output = (event.get("data") or {}).get("output", "")
@@ -451,33 +455,32 @@ class StreamProcessor:
 
                     # Emit skill_output event for frontend to extract preview URLs etc.
                     if parsed.get("success") and parsed.get("output"):
-                        yield {
+                        skill_output_event = {
                             "type": "skill_output",
                             "skill_id": parsed.get("skill_id"),
                             "output": parsed.get("output"),
                         }
+                        logger.info(
+                            "emitting_skill_output",
+                            skill_id=parsed.get("skill_id"),
+                            has_preview_url="preview_url" in str(parsed.get("output", {})),
+                        )
+                        yield skill_output_event
             except (json.JSONDecodeError, ValueError):
                 pass
 
         # Resolve tool call ID
         tool_call_id = self._resolve_tool_call_id(run_id, tool_name)
 
-        # Emit tool result
-        # Use larger limit for app-related tools to preserve preview URLs
-        # invoke_skill needs extra space for full skill output with preview URLs
-        if tool_name == "invoke_skill":
-            max_content_length = 5000
-        elif tool_name in {"app_start_server", "app_get_preview_url", "create_app_project"}:
-            max_content_length = 2000
-        else:
-            max_content_length = 500
+        # Emit tool result with appropriate content length limit
+        max_content_length = TOOL_CONTENT_LIMITS.get(tool_name, DEFAULT_CONTENT_LIMIT)
         content = str(output)[:max_content_length] if output else ""
-        yield {
-            "type": "tool_result",
-            "tool": tool_name,
-            "content": content,
-            "id": tool_call_id,
-        }
+        yield agent_events.tool_result(
+            tool=tool_name,
+            content=content,
+            max_length=max_content_length,
+            tool_id=tool_call_id,
+        )
 
         # Cleanup pending
         self.pending_tool_calls.pop(tool_call_id, None)
@@ -508,15 +511,14 @@ class StreamProcessor:
         return tool_call_id or str(run_id) if run_id else str(uuid.uuid4())
 
     async def _handle_chain_error(
-        self, node_name: str, event: Dict
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        self, node_name: str, event: dict
+    ) -> AsyncGenerator[dict[str, Any], None]:
         error = (event.get("data") or {}).get("error")
         if error:
-            yield {
-                "type": "error",
-                "error": str(error),
-                "node": node_name,
-            }
+            yield agent_events.error(
+                error_msg=str(error),
+                name=node_name,
+            )
             logger.error(
                 "subagent_error",
                 node=node_name,

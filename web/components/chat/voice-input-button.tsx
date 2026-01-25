@@ -4,7 +4,7 @@ import React, { useCallback, useEffect } from "react";
 import { Mic, Loader2, MicOff } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
-import { useVoiceRecording, VoiceRecordingState } from "@/lib/hooks/use-voice-recording";
+import { useVoiceRecording } from "@/lib/hooks/use-voice-recording";
 
 interface VoiceInputButtonProps {
   onTranscription: (text: string) => void;

@@ -10,6 +10,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
+from app.agents import events
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -222,6 +223,8 @@ def create_stage_event(
 ) -> dict[str, Any]:
     """Create a stage event dictionary.
 
+    Delegates to events.stage() for consistent event creation.
+
     Args:
         name: Stage name (e.g., "search", "analyze", "write")
         description: Human-readable description
@@ -230,36 +233,31 @@ def create_stage_event(
     Returns:
         Stage event dictionary
     """
-    return {
-        "type": "stage",
-        "name": name,
-        "description": description,
-        "status": status,
-    }
+    return events.stage(name=name, description=description, status=status)
 
 
 def create_error_event(
     name: str,
-    error: str,
+    error_msg: str,
     description: str | None = None,
 ) -> dict[str, Any]:
     """Create an error event dictionary.
 
+    Delegates to events.error() for consistent event creation.
+
     Args:
         name: Stage/component name where error occurred
-        error: Error message
+        error_msg: Error message
         description: Optional human-readable description
 
     Returns:
         Error event dictionary
     """
-    return {
-        "type": "error",
-        "name": name,
-        "description": description or f"Error: {error}",
-        "error": error,
-        "status": "failed",
-    }
+    return events.error(
+        error_msg=error_msg,
+        name=name,
+        description=description or f"Error: {error_msg}",
+    )
 
 
 def create_tool_call_event(
@@ -269,6 +267,8 @@ def create_tool_call_event(
 ) -> dict[str, Any]:
     """Create a tool call event dictionary.
 
+    Delegates to events.tool_call() for consistent event creation.
+
     Args:
         tool_name: Name of the tool being called
         args: Arguments passed to the tool
@@ -277,12 +277,7 @@ def create_tool_call_event(
     Returns:
         Tool call event dictionary
     """
-    return {
-        "type": "tool_call",
-        "tool": tool_name,
-        "args": args,
-        "id": tool_id,
-    }
+    return events.tool_call(tool=tool_name, args=args, tool_id=tool_id)
 
 
 def create_tool_result_event(
@@ -293,6 +288,8 @@ def create_tool_result_event(
 ) -> dict[str, Any]:
     """Create a tool result event dictionary.
 
+    Delegates to events.tool_result() for consistent event creation.
+
     Args:
         tool_name: Name of the tool
         content: Tool result content
@@ -302,12 +299,12 @@ def create_tool_result_event(
     Returns:
         Tool result event dictionary
     """
-    return {
-        "type": "tool_result",
-        "tool": tool_name,
-        "content": truncate_content(content, max_content_length),
-        "id": tool_id,
-    }
+    return events.tool_result(
+        tool=tool_name,
+        content=content,
+        max_length=max_content_length,
+        tool_id=tool_id,
+    )
 
 
 def format_shared_context(shared_memory: dict[str, Any]) -> str:

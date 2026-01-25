@@ -4,7 +4,7 @@ import { SkillMetadata } from "@/lib/types/skills";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Code, Sparkles, Search, BarChart3, Image, FileText } from "lucide-react";
+import { Code, Sparkles, Search, BarChart3, FileText } from "lucide-react";
 
 const CATEGORY_ICONS = {
   research: Search,

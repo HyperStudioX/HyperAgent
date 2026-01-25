@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 
 // Configuration for virtual/lazy rendering

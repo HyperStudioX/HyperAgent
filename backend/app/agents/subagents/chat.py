@@ -63,7 +63,7 @@ def _deduplicate_tool_messages(messages: list) -> list:
     Returns:
         Deduplicated list of messages
     """
-    seen_tool_call_ids = set()
+    seen_tool_call_ids: set[str] = set()
     result = []
 
     for msg in messages:
@@ -80,6 +80,56 @@ def _deduplicate_tool_messages(messages: list) -> list:
         result.append(msg)
 
     return result
+
+
+def _get_browser_tool_names() -> set[str]:
+    """Get the set of browser tool names.
+
+    Returns:
+        Set of browser tool names
+    """
+    return {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
+
+
+async def _execute_approved_tool(
+    tool_name: str,
+    tool_args: dict,
+    tool_map: dict,
+    user_id: str | None,
+    task_id: str | None,
+    log_prefix: str = "hitl_tool_approved_and_executed",
+) -> str:
+    """Execute an approved tool with proper context injection.
+
+    Args:
+        tool_name: Name of the tool to execute
+        tool_args: Arguments for the tool
+        tool_map: Mapping of tool names to tool instances
+        user_id: User ID for context injection
+        task_id: Task ID for context injection
+        log_prefix: Log message prefix for success case
+
+    Returns:
+        Result string describing execution outcome
+    """
+    if tool_name not in tool_map:
+        return f"Tool not found: {tool_name}"
+
+    tool = tool_map[tool_name]
+
+    # Inject context args for browser tools
+    browser_tools = _get_browser_tool_names()
+    if tool_name in browser_tools:
+        tool_args["user_id"] = user_id
+        tool_args["task_id"] = task_id
+
+    try:
+        result = await tool.ainvoke(tool_args)
+        logger.info(log_prefix, tool_name=tool_name)
+        return f"Tool executed: {str(result)[:500]}"
+    except Exception as e:
+        logger.error("hitl_approved_tool_failed", tool=tool_name, error=str(e))
+        return f"Error executing {tool_name}: {e}"
 
 
 async def reason_node(state: ChatState) -> dict:
@@ -293,9 +343,7 @@ async def act_node(state: ChatState) -> dict:
     # Get tools
     all_tools = get_tools_for_agent("chat", include_handoffs=True)
     tool_map = {tool.name: tool for tool in all_tools}
-
-    # Get browser tool names for context but don't handle side effects here
-    BROWSER_TOOLS = {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
+    browser_tools = _get_browser_tool_names()
 
     # Execute pending tool calls (excluding already-processed ones)
     tool_results: list[ToolMessage] = []
@@ -468,7 +516,7 @@ async def act_node(state: ChatState) -> dict:
 
             try:
                 # Add context args for tools that need them
-                if tool_name in BROWSER_TOOLS:
+                if tool_name in browser_tools:
                     args["user_id"] = user_id
                     args["task_id"] = task_id
 
@@ -696,69 +744,28 @@ async def wait_interrupt_node(state: ChatState) -> dict:
             task_id = state.get("task_id")
 
             if action == "approve":
-                # Execute the approved tool
-                if tool_name in tool_map:
-                    tool = tool_map[tool_name]
-                    try:
-                        # Add context args for browser tools
-                        browser_tools = {
-                            t.name for t in get_tools_by_category(ToolCategory.BROWSER)
-                        }
-                        if tool_name in browser_tools:
-                            tool_args["user_id"] = user_id
-                            tool_args["task_id"] = task_id
-
-                        result = await tool.ainvoke(tool_args)
-                        result_str = f"Tool executed: {str(result)[:500]}"
-
-                        logger.info(
-                            "hitl_tool_approved_and_executed",
-                            tool_name=tool_name,
-                            tool_call_id=tool_call_id,
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "hitl_approved_tool_failed",
-                            tool=tool_name,
-                            error=str(e),
-                        )
-                        result_str = f"Error executing {tool_name}: {e}"
-                else:
-                    result_str = f"Tool not found: {tool_name}"
+                result_str = await _execute_approved_tool(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_map=tool_map,
+                    user_id=user_id,
+                    task_id=task_id,
+                )
 
             elif action == "approve_always":
-                # Add to auto-approve list and execute
+                # Add to auto-approve list
                 if tool_name not in auto_approve_tools:
                     auto_approve_tools.append(tool_name)
-                    logger.info(
-                        "hitl_tool_auto_approved",
-                        tool_name=tool_name,
-                    )
+                    logger.info("hitl_tool_auto_approved", tool_name=tool_name)
 
-                # Execute the tool
-                if tool_name in tool_map:
-                    tool = tool_map[tool_name]
-                    try:
-                        browser_tools = {
-                            t.name for t in get_tools_by_category(ToolCategory.BROWSER)
-                        }
-                        if tool_name in browser_tools:
-                            tool_args["user_id"] = user_id
-                            tool_args["task_id"] = task_id
-
-                        result = await tool.ainvoke(tool_args)
-                        result_str = (
-                            f"Tool executed (auto-approved): {str(result)[:500]}"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "hitl_approved_tool_failed",
-                            tool=tool_name,
-                            error=str(e),
-                        )
-                        result_str = f"Error executing {tool_name}: {e}"
-                else:
-                    result_str = f"Tool not found: {tool_name}"
+                result_str = await _execute_approved_tool(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_map=tool_map,
+                    user_id=user_id,
+                    task_id=task_id,
+                    log_prefix="hitl_tool_auto_approved_and_executed",
+                )
 
             elif action == "deny":
                 result_str = f"User denied execution of {tool_name}. The tool was not executed."
@@ -776,10 +783,7 @@ async def wait_interrupt_node(state: ChatState) -> dict:
             if action == "skip":
                 result_str = "User skipped this question."
             elif action in ("select", "input"):
-                if value:
-                    result_str = f"User responded: {value}"
-                else:
-                    result_str = "User skipped this question."
+                result_str = f"User responded: {value}" if value else "User skipped this question."
             else:
                 result_str = f"User action: {action}"
 
@@ -793,7 +797,6 @@ async def wait_interrupt_node(state: ChatState) -> dict:
         )
 
         # Emit response event
-        from app.agents.utils import create_tool_result_event
         event_list.append(create_tool_result_event(tool_name, result_str, tool_call_id))
 
         # Debug: Log after adding tool result

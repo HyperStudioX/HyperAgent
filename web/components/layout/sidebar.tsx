@@ -23,7 +23,7 @@ interface SidebarProps {
 
 export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
     const router = useRouter();
-    const { data: session, status } = useSession();
+    const { status } = useSession();
     const {
         conversations,
         activeConversationId,
