@@ -33,7 +33,16 @@ def _initialize_scanners():
         logger.warning("llm_guard_model_download_required", error=str(e))
         _scanners_initialized = True
     except Exception as e:
-        logger.error("input_scanners_init_failed", error=str(e))
+        # Known issue: llm-guard 0.3.x has compatibility issues with Pydantic v2
+        # Fall back to pattern-based detection only
+        error_msg = str(e)
+        if "REGEX" in error_msg or "type" in error_msg:
+            logger.warning(
+                "llm_guard_pydantic_incompatibility",
+                detail="llm-guard has Pydantic v2 compatibility issues, using pattern-based detection only"
+            )
+        else:
+            logger.error("input_scanners_init_failed", error=error_msg)
         _scanners_initialized = True
 
 

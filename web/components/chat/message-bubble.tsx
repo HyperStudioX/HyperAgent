@@ -277,10 +277,18 @@ export const MessageBubble = memo(function MessageBubble({
     );
 
     // Extract app preview URLs from events
-    const appPreviews = useMemo(
-        () => extractAppPreviews(streamingEvents || agentEvents || []),
-        [streamingEvents, agentEvents]
-    );
+    const appPreviews = useMemo(() => {
+        const events = streamingEvents || agentEvents || [];
+        if (events.length > 0) {
+            console.log("[DEBUG] Extracting app previews from", events.length, "events");
+            const previews = extractAppPreviews(events);
+            if (previews.length > 0) {
+                console.log("[DEBUG] Found app previews:", previews);
+            }
+            return previews;
+        }
+        return [];
+    }, [streamingEvents, agentEvents]);
 
     async function handleCopyMessage(): Promise<void> {
         await navigator.clipboard.writeText(message.content);

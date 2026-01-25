@@ -460,10 +460,13 @@ class StreamProcessor:
                             "skill_id": parsed.get("skill_id"),
                             "output": parsed.get("output"),
                         }
+                        output_dict = parsed.get("output", {})
+                        preview_url = output_dict.get("preview_url") if isinstance(output_dict, dict) else None
                         logger.info(
                             "emitting_skill_output",
                             skill_id=parsed.get("skill_id"),
-                            has_preview_url="preview_url" in str(parsed.get("output", {})),
+                            has_preview_url="preview_url" in str(output_dict),
+                            preview_url=preview_url,
                         )
                         yield skill_output_event
             except (json.JSONDecodeError, ValueError):

@@ -206,7 +206,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                     <span className="brand-title brand-title-sm">HyperAgent</span>
                 </div>
                 <MenuToggle
-                    isOpen={true}
+                    isOpen={desktopSidebarOpen}
                     onClick={toggleDesktopSidebar}
                 />
             </div>

@@ -711,6 +711,15 @@ export function ChatInterface() {
                                 }
                                 addStreamingEvent(event);
                             } else if (event.type === "tool_result") {
+                                // Debug: Log tool results for app preview debugging
+                                const tool = event.tool || (event.data as any)?.tool;
+                                if (tool === "app_start_server" || tool === "app_get_preview_url" || tool === "invoke_skill") {
+                                    console.log("[DEBUG] Tool result for app preview:", {
+                                        tool,
+                                        hasContent: !!event.content,
+                                        contentPreview: typeof event.content === "string" ? event.content.substring(0, 200) : event.content
+                                    });
+                                }
                                 addStreamingEvent(event);
                             } else if (event.type === "routing") {
                                 addStreamingEvent(event);
@@ -765,6 +774,16 @@ export function ChatInterface() {
                             } else if (event.type === "skill_output") {
                                 // Handle skill output events
                                 const skillId = event.skill_id as string;
+                                // Debug: Log skill output for app preview debugging
+                                if (skillId === "app_builder") {
+                                    const output = event.output as any;
+                                    console.log("[DEBUG] App builder skill output:", {
+                                        hasOutput: !!output,
+                                        hasPreviewUrl: !!output?.preview_url,
+                                        previewUrl: output?.preview_url,
+                                        template: output?.template
+                                    });
+                                }
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "interrupt") {
@@ -1030,6 +1049,15 @@ export function ChatInterface() {
                                 }
                                 addStreamingEvent(event);
                             } else if (event.type === "tool_result") {
+                                // Debug: Log tool results for app preview debugging
+                                const tool = event.tool || (event.data as any)?.tool;
+                                if (tool === "app_start_server" || tool === "app_get_preview_url" || tool === "invoke_skill") {
+                                    console.log("[DEBUG] Tool result for app preview:", {
+                                        tool,
+                                        hasContent: !!event.content,
+                                        contentPreview: typeof event.content === "string" ? event.content.substring(0, 200) : event.content
+                                    });
+                                }
                                 addStreamingEvent(event);
                             } else if (event.type === "routing") {
                                 addStreamingEvent(event);
@@ -1086,6 +1114,16 @@ export function ChatInterface() {
                             } else if (event.type === "skill_output") {
                                 // Handle skill output events
                                 const skillId = event.skill_id as string;
+                                // Debug: Log skill output for app preview debugging
+                                if (skillId === "app_builder") {
+                                    const output = event.output as any;
+                                    console.log("[DEBUG] App builder skill output:", {
+                                        hasOutput: !!output,
+                                        hasPreviewUrl: !!output?.preview_url,
+                                        previewUrl: output?.preview_url,
+                                        template: output?.template
+                                    });
+                                }
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "interrupt") {
