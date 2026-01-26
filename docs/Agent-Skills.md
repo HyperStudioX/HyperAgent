@@ -324,6 +324,208 @@ class SkillExecutor:
 skill_executor = SkillExecutor()
 ```
 
+## How Agents Decide: Tools vs Skills
+
+Agents use **LLM-based autonomous decision-making** to choose between direct tools and skills. The decision is not hardcoded but emerges from system prompts, tool descriptions, and context understanding.
+
+### Decision-Making Process
+
+#### 1. Tool Binding
+
+All tools (including skill invocation tools) are bound to the LLM:
+
+```python
+# backend/app/agents/subagents/chat.py (reason_node)
+
+# Get all tools for chat agent
+all_tools = get_tools_for_agent("chat", include_handoffs=True)
+# Returns: [web_search, execute_code, invoke_skill, list_skills, ...]
+
+# Bind tools to LLM
+llm_with_tools = llm.bind_tools(all_tools)
+
+# LLM reasoning - can see and call any of these tools
+ai_message = await llm_with_tools.ainvoke(lc_messages)
+# LLM autonomously decides which tool(s) to call
+```
+
+The LLM receives:
+- **All available tools** in its context (direct tools + skill invocation tools)
+- **Tool descriptions** from LangChain schemas
+- **System prompt guidance** on when to use each
+
+#### 2. System Prompt Guidance
+
+The system prompt (`CHAT_SYSTEM_PROMPT` in `backend/app/agents/prompts.py`) provides explicit guidance:
+
+```python
+CHAT_SYSTEM_PROMPT = """
+<tools>
+You have access to a web search tool that you can use to find current information when needed. 
+Use it when:
+- The user asks about recent events or news
+- You need to verify facts or find up-to-date information
+- The question requires knowledge beyond your training data
+
+You have access to specialized skills via invoke_skill and list_skills:
+- list_skills: Discover available skills and their parameters (use this first to see what's available)
+- invoke_skill: Execute a skill with specific parameters
+
+Available skills include:
+- web_research: Focused web research with source summarization
+- code_generation: Generate code snippets for specific tasks
+- code_review: Review code for bugs, style issues, and security vulnerabilities
+- simple_writing: Write documents, emails, articles, and other content
+- image_generation: Generate AI images from text descriptions
+- data_visualization: Create data visualizations and charts
+- task_planning: Analyze complex tasks and create structured execution plans
+
+When to use skills:
+- Use list_skills first to discover available skills and their parameters
+- Use invoke_skill when a task matches a skill's purpose better than basic tools
+- Skills provide structured, focused capabilities for specific task types
+- Skills can combine multiple steps into a single invocation
+- Use task_planning for complex multi-step tasks that need upfront planning
+</tools>
+"""
+```
+
+#### 3. Decision Factors
+
+The LLM considers multiple factors when deciding:
+
+1. **User Query Intent**: Understanding what the user wants
+   - Simple fact lookup → Direct tool (`web_search`)
+   - Complex research with analysis → Skill (`invoke_skill("web_research")`)
+
+2. **Task Complexity**: Single operation vs multi-step workflow
+   - Single operation → Direct tool
+   - Multi-step workflow → Skill
+
+3. **Output Requirements**: Raw results vs structured analysis
+   - Raw results → Direct tool
+   - Structured analysis → Skill
+
+4. **Tool Descriptions**: Each tool has a description the LLM sees
+   - `web_search`: "Search the web for current information on any topic"
+   - `invoke_skill`: "Invoke a registered skill to perform a specialized task. Skills are composable subgraphs..."
+
+### Decision Examples
+
+#### Example 1: Simple Search → Direct Tool
+
+**User Query**: "What is Python?"
+
+**LLM Decision Process**:
+1. Simple fact lookup question
+2. System prompt: "Use web_search when you need to verify facts"
+3. **Decision**: Call `web_search("What is Python")`
+
+**Result**: Raw search results returned to agent
+
+#### Example 2: Research Task → Skill
+
+**User Query**: "Research the latest trends in AI and summarize the findings"
+
+**LLM Decision Process**:
+1. Complex research task requiring summarization
+2. System prompt: "web_research: Focused web research with source summarization"
+3. System prompt: "Use invoke_skill when a task matches a skill's purpose better than basic tools"
+4. This needs summarization, not just raw results
+5. **Decision**: Call `invoke_skill("web_research", {"topic": "latest trends in AI"})`
+
+**Result**: Summarized research with key findings
+
+#### Example 3: Code Execution → Direct Tool
+
+**User Query**: "Run this code: print('hello')"
+
+**LLM Decision Process**:
+1. Direct code execution request
+2. System prompt: "Use execute_code when the user asks you to run, execute, or test code"
+3. **Decision**: Call `execute_code({"code": "print('hello')", "language": "python"})`
+
+**Result**: Code execution output
+
+#### Example 4: Code Review → Skill
+
+**User Query**: "Review this code for bugs and security issues"
+
+**LLM Decision Process**:
+1. Code review task requiring structured analysis
+2. System prompt: "code_review: Review code for bugs, style issues, and security vulnerabilities"
+3. This needs structured feedback, not just execution
+4. **Decision**: Call `invoke_skill("code_review", {"code": "..."})`
+
+**Result**: Structured review with categories (bugs, style, security)
+
+### When to Use Direct Tools
+
+**Use direct tools when**:
+- ✅ Simple, single operation needed
+- ✅ Quick fact lookup or verification
+- ✅ Direct control over parameters
+- ✅ No analysis or summarization required
+- ✅ Low latency preferred
+
+**Examples**:
+- `web_search("capital of France")` - Simple fact lookup
+- `execute_code("print('hello')")` - Simple code execution
+- `browser_navigate("https://example.com")` - Direct browser action
+- `generate_image("a cat")` - Direct image generation
+
+### When to Use Skills
+
+**Use skills when**:
+- ✅ Complex, multi-step workflow needed
+- ✅ Structured analysis required (summarization, insights)
+- ✅ Task matches skill's purpose (research, code review, writing)
+- ✅ Combined operations (search + summarize, plan + execute)
+- ✅ Structured output needed (not just raw results)
+
+**Examples**:
+- `invoke_skill("web_research", {"topic": "AI trends"})` - Research with analysis
+- `invoke_skill("code_review", {"code": "..."})` - Code review with structured feedback
+- `invoke_skill("app_builder", {"description": "todo app"})` - Multi-step app building
+- `invoke_skill("simple_writing", {"topic": "...", "type": "article"})` - Structured writing
+
+### Mode-Based Guidance
+
+The agent can receive mode hints that influence decisions:
+
+```python
+# backend/app/agents/subagents/chat.py (reason_node)
+
+if mode == "image":
+    enhanced_query = f"Generate an image based on this description: {query}\n\nUse the image_generation skill to create the image."
+elif mode == "app":
+    enhanced_query = f"Build a web application based on this description: {query}\n\nUse the app_builder skill to create the application."
+```
+
+**Modes provide explicit guidance**:
+- `mode="image"` → Guides agent to use `image_generation` skill
+- `mode="app"` → Guides agent to use `app_builder` skill
+
+### Key Insights
+
+1. **No Hardcoded Rules**: The agent doesn't have if/else logic for tool selection. The LLM decides autonomously.
+
+2. **Prompt Engineering**: The system prompt is the primary mechanism for guiding decisions. Clear, specific guidance helps the LLM choose correctly.
+
+3. **Tool Descriptions Matter**: LangChain tool descriptions are part of the LLM's context. Well-written descriptions improve decision quality.
+
+4. **Context Awareness**: The LLM considers:
+   - User query intent
+   - Conversation history
+   - Previous tool results
+   - Task complexity
+
+5. **Skills as Tools**: From the agent's perspective, skills are just another type of tool (via `invoke_skill`). The distinction is semantic, not architectural.
+
+6. **Discovery Pattern**: The agent can use `list_skills` to discover available skills before invoking them, enabling dynamic skill selection.
+
+For more detailed information, see [Agent Tool-Skill Decision Making](./Agent-Tool-Skill-Decision-Making.md).
+
 ## Tool Registry Integration
 
 Skills are integrated as tools via `backend/app/agents/tools/registry.py`:

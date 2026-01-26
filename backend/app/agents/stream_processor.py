@@ -264,13 +264,13 @@ class StreamProcessor:
             if image_index in self.emitted_image_indices:
                 return False
             self.emitted_image_indices.add(image_index)
-            logger.info("yielding_image_event", index=image_index, node_name=node_name)
+            logger.debug("yielding_image_event", index=image_index, node_name=node_name)
 
         # Interrupt deduplication (HITL events)
         if event_type == "interrupt":
             interrupt_id = e.get("interrupt_id")
             if interrupt_id and interrupt_id in self.emitted_interrupt_ids:
-                logger.info(
+                logger.debug(
                     "interrupt_deduplicated",
                     interrupt_id=interrupt_id,
                     message=e.get("message", "")[:50],
@@ -278,7 +278,7 @@ class StreamProcessor:
                 return False
             if interrupt_id:
                 self.emitted_interrupt_ids.add(interrupt_id)
-                logger.info(
+                logger.debug(
                     "interrupt_emitting",
                     interrupt_id=interrupt_id,
                     message=e.get("message", "")[:50],

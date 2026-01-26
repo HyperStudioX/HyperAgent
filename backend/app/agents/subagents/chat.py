@@ -181,7 +181,7 @@ async def reason_node(state: ChatState) -> dict:
             lc_messages.append(HumanMessage(content=query))
 
     # Debug: Log messages before deduplication
-    logger.info(
+    logger.debug(
         "reason_node_messages",
         message_count=len(lc_messages),
         message_types=[type(m).__name__ for m in lc_messages],
@@ -731,7 +731,7 @@ async def wait_interrupt_node(state: ChatState) -> dict:
     lc_messages = list(state.get("lc_messages", []))
 
     # Debug: Log the messages before adding tool result
-    logger.info(
+    logger.debug(
         "wait_interrupt_messages_before",
         message_count=len(lc_messages),
         message_types=[type(m).__name__ for m in lc_messages],
@@ -832,7 +832,7 @@ async def wait_interrupt_node(state: ChatState) -> dict:
         event_list.append(create_tool_result_event(tool_name, result_str, tool_call_id))
 
         # Debug: Log after adding tool result
-        logger.info(
+        logger.debug(
             "wait_interrupt_messages_after",
             message_count=len(lc_messages),
             result_str=result_str,

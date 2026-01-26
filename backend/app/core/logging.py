@@ -2,6 +2,8 @@
 
 import logging
 import sys
+import time
+from contextlib import contextmanager
 from typing import Literal
 
 from loguru import logger
@@ -9,6 +11,20 @@ from loguru import logger
 
 # Remove default handler
 logger.remove()
+
+
+def _abbreviate_module_name(name: str) -> str:
+    """Abbreviate module name for cleaner console output.
+
+    Example: app.agents.subagents.chat -> a.a.s.chat
+    """
+    parts = name.split(".")
+    if len(parts) <= 1:
+        return name
+    # Keep last part full, abbreviate the rest
+    abbreviated = [p[0] for p in parts[:-1]]
+    abbreviated.append(parts[-1])
+    return ".".join(abbreviated)
 
 
 def setup_logging(
@@ -51,7 +67,11 @@ def setup_logging(
                 """Format a log record with tool highlighting."""
                 message = record["message"]
                 extra = record["extra"]
-                timestamp = record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                # Compact timestamp: time only, no date
+                timestamp = record["time"].strftime("%H:%M:%S.%f")[:-3]
+
+                # Abbreviate module name for cleaner output
+                module_name = _abbreviate_module_name(record["name"])
 
                 # Check if this is a tool invocation
                 is_tool_invoked = message.endswith("_tool_invoked")
@@ -80,30 +100,39 @@ def setup_logging(
                 if is_tool_invoked:
                     return (
                         f"{GREEN}{timestamp}{RESET} | "
-                        f"{MAGENTA}{BOLD}🔧 TOOL{RESET}   {DIM}|{RESET} "
-                        f"{CYAN}{record['name']}:{record['function']}{RESET} | "
+                        f"{MAGENTA}{BOLD}🔧 TOOL{RESET}  {DIM}|{RESET} "
+                        f"{CYAN}{module_name}{RESET} | "
                         f"{MAGENTA}{BOLD}{message}{RESET}"
                         f"{YELLOW}{extra_str}{RESET}\n"
                     )
                 elif is_tool_completed:
                     return (
                         f"{GREEN}{timestamp}{RESET} | "
-                        f"{GREEN}{BOLD}✓ DONE{RESET}   {DIM}|{RESET} "
-                        f"{CYAN}{record['name']}:{record['function']}{RESET} | "
+                        f"{GREEN}{BOLD}✓ DONE{RESET}  {DIM}|{RESET} "
+                        f"{CYAN}{module_name}{RESET} | "
                         f"{GREEN}{message}{RESET}"
                         f"{YELLOW}{extra_str}{RESET}\n"
                     )
                 elif is_tool_failed:
                     return (
                         f"{GREEN}{timestamp}{RESET} | "
-                        f"{RED}{BOLD}✗ FAIL{RESET}   {DIM}|{RESET} "
-                        f"{CYAN}{record['name']}:{record['function']}{RESET} | "
+                        f"{RED}{BOLD}✗ FAIL{RESET}  {DIM}|{RESET} "
+                        f"{CYAN}{module_name}{RESET} | "
                         f"{RED}{message}{RESET}"
                         f"{YELLOW}{extra_str}{RESET}\n"
                     )
                 else:
                     # Standard format with level-based colors
                     level_name = record["level"].name
+                    # Shorten level names to 5 chars for consistency
+                    level_display = {
+                        "DEBUG": "DEBUG",
+                        "INFO": "INFO ",
+                        "WARNING": "WARN ",
+                        "ERROR": "ERROR",
+                        "CRITICAL": "CRIT ",
+                    }.get(level_name, level_name[:5].ljust(5))
+
                     level_color = {
                         "DEBUG": CYAN,
                         "INFO": RESET,
@@ -114,8 +143,8 @@ def setup_logging(
 
                     return (
                         f"{GREEN}{timestamp}{RESET} | "
-                        f"{level_color}{level_name: <8}{RESET} {DIM}|{RESET} "
-                        f"{CYAN}{record['name']}:{record['function']}:{record['line']}{RESET} | "
+                        f"{level_color}{level_display}{RESET} | "
+                        f"{CYAN}{module_name}{RESET} | "
                         f"{level_color}{message}{RESET}"
                         f"{YELLOW}{extra_str}{RESET}\n"
                     )
@@ -156,6 +185,25 @@ def setup_logging(
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.error").propagate = True
 
+    # LLM frameworks
+    logging.getLogger("langchain").setLevel(logging.WARNING)
+    logging.getLogger("langchain_core").setLevel(logging.WARNING)
+    logging.getLogger("langgraph").setLevel(logging.WARNING)
+
+    # LLM providers
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
+    logging.getLogger("google.generativeai").setLevel(logging.WARNING)
+
+    # Database
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("asyncpg").setLevel(logging.WARNING)
+
+    # Misc
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("charset_normalizer").setLevel(logging.WARNING)
+
 
 def get_logger(name: str | None = None):
     """Get a logger instance.
@@ -169,3 +217,39 @@ def get_logger(name: str | None = None):
     if name:
         return logger.bind(name=name)
     return logger
+
+
+@contextmanager
+def log_timing(logger_instance, event_name: str, **context):
+    """Context manager that logs start/complete/fail with duration_ms.
+
+    Usage:
+        with log_timing(logger, "web_search", query=query):
+            results = perform_search(query)
+
+    Args:
+        logger_instance: A loguru logger instance
+        event_name: Base name for the event (will append _started/_completed/_failed)
+        **context: Additional context to include in all log messages
+
+    Yields:
+        None
+
+    Example:
+        >>> logger = get_logger(__name__)
+        >>> with log_timing(logger, "api_call", endpoint="/users"):
+        ...     response = api.get("/users")
+        # Logs:
+        # DEBUG: api_call_started | endpoint='/users'
+        # INFO: api_call_completed | duration_ms=234, endpoint='/users'
+    """
+    start = time.perf_counter()
+    logger_instance.debug(f"{event_name}_started", **context)
+    try:
+        yield
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger_instance.info(f"{event_name}_completed", duration_ms=duration_ms, **context)
+    except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger_instance.error(f"{event_name}_failed", duration_ms=duration_ms, error=str(e), **context)
+        raise
