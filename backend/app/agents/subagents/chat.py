@@ -122,6 +122,13 @@ async def _execute_approved_tool(
     if tool_name in browser_tools:
         tool_args["user_id"] = user_id
         tool_args["task_id"] = task_id
+    elif tool_name == "invoke_skill":
+        # Inject user_id and task_id for skill invocation
+        tool_args["user_id"] = user_id
+        tool_args["task_id"] = task_id
+    elif tool_name == "generate_image":
+        # Inject user_id for image generation storage
+        tool_args["user_id"] = user_id
 
     try:
         result = await tool.ainvoke(tool_args)
@@ -530,6 +537,13 @@ async def act_node(state: ChatState) -> dict:
                 if tool_name in browser_tools:
                     args["user_id"] = user_id
                     args["task_id"] = task_id
+                elif tool_name == "invoke_skill":
+                    # Inject user_id and task_id for skill invocation
+                    args["user_id"] = user_id
+                    args["task_id"] = task_id
+                elif tool_name == "generate_image":
+                    # Inject user_id for image generation storage
+                    args["user_id"] = user_id
 
                 # Execute the tool
                 result = await tool.ainvoke(args)
