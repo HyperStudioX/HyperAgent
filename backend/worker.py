@@ -92,6 +92,14 @@ def main():
     else:
         from arq.worker import run_worker
 
+        # Python 3.14+ requires explicitly creating an event loop
+        # before calling run_worker
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
         # run_worker is a sync function that manages the event loop internally
         # It returns a Worker object after completion
         worker = run_worker(WorkerSettings)

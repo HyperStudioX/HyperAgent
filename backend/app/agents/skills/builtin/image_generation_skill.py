@@ -1,10 +1,13 @@
 """Image Generation Skill for creating AI-generated images."""
 
-from langgraph.graph import StateGraph, END
+import base64
 
+from langgraph.graph import END, StateGraph
+
+from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 from app.ai.image import image_generation_service
 from app.core.logging import get_logger
-from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
+from app.services.file_storage import file_storage_service
 
 logger = get_logger(__name__)
 
@@ -16,19 +19,28 @@ class ImageGenerationSkill(Skill):
         id="image_generation",
         name="Image Generation",
         version="1.0.0",
-        description="Generates high-quality images from text descriptions using AI (Gemini/Imagen or DALL-E)",
+        description=(
+            "Generates high-quality images from text descriptions "
+            "using AI (Gemini/Imagen or DALL-E)"
+        ),
         category="creative",
         parameters=[
             SkillParameter(
                 name="prompt",
                 type="string",
-                description="Detailed description of the image to generate. Be specific about style, composition, colors, and subject.",
+                description=(
+                    "Detailed description of the image to generate. "
+                    "Be specific about style, composition, colors, and subject."
+                ),
                 required=True,
             ),
             SkillParameter(
                 name="size",
                 type="string",
-                description="Image size: 1024x1024 (square), 1792x1024 (landscape), 1024x1792 (portrait), or smaller sizes",
+                description=(
+                    "Image size: 1024x1024 (square), 1792x1024 (landscape), "
+                    "1024x1792 (portrait), or smaller sizes"
+                ),
                 required=False,
                 default="1024x1024",
             ),
@@ -59,11 +71,22 @@ class ImageGenerationSkill(Skill):
             "properties": {
                 "images": {
                     "type": "array",
-                    "description": "Generated images",
+                    "description": "Generated images with storage URLs",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "base64_data": {"type": "string"},
+                            "url": {
+                                "type": "string",
+                                "description": "URL to access the stored image",
+                            },
+                            "storage_key": {
+                                "type": "string",
+                                "description": "Storage key for the image",
+                            },
+                            "base64_data": {
+                                "type": "string",
+                                "description": "Base64 encoded image data",
+                            },
                             "index": {"type": "number"},
                         },
                     },
@@ -88,6 +111,7 @@ class ImageGenerationSkill(Skill):
             n = int(state["input_params"].get("n", 1))
             model = state["input_params"].get("model")
             quality = state["input_params"].get("quality", "standard")
+            user_id = state.get("user_id")
 
             logger.info(
                 "image_generation_skill_generating",
@@ -95,6 +119,7 @@ class ImageGenerationSkill(Skill):
                 size=size,
                 n=n,
                 model=model,
+                user_id=user_id,
             )
 
             try:
@@ -113,14 +138,56 @@ class ImageGenerationSkill(Skill):
                         "iterations": state["iterations"] + 1,
                     }
 
-                # Format images for output
-                images = [
-                    {
+                # Save images to storage and format output
+                images = []
+                for i, result in enumerate(results):
+                    image_data = {
                         "base64_data": result.base64_data,
                         "index": i,
                     }
-                    for i, result in enumerate(results)
-                ]
+
+                    # Save to storage if user_id is available
+                    if user_id:
+                        try:
+                            # Decode base64 to bytes
+                            image_bytes = base64.b64decode(result.base64_data)
+
+                            # Save to storage
+                            storage_result = await file_storage_service.save_generated_image(
+                                image_data=image_bytes,
+                                user_id=user_id,
+                                content_type="image/png",
+                                metadata={
+                                    "prompt": prompt,
+                                    "model": model or "default",
+                                    "size": size,
+                                    "index": i,
+                                },
+                            )
+
+                            # Add storage information to output
+                            image_data["url"] = storage_result["url"]
+                            image_data["storage_key"] = storage_result["storage_key"]
+
+                            logger.info(
+                                "image_saved_to_storage",
+                                storage_key=storage_result["storage_key"],
+                                user_id=user_id,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "image_storage_failed",
+                                error=str(e),
+                                index=i,
+                            )
+                            # Continue without storage - base64 data is still available
+                    else:
+                        logger.warning(
+                            "image_not_saved_no_user_id",
+                            index=i,
+                        )
+
+                    images.append(image_data)
 
                 logger.info(
                     "image_generation_skill_completed",
