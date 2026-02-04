@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { DesktopSidebar } from "./desktop-sidebar";
 import { MobileSidebar } from "./mobile-sidebar";
 import { MenuToggle } from "@/components/ui/menu-toggle";
 import { UserProfileMenu } from "@/components/auth/user-profile-menu";
 import { useSidebarStore } from "@/lib/stores/sidebar-store";
-import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
+import { useComputerStore } from "@/lib/stores/computer-store";
 import { cn } from "@/lib/utils";
 
 import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
-import { BrowserStreamPanel } from "@/components/sidebar/browser-stream-panel";
+import { VirtualComputerPanel, ComputerToggleButton } from "@/components/computer";
 
 interface MainLayoutProps {
     children: React.ReactNode;
@@ -18,13 +18,22 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+    const [isDesktop, setIsDesktop] = useState(false);
     const { desktopSidebarOpen, toggleDesktopSidebar } = useSidebarStore();
-    const { isPanelOpen, activeProgress } = useAgentProgressStore();
+    const { isOpen: computerPanelOpen, panelWidth } = useComputerStore();
 
-    // Calculate the right panel width for content adjustment
-    // Panel only shows when browser stream is active
-    const hasBrowserStream = activeProgress?.browserStream;
-    const rightPanelWidth = isPanelOpen && hasBrowserStream ? "lg:pr-[680px]" : "";
+    // Check if we're on desktop (lg breakpoint = 1024px)
+    useEffect(() => {
+        const checkDesktop = () => {
+            setIsDesktop(window.innerWidth >= 1024);
+        };
+        checkDesktop();
+        window.addEventListener("resize", checkDesktop);
+        return () => window.removeEventListener("resize", checkDesktop);
+    }, []);
+
+    // Calculate the right panel width for content adjustment (only on desktop)
+    const rightPanelPadding = isDesktop && computerPanelOpen ? panelWidth : 0;
 
     return (
         <div className="flex h-screen overflow-hidden bg-background">
@@ -37,20 +46,21 @@ export function MainLayout({ children }: MainLayoutProps) {
                 onClose={() => setMobileSidebarOpen(false)}
             />
 
-            <main className={cn(
-                "flex-1 flex flex-col overflow-hidden relative transition-all duration-300",
-                rightPanelWidth
-            )}>
+            <main
+                className="flex-1 flex flex-col overflow-hidden relative transition-colors duration-150"
+                style={{ paddingRight: rightPanelPadding }}
+            >
                 {/* Mobile header with menu toggle and user profile */}
-                <div className="md:hidden h-14 px-2 flex items-center justify-between border-b border-border bg-card sticky top-0 z-30">
-                    <div className="flex items-center">
+                <div className="md:hidden h-12 px-3 flex items-center justify-between border-b border-border bg-background sticky top-0 z-30">
+                    <div className="flex items-center gap-2">
                         <MenuToggle
                             isOpen={mobileSidebarOpen}
                             onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
                         />
-                        <span className="ml-1 font-semibold text-foreground tracking-tight">HyperAgent</span>
+                        <span className="text-sm font-semibold text-foreground">HyperAgent</span>
                     </div>
-                    <div className="pr-2">
+                    <div className="flex items-center gap-1">
+                        <ComputerToggleButton />
                         <UserProfileMenu />
                     </div>
                 </div>
@@ -60,10 +70,10 @@ export function MainLayout({ children }: MainLayoutProps) {
                     className={cn(
                         "hidden md:flex absolute left-4 top-4 z-40",
                         "glass-card rounded-lg",
-                        "transition-all duration-300 ease-out",
+                        "transition-opacity duration-150",
                         desktopSidebarOpen
-                            ? "opacity-0 -translate-x-2 pointer-events-none"
-                            : "opacity-100 translate-x-0"
+                            ? "opacity-0 pointer-events-none"
+                            : "opacity-100"
                     )}
                 >
                     <MenuToggle
@@ -72,8 +82,9 @@ export function MainLayout({ children }: MainLayoutProps) {
                     />
                 </div>
 
-                {/* Desktop user profile - top right corner */}
-                <div className="hidden md:block absolute right-4 top-4 z-40">
+                {/* Desktop user profile and computer toggle - top right corner */}
+                <div className="hidden md:flex items-center gap-2 absolute right-4 top-4 z-40">
+                    <ComputerToggleButton />
                     <UserProfileMenu />
                 </div>
 
@@ -82,8 +93,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                 {/* File Preview Sidebar */}
                 <FilePreviewSidebar />
 
-                {/* Browser Stream Panel - Right side panel for live browser view */}
-                <BrowserStreamPanel />
+                {/* Virtual Computer Panel - Right side panel for terminal, browser, and file views */}
+                <VirtualComputerPanel />
             </main>
         </div>
     );

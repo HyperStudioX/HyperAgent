@@ -14,20 +14,19 @@ export default function SignInPage() {
         <div className="text-center">
           <div className="flex items-center justify-center gap-4 mb-3">
             <div className="relative w-12 h-12 flex items-center justify-center group">
-              <div className="absolute inset-0 bg-gradient-to-br from-foreground/15 to-foreground/5 rounded-2xl blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
               <Image
                 src="/images/logo-light.svg"
                 alt="HyperAgent"
                 width={48}
                 height={48}
-                className="dark:hidden relative z-10 transition-all duration-300 group-hover:scale-110"
+                className="dark:hidden relative z-10"
               />
               <Image
                 src="/images/logo-dark.svg"
                 alt="HyperAgent"
                 width={48}
                 height={48}
-                className="hidden dark:block relative z-10 transition-all duration-300 group-hover:scale-110"
+                className="hidden dark:block relative z-10"
               />
             </div>
             <h2 className="brand-title brand-title-md">
@@ -41,7 +40,7 @@ export default function SignInPage() {
 
         <button
           onClick={() => signIn("google", { callbackUrl: "/" })}
-          className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-border rounded-sm bg-card hover:bg-secondary transition-colors"
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-border rounded-lg bg-card hover:bg-secondary transition-colors"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path

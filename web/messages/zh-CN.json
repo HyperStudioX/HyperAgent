@@ -33,6 +33,7 @@
         "data": "数据",
         "app": "应用",
         "image": "图片",
+        "writing": "写作",
         "noResults": "没有找到项目",
         "chatDescription": "快速提问与对话",
         "researchDescription": "深度分析与报告",
@@ -596,5 +597,24 @@
         "expand": "显示预览",
         "collapse": "隐藏预览",
         "close": "关闭"
+    },
+    "computer": {
+        "title": "计算机",
+        "terminal": "终端",
+        "plan": "计划",
+        "browser": "浏览器",
+        "files": "文件",
+        "close": "关闭",
+        "usingTerminal": "正在使用终端",
+        "usingPlan": "智能体活动日志",
+        "usingBrowser": "正在使用浏览器",
+        "usingFiles": "正在浏览文件",
+        "live": "实时",
+        "stepOf": "步骤 {current}/{total}",
+        "noBrowserStream": "无浏览器流",
+        "browserStreamWillAppear": "当智能体使用浏览器时，实时视图将显示在这里",
+        "emptyDirectory": "此目录为空",
+        "noPlanItems": "暂无活动",
+        "planItemsWillAppear": "智能体活动将显示在这里"
     }
 }

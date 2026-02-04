@@ -177,8 +177,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
             {isOpen && (
                 <div
                     className={cn(
-                        "fixed inset-0 bg-black/40 z-40 md:hidden",
-                        "backdrop-blur-sm",
+                        "fixed inset-0 bg-black/50 z-40 md:hidden",
                         "transition-opacity duration-200",
                         "touch-none",
                         isOpen ? "opacity-100" : "opacity-0"
@@ -195,9 +194,9 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                 onTouchEnd={handleTouchEnd}
                 className={cn(
                     "md:hidden",
-                    "h-full flex flex-col border-border",
-                    "bg-background",
-                    "fixed inset-y-0 left-0 z-50 w-[280px] border-r",
+                    "h-full flex flex-col",
+                    "bg-card border-r border-border",
+                    "fixed inset-y-0 left-0 z-50 w-[300px]",
                     "pt-safe pb-safe",
                     "will-change-transform",
                     "motion-reduce:transition-none",
@@ -214,22 +213,22 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                 aria-label="Main navigation"
             >
                 {/* Header */}
-                <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 flex items-center justify-center">
+                <div className="h-14 px-4 flex items-center justify-between border-b border-border">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 flex items-center justify-center">
                             <Image
                                 src="/images/logo-light.svg"
                                 alt="HyperAgent"
-                                width={32}
-                                height={32}
-                                className="dark:hidden transition-transform duration-200 hover:scale-105"
+                                width={28}
+                                height={28}
+                                className="dark:hidden"
                             />
                             <Image
                                 src="/images/logo-dark.svg"
                                 alt="HyperAgent"
-                                width={32}
-                                height={32}
-                                className="hidden dark:block transition-transform duration-200 hover:scale-105"
+                                width={28}
+                                height={28}
+                                className="hidden dark:block"
                             />
                         </div>
                         <span className="brand-title brand-title-sm">HyperAgent</span>

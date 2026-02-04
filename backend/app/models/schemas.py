@@ -186,6 +186,7 @@ class ConversationType(str, Enum):
     DATA = "data"
     APP = "app"
     IMAGE = "image"
+    WRITING = "writing"
 
 
 class AttachmentInfo(BaseModel):

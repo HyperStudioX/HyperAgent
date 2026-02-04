@@ -126,11 +126,13 @@ AGENT_NAME_MAP = {
     "data": AgentType.DATA,
     "app": AgentType.CHAT,  # App mode routes to chat agent with app_builder skill
     "image": AgentType.CHAT,  # Image mode routes to chat agent with image_generation skill
+    "writing": AgentType.CHAT,  # Writing mode routes to chat agent with simple_writing skill
     "CHAT": AgentType.CHAT,
     "RESEARCH": AgentType.RESEARCH,
     "DATA": AgentType.DATA,
     "APP": AgentType.CHAT,
     "IMAGE": AgentType.CHAT,
+    "WRITING": AgentType.CHAT,
 }
 
 
@@ -246,8 +248,8 @@ async def route_query(state: SupervisorState) -> dict:
         # Normalize mode string
         mode_lower = explicit_mode.lower().strip()
 
-        # Check if it's a valid agent type (including image/app which map to chat)
-        valid_modes = {"chat", "research", "data", "app", "image"}
+        # Check if it's a valid agent type (including image/app/writing which map to chat)
+        valid_modes = {"chat", "research", "data", "app", "image", "writing"}
         if mode_lower in valid_modes:
             agent_type = AGENT_NAME_MAP.get(mode_lower, AgentType.CHAT)
             logger.info(

@@ -102,9 +102,9 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
                         src={imageSrc}
                         alt={t("generatedImageAlt")}
                         className={cn(
-                            "w-full h-auto rounded-xl transition-all duration-500",
-                            isLoading && "opacity-0 scale-95",
-                            !isLoading && "opacity-100 scale-100"
+                            "w-full h-auto rounded-xl transition-opacity duration-150",
+                            isLoading && "opacity-0",
+                            !isLoading && "opacity-100"
                         )}
                         onLoad={handleImageLoad}
                         onError={handleImageError}
@@ -135,10 +135,10 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
         <>
             <span
                 className={cn(
-                    "block relative my-6 rounded-2xl overflow-hidden",
-                    "transition-all duration-300",
-                    "bg-card border-2 border-border/60",
-                    "shadow-sm hover:shadow-md hover:border-border",
+                    "block relative my-6 rounded-xl overflow-hidden",
+                    "transition-colors duration-150",
+                    "bg-card border border-border/60",
+                    "hover:border-border",
                     className
                 )}
                 onMouseEnter={() => setIsHovered(true)}
@@ -169,9 +169,9 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
                                 "flex items-center justify-center",
                                 "w-8 h-8",
                                 "rounded-lg",
-                                "transition-all duration-200",
+                                "transition-colors duration-150",
                                 "text-muted-foreground hover:text-foreground",
-                                "hover:bg-secondary/80 active:scale-95"
+                                "hover:bg-secondary/80 active:bg-secondary"
                             )}
                             title={t("viewFullscreen")}
                             aria-label={t("viewFullscreen")}
@@ -184,9 +184,9 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
                                 "flex items-center justify-center",
                                 "w-8 h-8",
                                 "rounded-lg",
-                                "transition-all duration-200",
+                                "transition-colors duration-150",
                                 "text-muted-foreground hover:text-foreground",
-                                "hover:bg-secondary/80 active:scale-95"
+                                "hover:bg-secondary/80 active:bg-secondary"
                             )}
                             title={t("download")}
                             aria-label={t("downloadImage")}
@@ -197,7 +197,7 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
                 </span>
 
                 {/* Media content - generous padding, cleaner presentation */}
-                <span className="block p-6 md:p-8 bg-gradient-to-b from-background/50 to-background">
+                <span className="block p-6 md:p-8 bg-background/50">
                     {renderContent()}
                 </span>
             </span>
@@ -230,10 +230,10 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
                                         "px-4 py-2.5",
                                         "text-sm font-semibold",
                                         "rounded-xl",
-                                        "transition-all duration-200",
+                                        "transition-colors duration-150",
                                         "bg-secondary/60 hover:bg-secondary",
                                         "text-foreground",
-                                        "active:scale-95"
+                                        "active:bg-secondary/80"
                                     )}
                                 >
                                     <Download className="w-4 h-4" />
@@ -246,10 +246,10 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
                                         "px-4 py-2.5",
                                         "text-sm font-semibold",
                                         "rounded-xl",
-                                        "transition-all duration-200",
+                                        "transition-colors duration-150",
                                         "bg-muted hover:bg-muted/80",
                                         "text-foreground",
-                                        "active:scale-95"
+                                        "active:bg-muted/60"
                                     )}
                                 >
                                     <X className="w-4 h-4" />
@@ -260,7 +260,7 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
 
                         {/* Content area with refined styling */}
                         <div
-                            className="flex-1 overflow-auto bg-card/50 rounded-2xl border border-border/60 p-8 md:p-12 shadow-lg backdrop-blur-sm"
+                            className="flex-1 overflow-auto bg-card/50 rounded-xl border border-border/60 p-8 md:p-12"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="flex items-center justify-center min-h-full">

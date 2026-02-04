@@ -302,18 +302,17 @@ export const MessageBubble = memo(function MessageBubble({
 
     if (isUser) {
         return (
-            <div className="group py-5 flex justify-end">
-                <div className="relative max-w-[95%] md:max-w-[80%] animate-in slide-in-from-right-2 fade-in duration-300">
+            <div className="group py-4 flex justify-end">
+                <div className="relative max-w-[90%] md:max-w-[75%]">
                     <div
                         className={cn(
-                            "relative px-5 py-3.5",
-                            "bg-card text-foreground",
-                            "rounded-xl rounded-br-md",
-                            "border border-border"
+                            "relative px-4 py-3",
+                            "bg-secondary text-foreground",
+                            "rounded-2xl rounded-br-md"
                         )}
                     >
                         {message.content && (
-                            <p className="text-base leading-relaxed whitespace-pre-wrap">
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">
                                 {message.content}
                             </p>
                         )}
@@ -332,8 +331,8 @@ export const MessageBubble = memo(function MessageBubble({
     }
 
     return (
-        <div className="group py-5 flex justify-start">
-            <div className="w-full max-w-[95%] md:max-w-[80%] animate-in slide-in-from-left-2 fade-in duration-300">
+        <div className="group py-4 flex justify-start">
+            <div className="w-full max-w-[90%] md:max-w-[75%]">
                 {/* Assistant header with icon and name */}
                 <AssistantHeader />
 
@@ -454,26 +453,24 @@ export const MessageBubble = memo(function MessageBubble({
  */
 function AssistantHeader(): JSX.Element {
     return (
-        <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-6 h-6 flex items-center justify-center">
+        <div className="flex items-center gap-2 mb-3">
+            <div className="w-5 h-5 flex items-center justify-center">
                 <Image
                     src="/images/logo-light.svg"
                     alt="HyperAgent"
-                    width={24}
-                    height={24}
-                    className="dark:hidden transition-opacity duration-200"
-                    style={{ opacity: 0.88 }}
+                    width={20}
+                    height={20}
+                    className="dark:hidden"
                 />
                 <Image
                     src="/images/logo-dark.svg"
                     alt="HyperAgent"
-                    width={24}
-                    height={24}
-                    className="hidden dark:block transition-opacity duration-200"
-                    style={{ opacity: 0.9 }}
+                    width={20}
+                    height={20}
+                    className="hidden dark:block"
                 />
             </div>
-            <span className="text-[15px] font-bold text-foreground tracking-[-0.01em] opacity-90">
+            <span className="text-sm font-semibold text-foreground">
                 HyperAgent
             </span>
         </div>
@@ -500,10 +497,10 @@ function MessageActions({ copied, onCopy, onRegenerate }: MessageActionsProps): 
                     "flex items-center gap-1.5",
                     "px-2.5 py-1.5",
                     "text-xs font-medium",
-                    "rounded-xl",
-                    "transition-all duration-200",
+                    "rounded-lg",
+                    "transition-colors",
                     copied
-                        ? "text-accent-cyan bg-accent-cyan/10"
+                        ? "text-success bg-success/10"
                         : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                 )}
             >
@@ -527,8 +524,8 @@ function MessageActions({ copied, onCopy, onRegenerate }: MessageActionsProps): 
                         "flex items-center gap-1.5",
                         "px-2.5 py-1.5",
                         "text-xs font-medium",
-                        "rounded-xl",
-                        "transition-all duration-200",
+                        "rounded-lg",
+                        "transition-colors",
                         "text-muted-foreground hover:text-foreground hover:bg-secondary"
                     )}
                 >

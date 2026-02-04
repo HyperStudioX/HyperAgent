@@ -268,7 +268,7 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                                             <div className={cn(
                                                 "overflow-x-auto my-8",
                                                 "rounded-xl border border-border/60",
-                                                "bg-card shadow-sm"
+                                                "bg-card"
                                             )}>
                                                 <table className="min-w-full">
                                                     {children}
@@ -365,43 +365,43 @@ interface CodeBlockProps {
     children: string;
 }
 
-// Language display names and accent colors
-const LANGUAGE_CONFIG: Record<string, { name: string; color: string }> = {
-    javascript: { name: "JavaScript", color: "hsl(50, 90%, 50%)" },
-    js: { name: "JavaScript", color: "hsl(50, 90%, 50%)" },
-    typescript: { name: "TypeScript", color: "hsl(211, 60%, 48%)" },
-    ts: { name: "TypeScript", color: "hsl(211, 60%, 48%)" },
-    python: { name: "Python", color: "hsl(207, 51%, 44%)" },
-    py: { name: "Python", color: "hsl(207, 51%, 44%)" },
-    rust: { name: "Rust", color: "hsl(25, 83%, 53%)" },
-    go: { name: "Go", color: "hsl(192, 68%, 46%)" },
-    java: { name: "Java", color: "hsl(15, 80%, 50%)" },
-    cpp: { name: "C++", color: "hsl(210, 55%, 50%)" },
-    c: { name: "C", color: "hsl(210, 55%, 45%)" },
-    html: { name: "HTML", color: "hsl(14, 77%, 52%)" },
-    css: { name: "CSS", color: "hsl(228, 77%, 52%)" },
-    json: { name: "JSON", color: "hsl(0, 0%, 50%)" },
-    yaml: { name: "YAML", color: "hsl(0, 0%, 55%)" },
-    bash: { name: "Bash", color: "hsl(120, 15%, 45%)" },
-    shell: { name: "Shell", color: "hsl(120, 15%, 45%)" },
-    sql: { name: "SQL", color: "hsl(210, 50%, 50%)" },
-    markdown: { name: "Markdown", color: "hsl(0, 0%, 45%)" },
-    md: { name: "Markdown", color: "hsl(0, 0%, 45%)" },
-    jsx: { name: "JSX", color: "hsl(193, 95%, 50%)" },
-    tsx: { name: "TSX", color: "hsl(211, 60%, 48%)" },
+// Language display names - using semantic colors from design system
+const LANGUAGE_CONFIG: Record<string, { name: string }> = {
+    javascript: { name: "JavaScript" },
+    js: { name: "JavaScript" },
+    typescript: { name: "TypeScript" },
+    ts: { name: "TypeScript" },
+    python: { name: "Python" },
+    py: { name: "Python" },
+    rust: { name: "Rust" },
+    go: { name: "Go" },
+    java: { name: "Java" },
+    cpp: { name: "C++" },
+    c: { name: "C" },
+    html: { name: "HTML" },
+    css: { name: "CSS" },
+    json: { name: "JSON" },
+    yaml: { name: "YAML" },
+    bash: { name: "Bash" },
+    shell: { name: "Shell" },
+    sql: { name: "SQL" },
+    markdown: { name: "Markdown" },
+    md: { name: "Markdown" },
+    jsx: { name: "JSX" },
+    tsx: { name: "TSX" },
 };
 
 function CodeBlock({ language, children }: CodeBlockProps) {
     const t = useTranslations("report");
-    const langConfig = LANGUAGE_CONFIG[language?.toLowerCase()] || { name: language || t("code"), color: "hsl(0, 0%, 50%)" };
+    const langConfig = LANGUAGE_CONFIG[language?.toLowerCase()] || { name: language || t("code") };
     const lineCount = children.split('\n').length;
 
     return (
         <div className={cn(
             "group my-8 rounded-xl overflow-hidden",
-            "border border-border/60",
-            "bg-[hsl(0,0%,97%)] dark:bg-[hsl(0,0%,8%)]",
-            "shadow-sm"
+            "border border-border/60 hover:border-border",
+            "bg-secondary/30 dark:bg-secondary/20",
+            "transition-colors duration-150"
         )}>
             {/* Header with language indicator */}
             <div className={cn(
@@ -411,10 +411,7 @@ function CodeBlock({ language, children }: CodeBlockProps) {
                 "bg-secondary/50 dark:bg-secondary/30"
             )}>
                 <div className="flex items-center gap-3">
-                    <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: langConfig.color }}
-                    />
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-primary/60" />
                     <span className="text-xs font-medium text-muted-foreground tracking-wide">
                         {langConfig.name}
                     </span>

@@ -74,7 +74,7 @@ export const ChatInput = memo(
             onKeyDown={handleKeyDown}
             placeholder={placeholder || t("typeMessage")}
             disabled={isLoading}
-            className="flex-1 min-h-[52px] max-h-[160px] px-4 py-3.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:ring-offset-2 disabled:opacity-50 textarea-auto-resize"
+            className="flex-1 min-h-[52px] max-h-[160px] px-4 py-3.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-50 textarea-auto-resize"
             rows={1}
           />
           <div className="p-2">

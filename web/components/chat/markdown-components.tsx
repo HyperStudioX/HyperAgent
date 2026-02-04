@@ -101,7 +101,7 @@ export const markdownComponents: Components = {
                 <img
                     src={src}
                     alt={alt || ""}
-                    className="max-w-full h-auto rounded-xl shadow-sm"
+                    className="max-w-full h-auto rounded-xl border border-border/50"
                 />
                 {alt && (
                     <span className="block mt-2 text-xs text-muted-foreground text-center italic">

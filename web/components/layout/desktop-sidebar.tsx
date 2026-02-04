@@ -171,8 +171,8 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                 "hidden md:flex",
                 "h-full flex-col relative",
                 "border-r border-border overflow-hidden z-20",
-                "bg-secondary/30",
-                !isResizing && "transition-all duration-300 ease-in-out",
+                "bg-card",
+                !isResizing && "transition-opacity duration-150",
                 !desktopSidebarOpen && "w-0 opacity-0 border-r-0 pointer-events-none",
                 className
             )}
@@ -183,24 +183,22 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
             aria-label="Main navigation"
         >
             {/* Header */}
-            <div className="h-14 px-4 flex items-center justify-between border-b border-border/50">
-                <div className="flex items-center gap-3">
+            <div className="h-14 px-4 flex items-center justify-between border-b border-border">
+                <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 flex items-center justify-center">
                         <Image
                             src="/images/logo-light.svg"
                             alt="HyperAgent"
                             width={28}
                             height={28}
-                            className="dark:hidden transition-opacity duration-200"
-                            style={{ opacity: 0.92 }}
+                            className="dark:hidden"
                         />
                         <Image
                             src="/images/logo-dark.svg"
                             alt="HyperAgent"
                             width={28}
                             height={28}
-                            className="hidden dark:block transition-opacity duration-200"
-                            style={{ opacity: 0.95 }}
+                            className="hidden dark:block"
                         />
                     </div>
                     <span className="brand-title brand-title-sm">HyperAgent</span>
@@ -239,9 +237,9 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
             <div
                 className={cn(
                     "absolute top-0 right-0 w-1 h-full cursor-col-resize",
-                    "hover:bg-accent-cyan/50 active:bg-accent-cyan/70",
+                    "hover:bg-muted-foreground/20 active:bg-muted-foreground/30",
                     "transition-colors duration-150",
-                    isResizing && "bg-accent-cyan/70"
+                    isResizing && "bg-muted-foreground/30"
                 )}
                 onMouseDown={startResizing}
                 role="separator"

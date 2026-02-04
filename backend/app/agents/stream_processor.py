@@ -68,9 +68,11 @@ BROWSER_ACTION_DESCRIPTIONS: dict[str, tuple[str, str]] = {
 # Content length limits for tool results
 TOOL_CONTENT_LIMITS: dict[str, int] = {
     "invoke_skill": 5000,  # Extra space for skill output with preview URLs
-    "app_start_server": 2000,
+    "app_start_server": 3000,  # Extra space for terminal events
     "app_get_preview_url": 2000,
-    "create_app_project": 2000,
+    "create_app_project": 3000,  # Extra space for terminal events
+    "app_run_command": 3000,  # Extra space for terminal events
+    "app_install_packages": 3000,  # Extra space for terminal events
 }
 DEFAULT_CONTENT_LIMIT = 500
 
@@ -447,10 +449,21 @@ class StreamProcessor:
                     # Forward stage events from skill execution
                     if "events" in parsed:
                         skill_events = parsed.get("events", [])
+                        logger.info(
+                            "invoke_skill_events_extracted",
+                            skill_id=parsed.get("skill_id"),
+                            event_count=len(skill_events),
+                            event_types=[e.get("type") for e in skill_events if isinstance(e, dict)],
+                        )
                         for evt in skill_events:
                             if isinstance(evt, dict) and self._should_emit_subevent(
                                 evt, tool_name
                             ):
+                                logger.debug(
+                                    "yielding_skill_event",
+                                    event_type=evt.get("type"),
+                                    skill_id=parsed.get("skill_id"),
+                                )
                                 yield evt
 
                     # Emit skill_output event for frontend to extract preview URLs etc.
@@ -469,6 +482,49 @@ class StreamProcessor:
                             preview_url=preview_url,
                         )
                         yield skill_output_event
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Extract terminal events from app builder tools
+        app_builder_tools = {
+            "create_app_project",
+            "app_start_server",
+            "app_run_command",
+            "app_install_packages",
+        }
+        if tool_name in app_builder_tools and isinstance(output, str):
+            try:
+                import json
+
+                parsed = json.loads(output)
+                if isinstance(parsed, dict):
+                    terminal_events = parsed.get("terminal_events", [])
+                    if terminal_events:
+                        logger.info(
+                            "app_builder_tool_events_extracted",
+                            tool_name=tool_name,
+                            event_count=len(terminal_events),
+                            event_types=[e.get("type") for e in terminal_events if isinstance(e, dict)],
+                        )
+                    for evt in terminal_events:
+                        if isinstance(evt, dict) and self._should_emit_subevent(evt, tool_name):
+                            yield evt
+
+                    # Also emit browser_stream for app_start_server
+                    if tool_name == "app_start_server" and parsed.get("success"):
+                        preview_url = parsed.get("preview_url")
+                        if preview_url:
+                            sandbox_id = parsed.get("sandbox_id", "app-sandbox")
+                            yield agent_events.browser_stream(
+                                stream_url=preview_url,
+                                sandbox_id=sandbox_id,
+                                auth_key=None,
+                            )
+                            logger.info(
+                                "app_builder_browser_stream_emitted",
+                                preview_url=preview_url,
+                                sandbox_id=sandbox_id,
+                            )
             except (json.JSONDecodeError, ValueError):
                 pass
 

@@ -5,50 +5,84 @@
 
 @layer base {
   :root {
-    /* Light Theme - Clean, simple, and warm */
+    /* Light Theme - Ultra-clean, neutral with subtle warmth */
     --background: 0 0% 100%;
-    --foreground: 20 8% 8%;
+    --foreground: 0 0% 9%;
     --card: 0 0% 100%;
-    --card-foreground: 20 8% 8%;
+    --card-foreground: 0 0% 9%;
     --popover: 0 0% 100%;
-    --popover-foreground: 20 8% 8%;
-    --primary: 25 75% 55%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 9%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 30 15% 97%;
-    --secondary-foreground: 20 8% 8%;
-    --muted: 30 10% 96%;
-    --muted-foreground: 20 6% 50%;
-    --accent: 35 30% 95%;
-    --accent-foreground: 20 8% 15%;
-    --destructive: 0 70% 55%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 30 8% 92%;
-    --input: 30 8% 92%;
-    --ring: 25 70% 55%;
-    --radius: 0.75rem;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 9%;
+    --radius: 0.625rem;
+
+    /* Semantic status colors */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --info: 221 83% 53%;
+
+    /* Terminal colors */
+    --terminal-bg: 220 13% 10%;
+    --terminal-fg: 220 9% 87%;
+    --terminal-prompt: 142 71% 45%;
+    --terminal-command: 221 83% 53%;
+    --terminal-error: 0 72% 51%;
+    --terminal-output: 220 9% 70%;
+    /* Terminal tool/skill colors */
+    --terminal-tool: 187 100% 42%;
+    --terminal-skill: 270 60% 65%;
+    --terminal-browser: 30 100% 50%;
   }
 
   .dark {
-    /* Dark Theme - Refined warm charcoal with amber accents */
-    --background: 25 10% 9%;
-    --foreground: 30 12% 94%;
-    --card: 25 12% 6%;
-    --card-foreground: 30 12% 94%;
-    --popover: 25 12% 6%;
-    --popover-foreground: 30 12% 94%;
-    --primary: 25 75% 60%;
-    --primary-foreground: 25 12% 6%;
-    --secondary: 25 8% 14%;
-    --secondary-foreground: 30 12% 94%;
-    --muted: 25 8% 16%;
-    --muted-foreground: 30 8% 55%;
-    --accent: 30 12% 15%;
-    --accent-foreground: 30 12% 94%;
-    --destructive: 0 70% 58%;
+    /* Dark Theme - True dark with high contrast */
+    --background: 0 0% 7%;
+    --foreground: 0 0% 95%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 95%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 55%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 95%;
+    --destructive: 0 72% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 25 8% 18%;
-    --input: 25 8% 18%;
-    --ring: 25 70% 60%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 0 0% 100%;
+
+    /* Semantic status colors */
+    --success: 142 71% 50%;
+    --warning: 38 92% 55%;
+    --info: 221 83% 58%;
+
+    /* Terminal colors (dark mode) */
+    --terminal-bg: 220 13% 6%;
+    --terminal-fg: 220 9% 90%;
+    --terminal-prompt: 142 71% 50%;
+    --terminal-command: 221 83% 58%;
+    --terminal-error: 0 72% 55%;
+    --terminal-output: 220 9% 75%;
+    /* Terminal tool/skill colors (dark mode) */
+    --terminal-tool: 187 100% 50%;
+    --terminal-skill: 270 60% 70%;
+    --terminal-browser: 30 100% 55%;
   }
 }
 
@@ -357,48 +391,43 @@ button, a {
   border-color: hsl(var(--border) / 0.3);
 }
 
-/* Brand Typography - uses display font for distinctive identity */
+/* Brand Typography - clean and minimal */
 .brand-title {
-  font-family: var(--font-bricolage), var(--font-plus-jakarta-sans), system-ui, sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #000000;
-  position: relative;
+  font-family: var(--font-plus-jakarta-sans), system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: hsl(var(--foreground));
 }
 
-.dark .brand-title {
-  color: #ffffff;
-}
-
-/* Brand title size variants - dramatic scale */
+/* Brand title size variants - balanced scale */
 .brand-title-sm {
-  font-size: 1.125rem; /* 18px */
+  font-size: 1rem; /* 16px */
   line-height: 1.25;
   letter-spacing: -0.02em;
 }
 
 .brand-title-md {
-  font-size: 2.5rem; /* 40px */
-  line-height: 1.15;
+  font-size: 1.5rem; /* 24px */
+  line-height: 1.2;
 }
 
 .brand-title-lg {
-  font-size: 3.5rem; /* 56px */
-  line-height: 1.05;
+  font-size: 2rem; /* 32px */
+  line-height: 1.1;
 }
 
 @media (min-width: 768px) {
   .brand-title-lg {
-    font-size: 4.5rem; /* 72px */
+    font-size: 2.5rem; /* 40px */
   }
 }
 
-/* Hero display text - for maximum impact moments */
+/* Hero display text - clean and readable */
 .display-text {
-  font-family: var(--font-bricolage), var(--font-plus-jakarta-sans), system-ui, sans-serif;
-  font-weight: 700;
-  letter-spacing: -0.035em;
-  line-height: 1.1;
+  font-family: var(--font-plus-jakarta-sans), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 /* Shimmer loading effect */
@@ -493,24 +522,18 @@ button, a {
 
 /* Gradient classes removed per Design Style Guide - no accent colors */
 
-/* Glassmorphism utilities */
+/* Clean card utilities - no blur effects for simplicity */
 .glass {
-  background: hsl(var(--background) / 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: hsl(var(--background));
 }
 
 .glass-card {
-  background: hsl(var(--card) / 0.8);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid hsl(var(--border) / 0.5);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
 }
 
 .glass-secondary {
-  background: hsl(var(--secondary) / 0.6);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: hsl(var(--secondary));
 }
 
 /* Accessibility: Respect prefers-reduced-motion */
@@ -523,5 +546,41 @@ button, a {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
 
+/* Terminal styling */
+.bg-terminal-bg {
+  background-color: hsl(var(--terminal-bg));
+}
+
+.text-terminal-fg {
+  color: hsl(var(--terminal-fg));
+}
+
+.text-terminal-prompt {
+  color: hsl(var(--terminal-prompt));
+}
+
+.text-terminal-command {
+  color: hsl(var(--terminal-command));
+}
+
+.text-terminal-error {
+  color: hsl(var(--terminal-error));
+}
+
+.text-terminal-output {
+  color: hsl(var(--terminal-output));
+}
+
+.text-terminal-tool {
+  color: hsl(var(--terminal-tool));
+}
+
+.text-terminal-skill {
+  color: hsl(var(--terminal-skill));
+}
+
+.text-terminal-browser {
+  color: hsl(var(--terminal-browser));
 }

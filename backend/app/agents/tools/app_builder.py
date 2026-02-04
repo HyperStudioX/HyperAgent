@@ -4,6 +4,7 @@ These tools enable the agent to scaffold, build, and run web applications
 in an E2B sandbox with port forwarding for live previews.
 """
 
+import time
 from typing import Any, Literal
 
 from langchain_core.tools import tool
@@ -15,6 +16,56 @@ from app.sandbox.app_sandbox_manager import (
 )
 
 logger = get_logger(__name__)
+
+
+def _create_terminal_events(
+    command: str,
+    output: str | None = None,
+    error: str | None = None,
+    exit_code: int = 0,
+    cwd: str = "/home/user/app",
+) -> list[dict[str, Any]]:
+    """Create terminal event dicts to embed in tool results.
+
+    These events will be extracted by chat.py and forwarded to the frontend.
+    """
+    events = []
+    timestamp = int(time.time() * 1000)
+
+    # Command event
+    events.append({
+        "type": "terminal_command",
+        "command": command,
+        "cwd": cwd,
+        "timestamp": timestamp,
+    })
+
+    # Output event
+    if output:
+        events.append({
+            "type": "terminal_output",
+            "content": output,
+            "stream": "stdout",
+            "timestamp": timestamp,
+        })
+
+    # Error event
+    if error:
+        events.append({
+            "type": "terminal_error",
+            "content": error,
+            "exit_code": exit_code,
+            "timestamp": timestamp,
+        })
+
+    # Complete event
+    events.append({
+        "type": "terminal_complete",
+        "exit_code": exit_code,
+        "timestamp": timestamp,
+    })
+
+    return events
 
 
 @tool
@@ -68,6 +119,15 @@ async def create_app_project(
         # Scaffold the project
         result = await manager.scaffold_project(session, template)
 
+        # Create terminal events for the scaffold command
+        scaffold_cmd = APP_TEMPLATES[template]["scaffold_cmd"]
+        terminal_events = _create_terminal_events(
+            command=scaffold_cmd,
+            output=f"Created {APP_TEMPLATES[template]['name']} project successfully",
+            exit_code=0 if result["success"] else 1,
+            cwd="/home/user",
+        )
+
         if result["success"]:
             return {
                 "success": True,
@@ -76,8 +136,10 @@ async def create_app_project(
                 "project_dir": session.project_dir,
                 "sandbox_id": session.sandbox_id,
                 "message": f"Created {APP_TEMPLATES[template]['name']} project. Use app_write_file to add code, then app_start_server to run it.",
+                "terminal_events": terminal_events,
             }
         else:
+            result["terminal_events"] = terminal_events
             return result
 
     except Exception as e:
@@ -274,13 +336,30 @@ async def app_install_packages(
         # Install packages
         result = await manager.install_dependencies(session, packages, package_manager)
 
+        # Create terminal events
+        install_cmd = f"{package_manager} install {' '.join(packages)}"
+        terminal_events = _create_terminal_events(
+            command=install_cmd,
+            output=f"Installed {len(packages)} package(s)" if result.get("success") else None,
+            error=result.get("error") if not result.get("success") else None,
+            exit_code=0 if result.get("success") else 1,
+            cwd="/home/user/app",
+        )
+        result["terminal_events"] = terminal_events
         return result
 
     except Exception as e:
         logger.error("app_install_packages_failed", error=str(e))
+        packages_str = " ".join(packages) if packages else ""
         return {
             "success": False,
             "error": str(e),
+            "terminal_events": _create_terminal_events(
+                command=f"{package_manager} install {packages_str}",
+                error=str(e),
+                exit_code=1,
+                cwd="/home/user/app",
+            ),
         }
 
 
@@ -327,14 +406,32 @@ async def app_start_server(
         # Start the dev server
         result = await manager.start_dev_server(session, custom_command, port)
 
+        # Create terminal events for the start command
+        template = session.template or "react"
+        start_cmd = custom_command or APP_TEMPLATES.get(template, APP_TEMPLATES["react"])["start_cmd"]
+
         if result["success"]:
+            terminal_events = _create_terminal_events(
+                command=start_cmd,
+                output=f"Server started at {result['preview_url']}",
+                exit_code=0,
+                cwd="/home/user/app",
+            )
             return {
                 "success": True,
                 "preview_url": result["preview_url"],
                 "port": result["port"],
                 "message": f"App is running! View it at: {result['preview_url']}",
+                "terminal_events": terminal_events,
             }
 
+        terminal_events = _create_terminal_events(
+            command=start_cmd,
+            error=result.get("error", "Failed to start server"),
+            exit_code=1,
+            cwd="/home/user/app",
+        )
+        result["terminal_events"] = terminal_events
         return result
 
     except Exception as e:
@@ -427,6 +524,15 @@ async def app_run_command(
         # Run the command
         result = await manager.run_command(session, command, timeout)
 
+        # Create terminal events
+        terminal_events = _create_terminal_events(
+            command=command,
+            output=result.get("stdout", "") if result.get("success") else None,
+            error=result.get("stderr") or result.get("error") if not result.get("success") else None,
+            exit_code=result.get("exit_code", 0 if result.get("success") else 1),
+            cwd="/home/user/app",
+        )
+        result["terminal_events"] = terminal_events
         return result
 
     except Exception as e:
@@ -434,6 +540,12 @@ async def app_run_command(
         return {
             "success": False,
             "error": str(e),
+            "terminal_events": _create_terminal_events(
+                command=command,
+                error=str(e),
+                exit_code=1,
+                cwd="/home/user/app",
+            ),
         }
 
 

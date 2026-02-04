@@ -15,11 +15,11 @@ const CATEGORY_ICONS = {
 };
 
 const CATEGORY_COLORS = {
-  research: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  code: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
-  data: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
-  creative: "bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-300",
-  automation: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
+  research: "bg-secondary text-foreground",
+  code: "bg-secondary text-foreground",
+  data: "bg-secondary text-foreground",
+  creative: "bg-secondary text-foreground",
+  automation: "bg-secondary text-foreground",
 };
 
 interface SkillCardProps {
@@ -29,10 +29,10 @@ interface SkillCardProps {
 
 export function SkillCard({ skill, onExecute }: SkillCardProps) {
   const Icon = CATEGORY_ICONS[skill.category as keyof typeof CATEGORY_ICONS] || Code;
-  const colorClass = CATEGORY_COLORS[skill.category as keyof typeof CATEGORY_COLORS] || "bg-gray-100 text-gray-700";
+  const colorClass = CATEGORY_COLORS[skill.category as keyof typeof CATEGORY_COLORS] || "bg-secondary text-foreground";
 
   return (
-    <Card className="p-4 hover:shadow-md transition-shadow">
+    <Card className="p-4 hover:border-border transition-colors">
       <div className="flex items-start gap-3">
         <div className={`p-2 rounded-lg ${colorClass}`}>
           <Icon className="w-4 h-4" />

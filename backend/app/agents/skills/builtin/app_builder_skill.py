@@ -23,6 +23,13 @@ logger = get_logger(__name__)
 llm_service = LLMService()
 
 
+class FileSpec(BaseModel):
+    """File specification for app planning."""
+
+    path: str = Field(description="File path relative to project root (e.g., 'src/App.tsx')")
+    description: str = Field(description="What this file should contain/do")
+
+
 class AppPlan(BaseModel):
     """Plan for building an application."""
 
@@ -30,10 +37,10 @@ class AppPlan(BaseModel):
         description="Template to use (react, nextjs, vue, express, fastapi, flask, static)"
     )
     features: list[str] = Field(description="List of features to implement")
-    files: list[dict[str, str]] = Field(
+    files: list[FileSpec] = Field(
         description="List of files to create with path and description"
     )
-    packages: list[str] = Field(default=[], description="Additional packages to install")
+    packages: list[str] = Field(default_factory=list, description="Additional packages to install")
     explanation: str = Field(description="Brief explanation of the app architecture")
 
 
@@ -130,6 +137,14 @@ class AppBuilderSkill(Skill):
             requested_template = state["input_params"].get("template")
             requested_features = state["input_params"].get("features", [])
 
+            # Log skill entry for debugging
+            logger.info(
+                "app_builder_skill_started",
+                description=description[:100] if description else "no description",
+                user_id=state.get("user_id"),
+                task_id=state.get("task_id"),
+            )
+
             # Emit stage event for planning
             pending_events = state.get("pending_events", [])
             pending_events.append(
@@ -202,7 +217,7 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
 
                 return {
                     "plan": plan.model_dump(),
-                    "current_step": "scaffold",
+                    "current_step": "plan",  # Return current step, route_step maps to next
                     "iterations": state.get("iterations", 0) + 1,
                     "pending_events": pending_events,
                 }
@@ -230,6 +245,25 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
             user_id = state.get("user_id")
             task_id = state.get("task_id")
 
+            # Check if sandbox is available
+            from app.sandbox import is_app_sandbox_available
+            if not is_app_sandbox_available():
+                logger.error("app_builder_sandbox_not_available", reason="E2B API key not configured")
+                pending_events = state.get("pending_events", [])
+                pending_events.append(
+                    agent_events.stage(
+                        name="scaffold",
+                        description="Sandbox not available - E2B API key not configured",
+                        status="failed",
+                    )
+                )
+                return {
+                    "error": "E2B sandbox not available. Please configure E2B_API_KEY.",
+                    "current_step": "error",
+                    "iterations": state.get("iterations", 0) + 1,
+                    "pending_events": pending_events,
+                }
+
             # Emit stage event for scaffolding
             pending_events = state.get("pending_events", [])
             pending_events.append(
@@ -243,6 +277,8 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
             logger.info(
                 "app_builder_scaffolding",
                 template=template,
+                user_id=user_id,
+                task_id=task_id,
             )
 
             try:
@@ -255,7 +291,36 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
                     template=template,
                 )
 
+                # Emit terminal command event for scaffolding
+                template_config = APP_TEMPLATES.get(template, APP_TEMPLATES["react"])
+                scaffold_cmd = template_config["scaffold_cmd"]
+                pending_events.append(
+                    agent_events.terminal_command(
+                        command=scaffold_cmd,
+                        cwd="/home/user",
+                    )
+                )
+
                 result = await manager.scaffold_project(session, template)
+
+                # Emit terminal output or error based on result
+                if result.get("success"):
+                    pending_events.append(
+                        agent_events.terminal_output(
+                            content=result.get("message", "Project scaffolded successfully"),
+                            stream="stdout",
+                        )
+                    )
+                    pending_events.append(
+                        agent_events.terminal_complete(exit_code=0)
+                    )
+                else:
+                    pending_events.append(
+                        agent_events.terminal_error(
+                            content=result.get("error", "Scaffold failed"),
+                            exit_code=result.get("exit_code"),
+                        )
+                    )
 
                 if not result["success"]:
                     pending_events.append(
@@ -276,7 +341,31 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
                 packages = plan.get("packages", [])
                 if packages:
                     pkg_manager = "pip" if template in ["fastapi", "flask"] else "npm"
-                    await manager.install_dependencies(session, packages, pkg_manager)
+                    packages_str = " ".join(packages)
+                    install_cmd = f"cd /home/user/app && {pkg_manager} install {packages_str}"
+                    pending_events.append(
+                        agent_events.terminal_command(
+                            command=install_cmd,
+                            cwd="/home/user/app",
+                        )
+                    )
+                    install_result = await manager.install_dependencies(session, packages, pkg_manager)
+                    if install_result.get("success"):
+                        pending_events.append(
+                            agent_events.terminal_output(
+                                content=f"Installed {len(packages)} package(s)",
+                                stream="stdout",
+                            )
+                        )
+                        pending_events.append(
+                            agent_events.terminal_complete(exit_code=0)
+                        )
+                    else:
+                        pending_events.append(
+                            agent_events.terminal_error(
+                                content=install_result.get("error", "Installation failed"),
+                            )
+                        )
 
                 pending_events.append(
                     agent_events.stage(
@@ -287,7 +376,7 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
                 )
 
                 return {
-                    "current_step": "generate_files",
+                    "current_step": "scaffold",  # Return current step, route_step maps to next
                     "iterations": state.get("iterations", 0) + 1,
                     "pending_events": pending_events,
                 }
@@ -429,7 +518,7 @@ The code should be complete and immediately runnable."""
                 return {
                     "generated_files": generated_files,
                     "build_errors": build_errors,
-                    "current_step": "start_server",
+                    "current_step": "generate_files",  # Return current step, route_step maps to next
                     "iterations": state.get("iterations", 0) + 1,
                     "pending_events": pending_events,
                 }
@@ -452,6 +541,8 @@ The code should be complete and immediately runnable."""
 
         async def start_server(state: AppBuilderState) -> dict:
             """Start the development server and get preview URL."""
+            plan = state.get("plan", {})
+            template = plan.get("template", "react")
             user_id = state.get("user_id")
             task_id = state.get("task_id")
 
@@ -486,10 +577,36 @@ The code should be complete and immediately runnable."""
                         "pending_events": pending_events,
                     }
 
+                # Emit terminal command for dev server
+                template_config = APP_TEMPLATES.get(template, APP_TEMPLATES["react"])
+                start_cmd = template_config["start_cmd"]
+                pending_events.append(
+                    agent_events.terminal_command(
+                        command=start_cmd,
+                        cwd="/home/user/app",
+                    )
+                )
+
                 # Start the dev server
                 result = await manager.start_dev_server(session)
 
                 if result["success"]:
+                    # Emit terminal output with server URL
+                    pending_events.append(
+                        agent_events.terminal_output(
+                            content=f"Server running at {result['preview_url']}",
+                            stream="stdout",
+                        )
+                    )
+                    # Emit browser_stream event for virtual computer display
+                    sandbox_id = session.sandbox_id or task_id or user_id or "app-sandbox"
+                    pending_events.append(
+                        agent_events.browser_stream(
+                            stream_url=result["preview_url"],
+                            sandbox_id=sandbox_id,
+                            auth_key=None,
+                        )
+                    )
                     pending_events.append(
                         agent_events.stage(
                             name="server",
@@ -499,7 +616,7 @@ The code should be complete and immediately runnable."""
                     )
                     return {
                         "preview_url": result["preview_url"],
-                        "current_step": "complete",
+                        "current_step": "start_server",  # Return current step, route_step maps to next
                         "iterations": state.get("iterations", 0) + 1,
                         "pending_events": pending_events,
                     }
@@ -617,7 +734,6 @@ The code should be complete and immediately runnable."""
                 "scaffold": "generate_files",
                 "generate_files": "start_server",
                 "start_server": "finalize",
-                "complete": "finalize",
                 "error": "finalize",
             }
 

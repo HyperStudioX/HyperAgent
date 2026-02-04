@@ -19,6 +19,7 @@ import {
   Check,
   ImageIcon,
   AppWindow,
+  PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationType } from "@/lib/types";
@@ -38,6 +39,7 @@ const CONVERSATION_TYPE_ICONS: Record<ConversationType, React.ReactNode> = {
   data: <BarChart3 className="w-4 h-4" />,
   app: <AppWindow className="w-4 h-4" />,
   image: <ImageIcon className="w-4 h-4" />,
+  writing: <PenLine className="w-4 h-4" />,
 };
 
 const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
@@ -47,6 +49,7 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   data: <BarChart3 className="w-3.5 h-3.5" />,
   app: <AppWindow className="w-3.5 h-3.5" />,
   image: <ImageIcon className="w-3.5 h-3.5" />,
+  writing: <PenLine className="w-3.5 h-3.5" />,
   task: <Search className="w-3.5 h-3.5" />,
 };
 
@@ -198,6 +201,7 @@ export function RecentTasks({
     data: t("data"),
     app: t("app") || "App",
     image: t("image") || "Image",
+    writing: t("writing") || "Writing",
     task: t("task") || "Task",
   };
 
@@ -239,14 +243,14 @@ export function RecentTasks({
                 {FILTER_ICONS[activeFilter]}
                 <span>{filterLabels[activeFilter]}</span>
                 <ChevronDown className={cn(
-                  "w-3 h-3 transition-transform",
+                  "w-3 h-3",
                   isFilterOpen && "rotate-180"
                 )} />
               </button>
 
               {/* Dropdown Menu */}
               {isFilterOpen && (
-                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-card border border-border rounded-sm overflow-hidden">
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-card border border-border rounded-lg overflow-hidden">
                   {availableFilters.map((filter) => (
                     <button
                       key={filter}
@@ -255,16 +259,16 @@ export function RecentTasks({
                         setIsFilterOpen(false);
                       }}
                       className={cn(
-                        "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors text-left",
+                        "w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors text-left",
                         activeFilter === filter
                           ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                       )}
                     >
                       {FILTER_ICONS[filter]}
                       <span className="flex-1">{filterLabels[filter]}</span>
                       {activeFilter === filter && (
-                        <Check className="w-3 h-3" />
+                        <Check className="w-3.5 h-3.5" />
                       )}
                     </button>
                   ))}
@@ -408,13 +412,13 @@ function RecentItemRow({
   const getStatusIndicator = () => {
     if (!isTask) return null;
     if (taskStatus === "running") {
-      return <Loader2 className={cn("w-3 h-3 animate-spin", isActive ? "text-foreground/70" : "text-muted-foreground")} />;
+      return <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />;
     }
     if (taskStatus === "completed") {
-      return <CheckCircle2 className={cn("w-3 h-3", isActive ? "text-foreground" : "text-foreground")} />;
+      return <CheckCircle2 className="w-3.5 h-3.5 text-success" />;
     }
     if (taskStatus === "failed") {
-      return <AlertCircle className={cn("w-3 h-3", isActive ? "text-destructive" : "text-destructive")} />;
+      return <AlertCircle className="w-3.5 h-3.5 text-destructive" />;
     }
     return null;
   };
@@ -422,17 +426,17 @@ function RecentItemRow({
   return (
     <div
       className={cn(
-        "group relative flex items-center gap-2.5 px-2 py-2 rounded-sm cursor-pointer transition-colors",
+        "group relative flex items-center gap-3 px-2.5 py-2.5 rounded-lg cursor-pointer transition-colors",
         isActive
-          ? "bg-muted text-foreground"
-          : "hover:bg-muted/50"
+          ? "bg-secondary text-foreground"
+          : "hover:bg-secondary/50"
       )}
       onClick={onClick}
     >
       {/* Type Icon Container */}
       <div className={cn(
-        "flex-shrink-0 w-7 h-7 rounded-sm flex items-center justify-center transition-colors",
-        isActive ? "bg-foreground/15" : "bg-secondary group-hover:bg-secondary"
+        "flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
+        isActive ? "bg-muted" : "bg-secondary group-hover:bg-muted"
       )}>
         <span className={cn(
           "transition-colors",
@@ -445,8 +449,8 @@ function RecentItemRow({
       {/* Title */}
       <span
         className={cn(
-          "flex-1 text-base truncate",
-          isActive ? "text-foreground font-semibold" : "text-foreground/80 group-hover:text-foreground"
+          "flex-1 text-sm truncate",
+          isActive ? "text-foreground font-medium" : "text-foreground/80 group-hover:text-foreground"
         )}
       >
         {title.slice(0, 40) + (title.length > 40 ? "..." : "")}
@@ -458,12 +462,10 @@ function RecentItemRow({
       {/* Delete button - visible on mobile, hover-reveal on desktop */}
       <button
         className={cn(
-          "flex-shrink-0 p-1.5 rounded-sm transition-colors",
+          "flex-shrink-0 p-1.5 rounded-lg transition-colors",
           "opacity-60 md:opacity-0 group-hover:opacity-100",
-          isActive
-            ? "text-foreground/70 hover:text-foreground hover:bg-foreground/10"
-            : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-          "min-h-[32px] min-w-[32px] flex items-center justify-center"
+          "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+          "min-h-[36px] min-w-[36px] flex items-center justify-center"
         )}
         onClick={(e) => {
           e.stopPropagation();
@@ -471,7 +473,7 @@ function RecentItemRow({
         }}
         aria-label="Delete"
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <Trash2 className="w-4 h-4" />
       </button>
     </div>
   );

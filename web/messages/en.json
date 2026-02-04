@@ -33,6 +33,7 @@
         "data": "Data",
         "app": "App",
         "image": "Image",
+        "writing": "Writing",
         "noResults": "No items found",
         "chatDescription": "Quick questions & conversations",
         "researchDescription": "In-depth analysis & reports",
@@ -596,5 +597,24 @@
         "expand": "Show preview",
         "collapse": "Hide preview",
         "close": "Close"
+    },
+    "computer": {
+        "title": "Computer",
+        "terminal": "Terminal",
+        "plan": "Plan",
+        "browser": "Browser",
+        "files": "Files",
+        "close": "Close",
+        "usingTerminal": "Agent is using Terminal",
+        "usingPlan": "Agent activity log",
+        "usingBrowser": "Agent is using Browser",
+        "usingFiles": "Agent is browsing files",
+        "live": "live",
+        "stepOf": "Step {current} of {total}",
+        "noBrowserStream": "No browser stream",
+        "browserStreamWillAppear": "Live browser view will appear when the agent uses the browser",
+        "emptyDirectory": "This directory is empty",
+        "noPlanItems": "No activity yet",
+        "planItemsWillAppear": "Agent activities will appear here"
     }
 }

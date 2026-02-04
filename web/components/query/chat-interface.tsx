@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
+import { useComputerStore } from "@/lib/stores/computer-store";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { FileUploadButton } from "@/components/chat/file-upload-button";
 import { VoiceInputButton } from "@/components/chat/voice-input-button";
@@ -395,6 +396,14 @@ export function ChatInterface() {
         setBrowserStream,
         activeProgress,
     } = useAgentProgressStore();
+
+    // Computer store for terminal/browser/file panel
+    const {
+        addTerminalLine,
+        setCurrentCommand,
+        openPanel: openComputerPanel,
+        setMode: setComputerMode,
+    } = useComputerStore();
 
     const activeConversation = hasHydrated ? getActiveConversation() : undefined;
     const messages = activeConversation?.messages || [];
@@ -791,6 +800,37 @@ export function ChatInterface() {
                                     status: status === "completed" ? "completed" : "running",
                                 };
                                 addStreamingEvent(browserStageEvent);
+                            } else if (event.type === "terminal_command") {
+                                // Handle terminal command - agent is executing a shell command
+                                const command = event.command as string;
+                                const cwd = event.cwd as string | undefined;
+                                if (command) {
+                                    setCurrentCommand(command, cwd);
+                                    addTerminalLine({ type: "command", content: command, cwd });
+                                    openComputerPanel();
+                                    setComputerMode("terminal");
+                                    addAgentEvent(event);
+                                }
+                            } else if (event.type === "terminal_output") {
+                                // Handle terminal output (stdout)
+                                const output = (event.content || event.data) as string;
+                                if (output) {
+                                    addTerminalLine({ type: "output", content: output });
+                                }
+                            } else if (event.type === "terminal_error") {
+                                // Handle terminal error (stderr)
+                                const errorOutput = (event.content || event.data) as string;
+                                if (errorOutput) {
+                                    addTerminalLine({ type: "error", content: errorOutput });
+                                }
+                            } else if (event.type === "terminal_complete") {
+                                // Terminal command completed
+                                const exitCode = event.exit_code as number | undefined;
+                                setCurrentCommand(null);
+                                if (exitCode !== undefined && exitCode !== 0) {
+                                    addTerminalLine({ type: "error", content: `Exit code: ${exitCode}` });
+                                }
+                                addAgentEvent(event);
                             } else if (event.type === "skill_output") {
                                 // Handle skill output events
                                 const skillId = event.skill_id as string;
@@ -1424,29 +1464,21 @@ export function ChatInterface() {
                         hasMessages ? "max-w-4xl mx-auto px-4 md:px-6 py-4 md:py-6" : "max-w-3xl px-6 md:px-8"
                     )}
                 >
-                    {/* Welcome section - bigger and more impactful */}
+                    {/* Welcome section - clean and minimal */}
                     {!hasMessages && (
-                        <div className="text-center mb-6">
-                            {/* Subtitle - larger and more prominent */}
+                        <div className="text-center mb-8">
                             <p
-                                className="text-muted-foreground text-lg md:text-xl leading-relaxed max-w-lg mx-auto animate-fade-in"
-                                style={{ animationDelay: '0.2s', animationFillMode: 'backwards' }}
+                                className="text-muted-foreground text-base md:text-lg leading-relaxed max-w-md mx-auto"
                             >
                                 {t("welcomeSubtitle")}
                             </p>
                         </div>
                     )}
 
-                    {/* Input - large and prominent */}
-                    <div
-                        className={cn(
-                            "relative",
-                            !hasMessages && "animate-fade-in"
-                        )}
-                        style={!hasMessages ? { animationDelay: '0.3s', animationFillMode: 'backwards' } : undefined}
-                    >
+                    {/* Input - clean and focused */}
+                    <div className="relative">
                         <div className={cn(
-                            "relative flex flex-col bg-card rounded-2xl border border-border focus-within:border-foreground/30 transition-colors"
+                            "relative flex flex-col bg-card rounded-xl border border-border focus-within:border-foreground/20 transition-colors"
                         )}>
                             {/* Attachment preview */}
                             <AttachmentPreview
@@ -1463,10 +1495,10 @@ export function ChatInterface() {
                                     onChange={(e) => setInput(e.target.value)}
                                     placeholder={getPlaceholder()}
                                     className={cn(
-                                        "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed textarea-auto-resize",
+                                        "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed textarea-auto-resize resize-none",
                                         hasMessages
-                                            ? "min-h-[64px] max-h-[160px] px-4 py-3 text-base"
-                                            : "min-h-[100px] md:min-h-[110px] max-h-[200px] px-5 py-4 text-base"
+                                            ? "min-h-[56px] max-h-[140px] px-4 py-3 text-sm"
+                                            : "min-h-[80px] md:min-h-[96px] max-h-[180px] px-4 py-4 text-sm"
                                     )}
                                     rows={hasMessages ? 2 : 3}
                                     onKeyDown={(e) => {
@@ -1514,12 +1546,9 @@ export function ChatInterface() {
                         </div>
                     </div>
 
-                    {/* Agent selection - compact pills with selection indicator (only on home view) */}
+                    {/* Agent selection - minimal pills (only on home view) */}
                     {!hasMessages && (
-                        <div
-                            className="mt-6 animate-fade-in"
-                            style={{ animationDelay: '0.4s', animationFillMode: 'backwards' }}
-                        >
+                        <div className="mt-6">
                             <div className="flex items-center justify-center gap-2 flex-wrap">
                                 {AGENT_KEYS.map((agent) => {
                                     const isSelected = selectedAgent === agent || (agent === "research" && selectedScenario);
@@ -1530,15 +1559,15 @@ export function ChatInterface() {
                                                 onMouseEnter={() => agent === "research" && setShowResearchSubmenu(true)}
                                                 className={cn(
                                                     "relative flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
-                                                    "text-sm font-medium border",
+                                                    "text-sm font-medium",
                                                     isSelected
-                                                        ? "bg-foreground text-background border-foreground"
-                                                        : "bg-card text-muted-foreground border-border hover:bg-secondary hover:text-foreground"
+                                                        ? "bg-primary text-primary-foreground"
+                                                        : "bg-secondary text-muted-foreground hover:text-foreground"
                                                 )}
                                             >
                                                 {/* Selection checkmark */}
                                                 {isSelected && (
-                                                    <span className="flex items-center justify-center w-4 h-4 rounded-full bg-background text-foreground">
+                                                    <span className="flex items-center justify-center w-4 h-4 rounded-full bg-primary-foreground text-primary">
                                                         <Check className="w-3 h-3" strokeWidth={3} />
                                                     </span>
                                                 )}
@@ -1564,42 +1593,34 @@ export function ChatInterface() {
                                                     <div
                                                         ref={submenuRef}
                                                         className={cn(
-                                                            "absolute z-50 transition-colors",
+                                                            "absolute z-50",
                                                             submenuPosition.x === 'right' ? 'left-0' : 'right-0',
-                                                            submenuPosition.y === 'bottom' ? 'top-full mt-3' : 'bottom-full mb-3'
+                                                            submenuPosition.y === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'
                                                         )}
                                                         onMouseLeave={() => setShowResearchSubmenu(false)}
                                                     >
-                                                        {/* Arrow pointer */}
-                                                        <div className={cn(
-                                                            "absolute w-3 h-3 rotate-45 bg-card border border-border transition-colors",
-                                                            submenuPosition.y === 'bottom' ? '-top-1.5 border-l border-t' : '-bottom-1.5 border-r border-b',
-                                                            submenuPosition.x === 'right' ? 'left-6' : 'right-6'
-                                                        )} />
-
-                                                        <div className="relative bg-card border border-border rounded-xl overflow-hidden w-[280px]"
-                                                             style={{ maxWidth: 'min(280px, calc(100vw - 2rem))' }}
+                                                        <div className="relative bg-card border border-border rounded-xl overflow-hidden w-[260px]"
+                                                             style={{ maxWidth: 'min(260px, calc(100vw - 2rem))' }}
                                                         >
                                                         {/* Scenarios section */}
-                                                        <div className="p-3">
-                                                            <div className="grid grid-cols-2 gap-2">
+                                                        <div className="p-2">
+                                                            <div className="grid grid-cols-2 gap-1.5">
                                                                 {SCENARIO_KEYS.map((scenario) => (
                                                                     <button
                                                                         key={scenario}
                                                                         onClick={() => handleScenarioSelect(scenario)}
                                                                         className={cn(
-                                                                            "flex flex-col items-center gap-2 p-3 rounded-lg transition-colors",
-                                                                            "border border-border",
+                                                                            "flex flex-col items-center gap-1.5 p-2.5 rounded-lg transition-colors",
                                                                             selectedScenario === scenario
-                                                                                ? "bg-foreground text-background"
-                                                                                : "bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                                                                ? "bg-primary text-primary-foreground"
+                                                                                : "bg-secondary text-muted-foreground hover:text-foreground"
                                                                         )}
                                                                     >
                                                                         <span className={cn(
-                                                                            "flex items-center justify-center w-9 h-9 rounded-lg transition-colors",
+                                                                            "flex items-center justify-center w-8 h-8 rounded-lg transition-colors",
                                                                             selectedScenario === scenario
-                                                                                ? "bg-background text-foreground"
-                                                                                : "bg-secondary text-muted-foreground"
+                                                                                ? "bg-primary-foreground text-primary"
+                                                                                : "bg-muted text-muted-foreground"
                                                                         )}>
                                                                             {SCENARIO_ICONS[scenario]}
                                                                         </span>
@@ -1612,12 +1633,12 @@ export function ChatInterface() {
                                                         </div>
 
                                                         {/* Depth selector */}
-                                                        <div className="border-t border-border bg-secondary px-3 py-3">
+                                                        <div className="border-t border-border bg-secondary/50 px-3 py-2.5">
                                                             <div className="flex items-center justify-between gap-3">
                                                                 <span className="text-xs font-medium text-muted-foreground">
                                                                     {tResearch("depth.label")}
                                                                 </span>
-                                                                <div className="flex gap-1.5">
+                                                                <div className="flex gap-1">
                                                                     {DEPTH_KEYS.map((depth) => (
                                                                         <button
                                                                             key={depth}
@@ -1626,11 +1647,10 @@ export function ChatInterface() {
                                                                                 setSelectedDepth(depth);
                                                                             }}
                                                                             className={cn(
-                                                                                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                                                                                "border border-border",
+                                                                                "flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors",
                                                                                 selectedDepth === depth
-                                                                                    ? "bg-foreground text-background"
-                                                                                    : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                                                                                    ? "bg-primary text-primary-foreground"
+                                                                                    : "bg-card text-muted-foreground hover:text-foreground"
                                                                             )}
                                                                         >
                                                                             {DEPTH_ICONS[depth]}

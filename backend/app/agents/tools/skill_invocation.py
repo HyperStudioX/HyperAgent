@@ -89,7 +89,7 @@ async def invoke_skill(
     try:
         output = None
         error = None
-        collected_events: list[dict] = []  # Collect stage events for streaming
+        collected_events: list[dict] = []  # Collect events for streaming
         effective_user_id = user_id or "anonymous"
 
         async for event in skill_executor.execute_skill(
@@ -101,12 +101,20 @@ async def invoke_skill(
         ):
             if not isinstance(event, dict):
                 continue
-            if event.get("type") == "skill_output":
+            event_type = event.get("type")
+            if event_type == "skill_output":
                 output = event.get("output", {})
-            elif event.get("type") == "error":
+            elif event_type == "error":
                 error = event.get("error")
-            elif event.get("type") == "stage":
-                # Collect stage events for streaming to frontend
+            elif event_type in (
+                "stage",
+                "terminal_command",
+                "terminal_output",
+                "terminal_error",
+                "terminal_complete",
+                "browser_stream",
+            ):
+                # Collect stage, terminal, and browser_stream events for streaming to frontend
                 collected_events.append(event)
 
         if error:
@@ -127,6 +135,15 @@ async def invoke_skill(
             skill_id=skill_id,
             output_keys=list(output.keys()) if isinstance(output, dict) else None,
         )
+
+        # Log collected events for debugging
+        if collected_events:
+            logger.info(
+                "skill_invocation_returning_events",
+                skill_id=skill_id,
+                event_count=len(collected_events),
+                event_types=[e.get("type") for e in collected_events if isinstance(e, dict)],
+            )
 
         return json.dumps(
             {
@@ -156,18 +173,8 @@ class ListSkillsInput(BaseModel):
         default=None,
         description="Optional category filter (research, code, data, creative, automation)",
     )
-    # Context fields (injected by agent, not provided by LLM)
-    # These are excluded from the JSON schema so the LLM doesn't see them
-    user_id: str | None = Field(
-        default=None,
-        description="User ID for session management (internal use only)",
-        json_schema_extra={"exclude": True},
-    )
-    task_id: str | None = Field(
-        default=None,
-        description="Task ID for session management (internal use only)",
-        json_schema_extra={"exclude": True},
-    )
+    # Note: list_skills does not need user_id/task_id since it just lists
+    # available skills without any session-specific context
 
 
 @tool(args_schema=ListSkillsInput)

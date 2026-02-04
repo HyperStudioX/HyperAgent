@@ -85,6 +85,8 @@ class SkillExecutor:
             skill_id=skill_id,
             execution_id=execution_id,
             user_id=user_id,
+            task_id=task_id,
+            params_keys=list(params.keys()) if params else [],
         )
 
         try:
@@ -124,7 +126,17 @@ class SkillExecutor:
 
                             # Emit any pending events from this state
                             pending_events = node_state.get("pending_events", [])
-                            for event in pending_events[emitted_event_count:]:
+                            new_events = pending_events[emitted_event_count:]
+                            if new_events:
+                                event_types = [e.get("type") for e in new_events if isinstance(e, dict)]
+                                logger.info(
+                                    "skill_executor_yielding_events",
+                                    skill_id=skill_id,
+                                    node_name=node_name,
+                                    event_count=len(new_events),
+                                    event_types=event_types,
+                                )
+                            for event in new_events:
                                 yield event
                             emitted_event_count = len(pending_events)
 

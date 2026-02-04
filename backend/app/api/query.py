@@ -503,6 +503,37 @@ async def stream_query(
                             "status": event.get("status", "running"),
                         })
 
+                    elif event_type == "terminal_command":
+                        yield _sse_data({
+                            "type": "terminal_command",
+                            "command": event.get("command", ""),
+                            "cwd": event.get("cwd", "/home/user"),
+                            "timestamp": event.get("timestamp"),
+                        })
+
+                    elif event_type == "terminal_output":
+                        yield _sse_data({
+                            "type": "terminal_output",
+                            "content": event.get("content", ""),
+                            "stream": event.get("stream", "stdout"),
+                            "timestamp": event.get("timestamp"),
+                        })
+
+                    elif event_type == "terminal_error":
+                        yield _sse_data({
+                            "type": "terminal_error",
+                            "content": event.get("content", ""),
+                            "exit_code": event.get("exit_code"),
+                            "timestamp": event.get("timestamp"),
+                        })
+
+                    elif event_type == "terminal_complete":
+                        yield _sse_data({
+                            "type": "terminal_complete",
+                            "exit_code": event.get("exit_code", 0),
+                            "timestamp": event.get("timestamp"),
+                        })
+
                     elif event_type == "skill_output":
                         yield _sse_data({
                             "type": "skill_output",

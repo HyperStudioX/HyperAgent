@@ -353,8 +353,8 @@ function StatusIndicator({ status }: { status: "pending" | "running" | "complete
 
     if (status === "completed") {
         return (
-            <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center ring-1 ring-emerald-500/30">
-                <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} />
+            <div className="w-5 h-5 rounded-full bg-success/20 flex items-center justify-center ring-1 ring-success/30">
+                <Check className="w-3 h-3 text-success" strokeWidth={2.5} />
             </div>
         );
     }
@@ -523,7 +523,7 @@ function SourcesSection({ sources }: { sources: Source[] }) {
                     {tProgress("sourcesCount", { count: sources.length })}
                 </span>
                 <ChevronRight className={cn(
-                    "w-4 h-4 text-muted-foreground/60 transition-transform duration-200",
+                    "w-4 h-4 text-muted-foreground/60",
                     isExpanded && "rotate-90"
                 )} />
             </button>
@@ -647,7 +647,7 @@ export function TaskProgressPanel({
 
     return (
         <div className={cn(
-            "rounded-lg border-2 border-border/60 bg-card overflow-hidden max-w-full",
+            "rounded-lg border border-border/60 bg-card overflow-hidden max-w-full",
             // Different margins for live vs historical
             isHistorical ? "mt-4" : "mt-4 mb-6",
             className
@@ -670,8 +670,8 @@ export function TaskProgressPanel({
                         <Check className="w-3 h-3 text-muted-foreground" strokeWidth={2.5} />
                     </div>
                 ) : (
-                    <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center ring-1 ring-emerald-500/30">
-                        <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} />
+                    <div className="w-5 h-5 rounded-full bg-success/20 flex items-center justify-center ring-1 ring-success/30">
+                        <Check className="w-3 h-3 text-success" strokeWidth={2.5} />
                     </div>
                 )}
 
@@ -697,7 +697,7 @@ export function TaskProgressPanel({
 
                 {/* Expand chevron */}
                 <ChevronRight className={cn(
-                    "w-4 h-4 text-muted-foreground/60 transition-transform duration-200",
+                    "w-4 h-4 text-muted-foreground/60",
                     isExpanded && "rotate-90"
                 )} />
             </button>

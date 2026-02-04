@@ -77,13 +77,13 @@ export function FilePreviewSidebar() {
 
     const getFileIcon = () => {
         // File type color coding: Blue (images), Amber (code), Rose (data), Cyan (docs)
-        if (isImage) return <FileImage className="w-5 h-5 text-accent-blue transition-transform group-hover:scale-110" />;
-        if (isCode) return <FileCode className="w-5 h-5 text-accent-amber transition-transform group-hover:scale-110" />;
-        if (file.contentType === "application/json") return <FileJson className="w-5 h-5 text-accent-rose transition-transform group-hover:scale-110" />;
-        if (file.contentType?.includes("csv")) return <FileSpreadsheet className="w-5 h-5 text-accent-rose transition-transform group-hover:scale-110" />;
-        if (isMarkdown) return <FileText className="w-5 h-5 text-accent-cyan transition-transform group-hover:scale-110" />;
-        if (file.contentType?.includes("pdf")) return <FileText className="w-5 h-5 text-accent-rose transition-transform group-hover:scale-110" />;
-        return <FileText className="w-5 h-5 text-muted-foreground transition-transform group-hover:scale-110" />;
+        if (isImage) return <FileImage className="w-5 h-5 text-accent-blue" />;
+        if (isCode) return <FileCode className="w-5 h-5 text-accent-amber" />;
+        if (file.contentType === "application/json") return <FileJson className="w-5 h-5 text-accent-rose" />;
+        if (file.contentType?.includes("csv")) return <FileSpreadsheet className="w-5 h-5 text-accent-rose" />;
+        if (isMarkdown) return <FileText className="w-5 h-5 text-accent-cyan" />;
+        if (file.contentType?.includes("pdf")) return <FileText className="w-5 h-5 text-accent-rose" />;
+        return <FileText className="w-5 h-5 text-muted-foreground" />;
     };
 
     return (
@@ -100,8 +100,8 @@ export function FilePreviewSidebar() {
             {/* Sidebar Container */}
             <div
                 className={cn(
-                    "fixed right-0 top-0 bottom-0 z-50 flex flex-col transition-all duration-300 ease-in-out",
-                    "bg-background/95 backdrop-blur-md border-l border-border shadow-2xl",
+                    "fixed right-0 top-0 bottom-0 z-50 flex flex-col transition-colors duration-150",
+                    "bg-background/95 border-l border-border",
                     isExpanded ? "w-full" : "w-full lg:w-[450px] xl:w-[600px]",
                     isOpen ? "translate-x-0" : "translate-x-full"
                 )}
@@ -242,19 +242,19 @@ function CodeFilePreview({ url, language, filename }: { url: string; language: s
                     {language}
                 </span>
             </div>
-            <div className="rounded-xl border border-border/50 overflow-hidden shadow-sm">
+            <div className="rounded-xl border border-border/50 overflow-hidden">
                 <SyntaxHighlighter
                     language={language}
                     style={isDark ? oneDark : oneLight}
                     customStyle={{
                         margin: 0,
                         padding: '1.5rem',
-                        background: isDark ? 'rgba(30, 30, 30, 0.5)' : 'rgba(250, 250, 250, 0.5)',
+                        background: 'transparent',
                         fontSize: '13px',
                         lineHeight: '1.6',
                     }}
                     showLineNumbers
-                    lineNumberStyle={{ minWidth: '3em', paddingRight: '1em', color: isDark ? '#5c6370' : '#a0a1a7', textAlign: 'right' }}
+                    lineNumberStyle={{ minWidth: '3em', paddingRight: '1em', opacity: 0.5, textAlign: 'right' }}
                 >
                     {content}
                 </SyntaxHighlighter>
@@ -295,13 +295,15 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        let objectUrl: string | null = null;
+
         fetch(url, { credentials: 'include' })
             .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.blob();
             })
             .then(blob => {
-                const objectUrl = URL.createObjectURL(blob);
+                objectUrl = URL.createObjectURL(blob);
                 setBlobUrl(objectUrl);
             })
             .catch(err => {
@@ -309,7 +311,7 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
             });
 
         return () => {
-            if (blobUrl) URL.revokeObjectURL(blobUrl);
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
     }, [url]);
 
@@ -329,16 +331,18 @@ function PDFPreview({ url, filename }: { url: string; filename: string }) {
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
     useEffect(() => {
+        let objectUrl: string | null = null;
+
         fetch(url, { credentials: 'include' })
             .then(res => res.blob())
             .then(blob => {
-                const objectUrl = URL.createObjectURL(blob);
+                objectUrl = URL.createObjectURL(blob);
                 setBlobUrl(objectUrl);
             })
             .catch(console.error);
 
         return () => {
-            if (blobUrl) URL.revokeObjectURL(blobUrl);
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
     }, [url]);
 

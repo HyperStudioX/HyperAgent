@@ -48,34 +48,34 @@ const lightCodeTheme: Record<string, React.CSSProperties> = {
     },
 };
 
-// Language display names and colors
-const LANGUAGE_CONFIG: Record<string, { name: string; color: string }> = {
-    javascript: { name: "JavaScript", color: "hsl(50, 90%, 50%)" },
-    js: { name: "JavaScript", color: "hsl(50, 90%, 50%)" },
-    typescript: { name: "TypeScript", color: "hsl(211, 60%, 48%)" },
-    ts: { name: "TypeScript", color: "hsl(211, 60%, 48%)" },
-    python: { name: "Python", color: "hsl(207, 51%, 44%)" },
-    py: { name: "Python", color: "hsl(207, 51%, 44%)" },
-    rust: { name: "Rust", color: "hsl(25, 83%, 53%)" },
-    go: { name: "Go", color: "hsl(192, 68%, 46%)" },
-    java: { name: "Java", color: "hsl(15, 80%, 50%)" },
-    cpp: { name: "C++", color: "hsl(210, 55%, 50%)" },
-    c: { name: "C", color: "hsl(210, 55%, 45%)" },
-    html: { name: "HTML", color: "hsl(14, 77%, 52%)" },
-    css: { name: "CSS", color: "hsl(228, 77%, 52%)" },
-    json: { name: "JSON", color: "hsl(0, 0%, 50%)" },
-    yaml: { name: "YAML", color: "hsl(0, 0%, 55%)" },
-    bash: { name: "Bash", color: "hsl(120, 15%, 45%)" },
-    shell: { name: "Shell", color: "hsl(120, 15%, 45%)" },
-    sql: { name: "SQL", color: "hsl(210, 50%, 50%)" },
-    markdown: { name: "Markdown", color: "hsl(0, 0%, 45%)" },
-    md: { name: "Markdown", color: "hsl(0, 0%, 45%)" },
-    jsx: { name: "JSX", color: "hsl(193, 95%, 50%)" },
-    tsx: { name: "TSX", color: "hsl(211, 60%, 48%)" },
-    swift: { name: "Swift", color: "hsl(15, 100%, 55%)" },
-    kotlin: { name: "Kotlin", color: "hsl(270, 65%, 55%)" },
-    ruby: { name: "Ruby", color: "hsl(0, 65%, 50%)" },
-    php: { name: "PHP", color: "hsl(240, 35%, 55%)" },
+// Language display names - using semantic colors from design system
+const LANGUAGE_CONFIG: Record<string, { name: string }> = {
+    javascript: { name: "JavaScript" },
+    js: { name: "JavaScript" },
+    typescript: { name: "TypeScript" },
+    ts: { name: "TypeScript" },
+    python: { name: "Python" },
+    py: { name: "Python" },
+    rust: { name: "Rust" },
+    go: { name: "Go" },
+    java: { name: "Java" },
+    cpp: { name: "C++" },
+    c: { name: "C" },
+    html: { name: "HTML" },
+    css: { name: "CSS" },
+    json: { name: "JSON" },
+    yaml: { name: "YAML" },
+    bash: { name: "Bash" },
+    shell: { name: "Shell" },
+    sql: { name: "SQL" },
+    markdown: { name: "Markdown" },
+    md: { name: "Markdown" },
+    jsx: { name: "JSX" },
+    tsx: { name: "TSX" },
+    swift: { name: "Swift" },
+    kotlin: { name: "Kotlin" },
+    ruby: { name: "Ruby" },
+    php: { name: "PHP" },
 };
 
 interface CodeBlockProps {
@@ -91,7 +91,6 @@ export function CodeBlock({ language, children }: CodeBlockProps): JSX.Element {
     const isDark = resolvedTheme === "dark";
     const langConfig = LANGUAGE_CONFIG[language.toLowerCase()] || {
         name: language,
-        color: "hsl(var(--muted-foreground))",
     };
 
     async function handleCopy(): Promise<void> {
@@ -107,10 +106,9 @@ export function CodeBlock({ language, children }: CodeBlockProps): JSX.Element {
         <div
             className={cn(
                 "group/code my-6 rounded-xl overflow-hidden",
-                "border border-border/60",
-                "bg-[hsl(0,0%,97%)] dark:bg-[hsl(0,0%,8%)]",
-                "shadow-sm hover:shadow-md",
-                "transition-shadow duration-200"
+                "border border-border/60 hover:border-border",
+                "bg-secondary/30 dark:bg-secondary/20",
+                "transition-colors duration-150"
             )}
         >
             {/* Header - refined with language indicator */}
@@ -125,10 +123,7 @@ export function CodeBlock({ language, children }: CodeBlockProps): JSX.Element {
                 <div className="flex items-center gap-3">
                     {/* Language indicator dot */}
                     <div className="flex items-center gap-2">
-                        <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: langConfig.color }}
-                        />
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-primary/60" />
                         <span className="text-xs font-medium text-muted-foreground tracking-wide">
                             {langConfig.name}
                         </span>
@@ -147,7 +142,7 @@ export function CodeBlock({ language, children }: CodeBlockProps): JSX.Element {
                         "px-2.5 py-1",
                         "text-xs font-medium",
                         "rounded-md",
-                        "transition-all duration-150",
+                        "transition-colors duration-150",
                         copied
                             ? "text-accent-cyan bg-accent-cyan/10"
                             : "text-muted-foreground hover:text-foreground hover:bg-secondary"

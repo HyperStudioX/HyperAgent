@@ -47,6 +47,12 @@ class EventType(str, Enum):
     BROWSER_STREAM = "browser_stream"
     BROWSER_ACTION = "browser_action"
 
+    # Terminal events (for app builder sandbox)
+    TERMINAL_COMMAND = "terminal_command"
+    TERMINAL_OUTPUT = "terminal_output"
+    TERMINAL_ERROR = "terminal_error"
+    TERMINAL_COMPLETE = "terminal_complete"
+
     # Skill events
     SKILL_OUTPUT = "skill_output"
 
@@ -206,6 +212,41 @@ class BrowserActionEvent(BaseModel):
     description: str = Field(..., description="Human-readable description of the action")
     target: str | None = Field(default=None, description="Target of the action (URL, coordinates, text)")
     status: str = Field(default="running", description="Action status (running, completed)")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class TerminalCommandEvent(BaseModel):
+    """Event indicating a terminal command is being executed."""
+
+    type: Literal["terminal_command"] = "terminal_command"
+    command: str = Field(..., description="Command being executed")
+    cwd: str = Field(default="/home/user", description="Working directory")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class TerminalOutputEvent(BaseModel):
+    """Event containing terminal output."""
+
+    type: Literal["terminal_output"] = "terminal_output"
+    content: str = Field(..., description="Output content")
+    stream: Literal["stdout", "stderr"] = Field(default="stdout", description="Output stream")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class TerminalErrorEvent(BaseModel):
+    """Event indicating a terminal error."""
+
+    type: Literal["terminal_error"] = "terminal_error"
+    content: str = Field(..., description="Error message")
+    exit_code: int | None = Field(default=None, description="Exit code if available")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class TerminalCompleteEvent(BaseModel):
+    """Event indicating a terminal command completed."""
+
+    type: Literal["terminal_complete"] = "terminal_complete"
+    exit_code: int = Field(..., description="Command exit code")
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
@@ -543,6 +584,79 @@ def browser_action(
         description=description,
         target=target,
         status=status,
+    ).model_dump()
+
+
+def terminal_command(
+    command: str,
+    cwd: str = "/home/user",
+) -> dict[str, Any]:
+    """Create a terminal command event dictionary.
+
+    Args:
+        command: Command being executed
+        cwd: Working directory
+
+    Returns:
+        Terminal command event dictionary
+    """
+    return TerminalCommandEvent(
+        command=command,
+        cwd=cwd,
+    ).model_dump()
+
+
+def terminal_output(
+    content: str,
+    stream: str = "stdout",
+) -> dict[str, Any]:
+    """Create a terminal output event dictionary.
+
+    Args:
+        content: Output content
+        stream: Output stream (stdout or stderr)
+
+    Returns:
+        Terminal output event dictionary
+    """
+    return TerminalOutputEvent(
+        content=content,
+        stream=stream,
+    ).model_dump()
+
+
+def terminal_error(
+    content: str,
+    exit_code: int | None = None,
+) -> dict[str, Any]:
+    """Create a terminal error event dictionary.
+
+    Args:
+        content: Error message
+        exit_code: Exit code if available
+
+    Returns:
+        Terminal error event dictionary
+    """
+    return TerminalErrorEvent(
+        content=content,
+        exit_code=exit_code,
+    ).model_dump()
+
+
+def terminal_complete(
+    exit_code: int,
+) -> dict[str, Any]:
+    """Create a terminal complete event dictionary.
+
+    Args:
+        exit_code: Command exit code
+
+    Returns:
+        Terminal complete event dictionary
+    """
+    return TerminalCompleteEvent(
+        exit_code=exit_code,
     ).model_dump()
 
 

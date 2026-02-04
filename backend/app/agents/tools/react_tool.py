@@ -754,6 +754,8 @@ class ReActLoopConfig:
         max_consecutive_errors: Maximum consecutive tool errors before stopping
         max_message_tokens: Token budget for message history (approximate)
         preserve_recent_messages: Number of recent messages to always preserve
+        parallel_tool_execution: Whether to execute independent tools in parallel
+        max_parallel_tools: Maximum number of tools to execute in parallel (0 = unlimited)
     """
     max_iterations: int = field(default_factory=lambda: _get_default_max_iterations())
     max_retries_per_tool: int = 2
@@ -765,6 +767,8 @@ class ReActLoopConfig:
     max_consecutive_errors: int = 2
     max_message_tokens: int = 100000  # Conservative token budget
     preserve_recent_messages: int = 4  # Keep last N messages when truncating
+    parallel_tool_execution: bool = True  # Execute independent tools in parallel
+    max_parallel_tools: int = 5  # Limit concurrent tool executions
 
 
 def _get_default_max_iterations() -> int:
@@ -784,18 +788,24 @@ def _get_agent_react_configs() -> dict[str, ReActLoopConfig]:
             handoff_behavior="immediate",
             truncate_tool_results=True,
             tool_result_max_chars=2000,
+            parallel_tool_execution=True,
+            max_parallel_tools=5,
         ),
         "data": ReActLoopConfig(
             max_iterations=max(3, settings.react_max_iterations - 2),  # Slightly lower for data agent
             handoff_behavior="deferred",
             truncate_tool_results=True,
             tool_result_max_chars=2000,
+            parallel_tool_execution=True,
+            max_parallel_tools=3,
         ),
         "research": ReActLoopConfig(
             max_iterations=settings.react_max_iterations,
             handoff_behavior="deferred",
             truncate_tool_results=True,
             tool_result_max_chars=3000,
+            parallel_tool_execution=True,
+            max_parallel_tools=5,
         ),
     }
 
@@ -948,6 +958,339 @@ def truncate_tool_result(content: str, max_chars: int = 2000) -> str:
     truncation_msg = f"\n\n... [truncated {len(content) - head_budget - tail_budget} characters] ...\n\n"
 
     return content[:head_budget] + truncation_msg + content[-tail_budget:]
+
+
+# Tools that require sequential execution due to side effects or special handling
+SEQUENTIAL_TOOLS = {
+    "browser_navigate",  # Needs pre-execution stream URL setup
+    "browser_click",     # Browser state dependent
+    "browser_type",      # Browser state dependent
+    "browser_scroll",    # Browser state dependent
+    "browser_press_key", # Browser state dependent
+}
+
+
+async def _execute_single_tool(
+    tool: BaseTool,
+    tool_name: str,
+    tool_args: dict,
+    tool_call_id: str,
+    config: "ReActLoopConfig",
+    events: list[dict],
+    on_tool_call: Callable | None,
+    on_tool_result: Callable | None,
+    on_token: Callable | None,
+) -> tuple[ToolMessage, bool]:
+    """Execute a single tool and return the result message.
+
+    Args:
+        tool: The tool to execute
+        tool_name: Name of the tool
+        tool_args: Arguments for the tool
+        tool_call_id: ID of the tool call
+        config: ReAct loop configuration
+        events: Events list to append to (for image events, etc.)
+        on_tool_call: Callback when tool is called
+        on_tool_result: Callback when tool returns
+        on_token: Callback for tokens (for image placeholders)
+
+    Returns:
+        Tuple of (ToolMessage, is_error)
+    """
+    if on_tool_call:
+        on_tool_call(tool_name, tool_args, tool_call_id)
+
+    try:
+        result = await execute_tool_with_retry(
+            tool,
+            tool_args,
+            max_retries=config.max_retries_per_tool,
+            base_delay=config.retry_base_delay,
+        )
+
+        # Post-process result based on tool type
+        llm_result = result
+
+        # Special handling for generate_image
+        if tool_name == "generate_image" and result:
+            try:
+                parsed = json.loads(result)
+                if parsed.get("success") and parsed.get("images"):
+                    from app.agents.utils import extract_and_add_image_events
+                    start_index = len([e for e in events if e.get("type") == "image"])
+                    extract_and_add_image_events(result, events, start_index=start_index)
+
+                    image_count = len(parsed["images"])
+                    if on_token:
+                        placeholders = "\n\n" + "\n\n".join(
+                            f"![generated-image:{start_index + i}]"
+                            for i in range(image_count)
+                        ) + "\n\n"
+                        on_token(placeholders)
+
+                    llm_result = json.dumps({
+                        "success": True,
+                        "message": f"Generated {image_count} image(s). Displayed to user.",
+                        "count": image_count,
+                    })
+            except Exception as e:
+                logger.warning("generate_image_result_processing_error", error=str(e))
+
+        # Special handling for invoke_skill image generation
+        if tool_name == "invoke_skill" and result:
+            try:
+                parsed = json.loads(result)
+                if parsed.get("skill_id") == "image_generation":
+                    output = parsed.get("output") or {}
+                    images = output.get("images") or []
+                    if images:
+                        from app.agents.utils import extract_and_add_image_events
+                        start_index = len([e for e in events if e.get("type") == "image"])
+                        extract_and_add_image_events(
+                            json.dumps({"success": True, "images": images}),
+                            events,
+                            start_index=start_index,
+                        )
+                        image_count = len(images)
+                        if on_token:
+                            placeholders = "\n\n" + "\n\n".join(
+                                f"![generated-image:{start_index + i}]"
+                                for i in range(image_count)
+                            ) + "\n\n"
+                            on_token(placeholders)
+                        llm_result = json.dumps({
+                            "success": True,
+                            "message": f"Generated {image_count} image(s). Displayed to user.",
+                            "count": image_count,
+                        })
+            except Exception as e:
+                logger.warning("invoke_skill_image_result_processing_error", error=str(e))
+
+        # Special handling for browser_navigate: remove screenshot, keep content
+        if tool_name == "browser_navigate" and result:
+            try:
+                parsed = json.loads(result)
+                if parsed.get("success") and parsed.get("screenshot") and parsed.get("content"):
+                    llm_result = json.dumps({
+                        "success": True,
+                        "url": parsed.get("url", ""),
+                        "content": parsed.get("content", ""),
+                        "content_length": parsed.get("content_length", 0),
+                        "sandbox_id": parsed.get("sandbox_id", ""),
+                    })
+            except Exception as e:
+                logger.warning("browser_navigate_result_processing_error", error=str(e))
+
+        # Truncate result if configured
+        if config.truncate_tool_results and llm_result:
+            llm_result = truncate_tool_result(llm_result, config.tool_result_max_chars)
+
+        if on_tool_result:
+            on_tool_result(tool_name, llm_result[:500] if llm_result else "", tool_call_id)
+
+        return ToolMessage(content=llm_result, tool_call_id=tool_call_id, name=tool_name), False
+
+    except Exception as e:
+        error_msg = f"Error invoking tool {tool_name}: {e}"
+        is_transient = isinstance(e, ToolExecutionError) and e.is_transient
+        log_event = "react_loop_tool_error" if isinstance(e, ToolExecutionError) else "react_loop_unexpected_tool_error"
+        logger.error(log_event, tool=tool_name, error=str(e), is_transient=is_transient)
+        return ToolMessage(content=error_msg, tool_call_id=tool_call_id, name=tool_name), True
+
+
+async def _execute_tools_parallel(
+    tool_calls: list[dict],
+    tool_map: dict[str, BaseTool],
+    config: "ReActLoopConfig",
+    events: list[dict],
+    extra_tool_args: dict | None,
+    on_tool_call: Callable | None,
+    on_tool_result: Callable | None,
+    on_token: Callable | None,
+    on_browser_stream: Callable | None = None,
+) -> tuple[list[ToolMessage], int]:
+    """Execute tool calls in parallel where possible.
+
+    Tools in SEQUENTIAL_TOOLS are executed sequentially.
+    Other tools are executed in parallel with concurrency limit.
+
+    Args:
+        tool_calls: List of tool call dicts
+        tool_map: Mapping of tool names to tools
+        config: ReAct loop configuration
+        events: Events list to append to
+        extra_tool_args: Extra args to inject
+        on_tool_call: Callback when tool is called
+        on_tool_result: Callback when tool returns
+        on_token: Callback for tokens
+        on_browser_stream: Callback when browser stream is ready
+
+    Returns:
+        Tuple of (tool_results, error_count)
+    """
+    # Separate sequential and parallel tools
+    sequential_calls = []
+    parallel_calls = []
+
+    for tc in tool_calls:
+        tool_name = tc.get("name", "")
+        if tool_name in SEQUENTIAL_TOOLS:
+            sequential_calls.append(tc)
+        else:
+            parallel_calls.append(tc)
+
+    results: list[tuple[str, ToolMessage, bool]] = []  # (tool_call_id, message, is_error)
+    error_count = 0
+
+    # Execute parallel tools concurrently
+    if parallel_calls and config.parallel_tool_execution:
+        semaphore = asyncio.Semaphore(config.max_parallel_tools or 5)
+
+        async def execute_with_semaphore(tc: dict) -> tuple[str, ToolMessage, bool]:
+            async with semaphore:
+                tool_name = tc.get("name", "")
+                tool_args = tc.get("args", {})
+                tool_call_id = tc.get("id", "")
+
+                if extra_tool_args:
+                    tool_args = {**tool_args, **extra_tool_args}
+
+                tool = tool_map.get(tool_name)
+                if not tool:
+                    return tool_call_id, ToolMessage(
+                        content=f"Tool not found: {tool_name}",
+                        tool_call_id=tool_call_id,
+                        name=tool_name,
+                    ), True
+
+                msg, is_err = await _execute_single_tool(
+                    tool, tool_name, tool_args, tool_call_id,
+                    config, events, on_tool_call, on_tool_result, on_token
+                )
+                return tool_call_id, msg, is_err
+
+        parallel_results = await asyncio.gather(
+            *[execute_with_semaphore(tc) for tc in parallel_calls],
+            return_exceptions=True,
+        )
+
+        for i, res in enumerate(parallel_results):
+            if isinstance(res, Exception):
+                tc = parallel_calls[i]
+                tool_call_id = tc.get("id", "")
+                tool_name = tc.get("name", "")
+                results.append((tool_call_id, ToolMessage(
+                    content=f"Unexpected error: {res}",
+                    tool_call_id=tool_call_id,
+                    name=tool_name,
+                ), True))
+                error_count += 1
+            else:
+                tcid, msg, is_err = res
+                results.append((tcid, msg, is_err))
+                if is_err:
+                    error_count += 1
+    else:
+        # Fall back to sequential for all parallel tools if disabled
+        for tc in parallel_calls:
+            tool_name = tc.get("name", "")
+            tool_args = tc.get("args", {})
+            tool_call_id = tc.get("id", "")
+
+            if extra_tool_args:
+                tool_args = {**tool_args, **extra_tool_args}
+
+            tool = tool_map.get(tool_name)
+            if not tool:
+                results.append((tool_call_id, ToolMessage(
+                    content=f"Tool not found: {tool_name}",
+                    tool_call_id=tool_call_id,
+                    name=tool_name,
+                ), True))
+                error_count += 1
+                continue
+
+            msg, is_err = await _execute_single_tool(
+                tool, tool_name, tool_args, tool_call_id,
+                config, events, on_tool_call, on_tool_result, on_token
+            )
+            results.append((tool_call_id, msg, is_err))
+            if is_err:
+                error_count += 1
+
+    # Execute sequential tools one by one (with browser pre-execution hooks)
+    for tc in sequential_calls:
+        tool_name = tc.get("name", "")
+        tool_args = tc.get("args", {})
+        tool_call_id = tc.get("id", "")
+
+        if extra_tool_args:
+            tool_args = {**tool_args, **extra_tool_args}
+
+        tool = tool_map.get(tool_name)
+        if not tool:
+            results.append((tool_call_id, ToolMessage(
+                content=f"Tool not found: {tool_name}",
+                tool_call_id=tool_call_id,
+                name=tool_name,
+            ), True))
+            error_count += 1
+            continue
+
+        # Pre-execution: For browser_navigate, get stream URL first
+        if tool_name == "browser_navigate" and on_browser_stream:
+            try:
+                from app.sandbox import get_desktop_sandbox_manager
+                from app.agents import events as agent_events
+
+                manager = get_desktop_sandbox_manager()
+                user_id = tool_args.get("user_id")
+                task_id = tool_args.get("task_id")
+
+                session = await manager.get_or_create_sandbox(
+                    user_id=user_id, task_id=task_id, launch_browser=True
+                )
+
+                try:
+                    stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
+                    stream_event = agent_events.browser_stream(
+                        stream_url=stream_url, sandbox_id=session.sandbox_id, auth_key=auth_key
+                    )
+                    events.append(stream_event)
+                    on_browser_stream(stream_url, session.sandbox_id, auth_key)
+                    logger.info("browser_stream_event_emitted_early", sandbox_id=session.sandbox_id)
+                except Exception as stream_err:
+                    if "already running" in str(stream_err).lower():
+                        if session.executor.sandbox and session.executor.sandbox.stream:
+                            auth_key = await asyncio.to_thread(
+                                session.executor.sandbox.stream.get_auth_key
+                            )
+                            stream_url = await asyncio.to_thread(
+                                session.executor.sandbox.stream.get_url, auth_key=auth_key
+                            )
+                            stream_event = agent_events.browser_stream(
+                                stream_url=stream_url, sandbox_id=session.sandbox_id, auth_key=auth_key
+                            )
+                            events.append(stream_event)
+                            on_browser_stream(stream_url, session.sandbox_id, auth_key)
+                    else:
+                        logger.warning("browser_stream_early_failed", error=str(stream_err))
+            except Exception as e:
+                logger.warning("browser_pre_execution_failed", error=str(e))
+
+        msg, is_err = await _execute_single_tool(
+            tool, tool_name, tool_args, tool_call_id,
+            config, events, on_tool_call, on_tool_result, on_token
+        )
+        results.append((tool_call_id, msg, is_err))
+        if is_err:
+            error_count += 1
+
+    # Sort results by original tool_call order
+    tool_call_order = {tc.get("id", ""): i for i, tc in enumerate(tool_calls)}
+    results.sort(key=lambda x: tool_call_order.get(x[0], 999))
+
+    return [msg for _, msg, _ in results], error_count
 
 
 @dataclass
@@ -1125,227 +1468,18 @@ async def execute_react_loop(
         messages.append(ai_message)
         tool_iterations += 1
 
-        # Execute each tool call with retry
-        tool_results: list[ToolMessage] = []
-        iteration_errors = 0
-
-        for tool_call in regular_tool_calls:
-            tool_name = tool_call.get("name", "")
-            tool_args = tool_call.get("args", {})
-            tool_call_id = tool_call.get("id", "")
-
-            # Inject extra tool args (e.g., user_id, task_id for session management)
-            if extra_tool_args:
-                tool_args = {**tool_args, **extra_tool_args}
-
-            if on_tool_call:
-                on_tool_call(tool_name, tool_args, tool_call_id)
-
-            # Find tool
-            tool = tool_map.get(tool_name)
-            if not tool:
-                error_msg = f"Tool not found: {tool_name}"
-                logger.warning("react_loop_tool_not_found", tool_name=tool_name)
-                tool_results.append(
-                    ToolMessage(
-                        content=error_msg,
-                        tool_call_id=tool_call_id,
-                        name=tool_name,
-                    )
-                )
-                iteration_errors += 1
-                continue
-
-            # Pre-execution: For browser_navigate, get stream URL first so user can watch
-            if tool_name == "browser_navigate":
-                try:
-                    from app.sandbox import get_desktop_sandbox_manager
-                    from app.agents import events as agent_events
-
-                    manager = get_desktop_sandbox_manager()
-                    # Get user_id and task_id from tool args if available
-                    user_id = tool_args.get("user_id")
-                    task_id = tool_args.get("task_id")
-
-                    # Pre-create session to get stream URL before navigation
-                    session = await manager.get_or_create_sandbox(
-                        user_id=user_id,
-                        task_id=task_id,
-                        launch_browser=True,
-                    )
-
-                    # Get stream URL
-                    try:
-                        stream_url, auth_key = await session.executor.get_stream_url(require_auth=True)
-                        # Emit browser_stream event immediately so frontend can show live view
-                        stream_event = agent_events.browser_stream(
-                            stream_url=stream_url,
-                            sandbox_id=session.sandbox_id,
-                            auth_key=auth_key,
-                        )
-                        events.append(stream_event)
-                        # Call callback for immediate streaming to frontend
-                        if on_browser_stream:
-                            on_browser_stream(stream_url, session.sandbox_id, auth_key)
-                        logger.info(
-                            "browser_stream_event_emitted_early",
-                            sandbox_id=session.sandbox_id,
-                        )
-                    except Exception as stream_err:
-                        # Stream already running or other error - try to get existing URL
-                        if "already running" in str(stream_err).lower():
-                            import asyncio
-                            if session.executor.sandbox and session.executor.sandbox.stream:
-                                auth_key = await asyncio.to_thread(session.executor.sandbox.stream.get_auth_key)
-                                stream_url = await asyncio.to_thread(
-                                    session.executor.sandbox.stream.get_url,
-                                    auth_key=auth_key,
-                                )
-                                stream_event = agent_events.browser_stream(
-                                    stream_url=stream_url,
-                                    sandbox_id=session.sandbox_id,
-                                    auth_key=auth_key,
-                                )
-                                events.append(stream_event)
-                                # Call callback for immediate streaming to frontend
-                                if on_browser_stream:
-                                    on_browser_stream(stream_url, session.sandbox_id, auth_key)
-                                logger.info(
-                                    "browser_stream_event_emitted_early_reused",
-                                    sandbox_id=session.sandbox_id,
-                                )
-                        else:
-                            logger.warning("browser_stream_early_failed", error=str(stream_err))
-                except Exception as e:
-                    logger.warning("browser_pre_execution_failed", error=str(e))
-
-            # Execute with retry
-            try:
-                result = await execute_tool_with_retry(
-                    tool,
-                    tool_args,
-                    max_retries=config.max_retries_per_tool,
-                    base_delay=config.retry_base_delay,
-                )
-
-                # Special handling for generate_image: extract images for image events,
-                # but send summarized result to LLM to avoid token overflow
-                llm_result = result
-                if tool_name == "generate_image" and result:
-                    try:
-                        import json
-                        parsed = json.loads(result)
-                        if parsed.get("success") and parsed.get("images"):
-                            # Extract images for image events with indices
-                            from app.agents.utils import extract_and_add_image_events
-                            start_index = len([e for e in events if e.get("type") == "image"])
-                            extract_and_add_image_events(result, events, start_index=start_index)
-
-                            # Emit image placeholder tokens so frontend can render inline
-                            image_count = len(parsed["images"])
-                            if on_token:
-                                placeholders = "\n\n" + "\n\n".join(
-                                    f"![generated-image:{start_index + i}]"
-                                    for i in range(image_count)
-                                ) + "\n\n"
-                                on_token(placeholders)
-
-                            # Send summary to LLM (no base64 data)
-                            llm_result = json.dumps({
-                                "success": True,
-                                "message": f"Successfully generated {image_count} image(s). The images have been displayed to the user.",
-                                "count": image_count,
-                            })
-                    except Exception as e:
-                        logger.warning("generate_image_result_processing_error", error=str(e))
-
-                # Special handling for invoke_skill image generation
-                if tool_name == "invoke_skill" and result:
-                    try:
-                        import json
-                        parsed = json.loads(result)
-                        if parsed.get("skill_id") == "image_generation":
-                            output = parsed.get("output") or {}
-                            images = output.get("images") or []
-                            if images:
-                                from app.agents.utils import extract_and_add_image_events
-                                start_index = len([e for e in events if e.get("type") == "image"])
-                                extract_and_add_image_events(
-                                    json.dumps({"success": True, "images": images}),
-                                    events,
-                                    start_index=start_index,
-                                )
-
-                                image_count = len(images)
-                                if on_token:
-                                    placeholders = "\n\n" + "\n\n".join(
-                                        f"![generated-image:{start_index + i}]"
-                                        for i in range(image_count)
-                                    ) + "\n\n"
-                                    on_token(placeholders)
-
-                                llm_result = json.dumps({
-                                    "success": True,
-                                    "message": f"Successfully generated {image_count} image(s). The images have been displayed to the user.",
-                                    "count": image_count,
-                                })
-                    except Exception as e:
-                        logger.warning("invoke_skill_image_result_processing_error", error=str(e))
-
-                # Special handling for browser_navigate: handle content (stream URL emitted early)
-                if tool_name == "browser_navigate" and result:
-                    try:
-                        import json
-                        parsed = json.loads(result)
-                        if parsed.get("success"):
-                            # If screenshot was taken but content extraction is the focus,
-                            # remove screenshot from result to avoid token overflow
-                            if parsed.get("screenshot") and parsed.get("content"):
-                                # Keep content, remove screenshot from LLM result
-                                llm_result = json.dumps({
-                                    "success": True,
-                                    "url": parsed.get("url", ""),
-                                    "content": parsed.get("content", ""),
-                                    "content_length": parsed.get("content_length", 0),
-                                    "sandbox_id": parsed.get("sandbox_id", ""),
-                                })
-                                logger.info(
-                                    "browser_content_passed_to_llm",
-                                    url=parsed.get("url", "")[:50],
-                                    content_length=parsed.get("content_length", 0),
-                                )
-                    except Exception as e:
-                        logger.warning("browser_navigate_result_processing_error", error=str(e))
-
-                # Truncate result if configured
-                if config.truncate_tool_results and llm_result:
-                    llm_result = truncate_tool_result(llm_result, config.tool_result_max_chars)
-
-                if on_tool_result:
-                    on_tool_result(tool_name, llm_result[:500] if llm_result else "", tool_call_id)
-
-                tool_results.append(
-                    ToolMessage(
-                        content=llm_result,
-                        tool_call_id=tool_call_id,
-                        name=tool_name,
-                    )
-                )
-                consecutive_errors = 0  # Reset on success
-
-            except Exception as e:
-                error_msg = f"Error invoking tool {tool_name}: {e}"
-                is_transient = isinstance(e, ToolExecutionError) and e.is_transient
-                log_event = "react_loop_tool_error" if isinstance(e, ToolExecutionError) else "react_loop_unexpected_tool_error"
-                logger.error(log_event, tool=tool_name, error=str(e), is_transient=is_transient)
-                tool_results.append(
-                    ToolMessage(
-                        content=error_msg,
-                        tool_call_id=tool_call_id,
-                        name=tool_name,
-                    )
-                )
-                iteration_errors += 1
+        # Execute tool calls (parallel where possible, sequential for browser tools)
+        tool_results, iteration_errors = await _execute_tools_parallel(
+            tool_calls=regular_tool_calls,
+            tool_map=tool_map,
+            config=config,
+            events=events,
+            extra_tool_args=extra_tool_args,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+            on_token=on_token,
+            on_browser_stream=on_browser_stream,
+        )
 
         # Update consecutive errors
         if iteration_errors == len(regular_tool_calls) and regular_tool_calls:

@@ -77,7 +77,7 @@ export function PreferencesPanel({
           <span>{t("preferences")}</span>
         </div>
         <ChevronUp className={cn(
-          "w-4 h-4 transition-transform",
+          "w-4 h-4",
           isOpen ? "rotate-0" : "rotate-180"
         )} />
       </button>
@@ -87,13 +87,13 @@ export function PreferencesPanel({
         <div
           className={cn(
             "absolute bottom-full left-0 right-0 mb-1 z-50",
-            "bg-card border border-border rounded-xl",
-            "overflow-hidden animate-scale-in"
+            "bg-card border border-border rounded-lg",
+            "overflow-hidden"
           )}
         >
           {/* Theme */}
-          <div className="p-2 border-b border-border">
-            <div className="px-2 py-1">
+          <div className="p-2.5 border-b border-border">
+            <div className="px-1 py-1 mb-1">
               <span className="text-xs font-medium text-muted-foreground">
                 {t("theme")}
               </span>
@@ -108,13 +108,13 @@ export function PreferencesPanel({
                   key={value}
                   onClick={() => handleThemeChange(value as "light" | "dark" | "auto")}
                   className={cn(
-                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-colors bg-transparent",
+                    "flex-1 h-9 rounded-lg flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-colors",
                     "cursor-pointer",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                     mounted && theme === value
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
                   )}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -125,8 +125,8 @@ export function PreferencesPanel({
           </div>
 
           {/* Language */}
-          <div className="p-2">
-            <div className="px-2 py-1">
+          <div className="p-2.5">
+            <div className="px-1 py-1 mb-1">
               <span className="text-xs font-medium text-muted-foreground">
                 {t("language")}
               </span>
@@ -137,13 +137,13 @@ export function PreferencesPanel({
                   key={loc.code}
                   onClick={() => handleLocaleChange(loc.code)}
                   className={cn(
-                    "flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5",
-                    "text-xs font-medium transition-colors bg-transparent",
+                    "flex-1 h-9 rounded-lg flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-colors",
                     "cursor-pointer",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                     currentLocale.code === loc.code
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
                   )}
                 >
                   <Globe className="w-3.5 h-3.5" />

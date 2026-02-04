@@ -91,6 +91,15 @@ def _get_browser_tool_names() -> set[str]:
     return {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
 
 
+def _get_app_builder_tool_names() -> set[str]:
+    """Get the set of app builder tool names.
+
+    Returns:
+        Set of app builder tool names
+    """
+    return {t.name for t in get_tools_by_category(ToolCategory.APP_BUILDER)}
+
+
 async def _execute_approved_tool(
     tool_name: str,
     tool_args: dict,
@@ -117,9 +126,14 @@ async def _execute_approved_tool(
 
     tool = tool_map[tool_name]
 
-    # Inject context args for browser tools
+    # Inject context args for tools that need session management
     browser_tools = _get_browser_tool_names()
+    app_builder_tools = _get_app_builder_tool_names()
     if tool_name in browser_tools:
+        tool_args["user_id"] = user_id
+        tool_args["task_id"] = task_id
+    elif tool_name in app_builder_tools:
+        # Inject user_id and task_id for app sandbox session management
         tool_args["user_id"] = user_id
         tool_args["task_id"] = task_id
     elif tool_name == "invoke_skill":
@@ -362,6 +376,7 @@ async def act_node(state: ChatState) -> dict:
     all_tools = get_tools_for_agent("chat", include_handoffs=True)
     tool_map = {tool.name: tool for tool in all_tools}
     browser_tools = _get_browser_tool_names()
+    app_builder_tools = _get_app_builder_tool_names()
 
     # Execute pending tool calls (excluding already-processed ones)
     tool_results: list[ToolMessage] = []
@@ -533,8 +548,13 @@ async def act_node(state: ChatState) -> dict:
                 continue
 
             try:
-                # Add context args for tools that need them
+                # Add context args for tools that need session management
+                # Note: Only inject for tools that explicitly accept user_id/task_id
                 if tool_name in browser_tools:
+                    args["user_id"] = user_id
+                    args["task_id"] = task_id
+                elif tool_name in app_builder_tools:
+                    # Inject user_id and task_id for app sandbox session management
                     args["user_id"] = user_id
                     args["task_id"] = task_id
                 elif tool_name == "invoke_skill":
@@ -544,6 +564,7 @@ async def act_node(state: ChatState) -> dict:
                 elif tool_name == "generate_image":
                     # Inject user_id for image generation storage
                     args["user_id"] = user_id
+                # Note: list_skills and other tools don't need context injection
 
                 # Execute the tool
                 result = await tool.ainvoke(args)
@@ -581,8 +602,96 @@ async def act_node(state: ChatState) -> dict:
                                 image_event_count = sum(
                                     1 for e in event_list if isinstance(e, dict) and e.get("type") == "image"
                                 )
+                        # Emit browser_stream event for app_builder skill with preview_url
+                        elif parsed.get("skill_id") == "app_builder":
+                            output = parsed.get("output") or {}
+                            preview_url = output.get("preview_url")
+                            if preview_url and output.get("success"):
+                                # Extract sandbox_id from the session (use task_id as fallback identifier)
+                                sandbox_id = task_id or user_id or "app-sandbox"
+                                event_list.append(
+                                    events.browser_stream(
+                                        stream_url=preview_url,
+                                        sandbox_id=sandbox_id,
+                                        auth_key=None,  # App sandboxes don't use auth keys
+                                    )
+                                )
+                                logger.info(
+                                    "app_builder_browser_stream_emitted",
+                                    preview_url=preview_url,
+                                    sandbox_id=sandbox_id,
+                                )
+
+                        # Extract terminal and stage events from any skill execution
+                        skill_events = parsed.get("events") or []
+                        if skill_events:
+                            logger.info(
+                                "chat_act_node_skill_events",
+                                skill_id=parsed.get("skill_id"),
+                                event_count=len(skill_events),
+                                event_types=[e.get("type") for e in skill_events if isinstance(e, dict)],
+                            )
+                        for skill_event in skill_events:
+                            if isinstance(skill_event, dict):
+                                event_type = skill_event.get("type")
+                                if event_type in (
+                                    "terminal_command",
+                                    "terminal_output",
+                                    "terminal_error",
+                                    "terminal_complete",
+                                    "stage",
+                                    "browser_stream",
+                                ):
+                                    event_list.append(skill_event)
+                                    logger.info(
+                                        "skill_event_extracted",
+                                        skill_id=parsed.get("skill_id"),
+                                        event_type=event_type,
+                                    )
                     except Exception as e:
                         logger.warning("invoke_skill_image_extraction_failed", error=str(e))
+
+                # Extract terminal events from app builder tools
+                if tool_name in app_builder_tools and result_str:
+                    try:
+                        import json
+                        parsed = json.loads(result_str)
+                        terminal_events = parsed.get("terminal_events") or []
+                        if terminal_events:
+                            logger.info(
+                                "app_builder_terminal_events_extracted",
+                                tool_name=tool_name,
+                                event_count=len(terminal_events),
+                            )
+                        for terminal_event in terminal_events:
+                            if isinstance(terminal_event, dict):
+                                event_type = terminal_event.get("type")
+                                if event_type in (
+                                    "terminal_command",
+                                    "terminal_output",
+                                    "terminal_error",
+                                    "terminal_complete",
+                                ):
+                                    event_list.append(terminal_event)
+
+                        # Also emit browser_stream event if preview_url is present
+                        preview_url = parsed.get("preview_url")
+                        if preview_url and parsed.get("success"):
+                            sandbox_id = parsed.get("sandbox_id") or task_id or user_id or "app-sandbox"
+                            event_list.append(
+                                events.browser_stream(
+                                    stream_url=preview_url,
+                                    sandbox_id=sandbox_id,
+                                    auth_key=None,
+                                )
+                            )
+                            logger.info(
+                                "app_builder_browser_stream_emitted_from_tool",
+                                preview_url=preview_url,
+                                sandbox_id=sandbox_id,
+                            )
+                    except Exception as e:
+                        logger.warning("app_builder_event_extraction_failed", error=str(e))
 
                 # Truncate tool result to avoid context overflow
                 config = get_react_config("chat")
