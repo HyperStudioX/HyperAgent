@@ -10,9 +10,8 @@ from typing import Literal
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.sandbox import get_execution_sandbox_manager
-from app.config import settings
 from app.core.logging import get_logger
+from app.sandbox import get_execution_sandbox_manager
 
 logger = get_logger(__name__)
 
@@ -92,16 +91,18 @@ async def execute_code(
         - error: Error message if execution failed
         - sandbox_id: ID of the sandbox used
     """
-    # Check for E2B API key
-    if not settings.e2b_api_key:
-        logger.warning("e2b_api_key_not_configured")
+    # Check if execution sandbox is available (provider-agnostic)
+    from app.sandbox import is_execution_sandbox_available
+
+    if not is_execution_sandbox_available():
+        logger.warning("execution_sandbox_not_available")
         return json.dumps({
             "success": False,
             "stdout": "",
             "stderr": "",
             "exit_code": None,
             "images": [],
-            "error": "E2B API key not configured. Set E2B_API_KEY environment variable.",
+            "error": "Code execution sandbox not available. Check SANDBOX_PROVIDER configuration.",
             "sandbox_id": None,
         })
 

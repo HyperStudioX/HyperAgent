@@ -144,7 +144,6 @@ Available skills include:
 - web_research: Focused web research with source summarization
 - code_generation: Generate code snippets for specific tasks
 - code_review: Review code for bugs, style issues, and security vulnerabilities
-- simple_writing: Write documents, emails, articles, and other content
 - image_generation: Generate AI images from text descriptions
 - data_visualization: Create data visualizations and charts
 - task_planning: Analyze complex tasks and create structured execution plans with steps, dependencies, and success criteria

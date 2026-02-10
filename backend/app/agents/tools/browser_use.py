@@ -12,7 +12,9 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from app.core.logging import get_logger
-from app.sandbox.desktop_executor import E2B_DESKTOP_AVAILABLE, get_screenshot_as_base64
+from app.guardrails.scanners.tool_scanner import tool_scanner
+from app.sandbox import is_desktop_sandbox_available
+from app.sandbox.base_desktop_executor import get_screenshot_as_base64
 
 logger = get_logger(__name__)
 
@@ -141,16 +143,31 @@ async def browser_navigate(
     Returns:
         JSON string with navigation results, extracted content, and optional screenshot
     """
-    # Validate URL format
+    # Validate URL format (basic validation)
     is_valid, error_msg = _validate_url(url)
     if not is_valid:
         logger.warning("browser_navigate_invalid_url", url=url[:URL_LOG_TRUNCATE_LENGTH], error=error_msg)
         return _error_response(error=error_msg, url=url)
 
-    if not E2B_DESKTOP_AVAILABLE:
+    # Apply guardrail scanner for security checks (blocks internal IPs, dangerous schemes, etc.)
+    scan_result = await tool_scanner.scan("browser_navigate", {"url": url})
+    if not scan_result.passed:
+        logger.warning(
+            "browser_navigate_blocked_by_guardrail",
+            url=url[:URL_LOG_TRUNCATE_LENGTH],
+            reason=scan_result.reason,
+            violations=[v.value for v in scan_result.violations],
+        )
+        return _error_response(
+            error=f"URL blocked by security policy: {scan_result.reason}",
+            url=url,
+            blocked_by="guardrail",
+        )
+
+    if not is_desktop_sandbox_available():
         logger.error("browser_unavailable")
         return _error_response(
-            error="E2B Desktop not available. Install with: pip install e2b-desktop",
+            error="Desktop sandbox not available. Check SANDBOX_PROVIDER configuration.",
             url=url,
         )
 
@@ -335,8 +352,8 @@ async def browser_screenshot(
     Returns:
         JSON string with screenshot data
     """
-    if not E2B_DESKTOP_AVAILABLE:
-        return _error_response(error="E2B Desktop not available. Install with: pip install e2b-desktop")
+    if not is_desktop_sandbox_available():
+        return _error_response(error="Desktop sandbox not available. Check SANDBOX_PROVIDER configuration.")
 
     logger.info("browser_screenshot_invoked")
 
@@ -404,8 +421,8 @@ async def browser_click(
     Returns:
         JSON string with click result
     """
-    if not E2B_DESKTOP_AVAILABLE:
-        return _error_response(error="E2B Desktop not available")
+    if not is_desktop_sandbox_available():
+        return _error_response(error="Desktop sandbox not available. Check SANDBOX_PROVIDER configuration.")
 
     logger.info("browser_click_invoked", x=x, y=y, button=button)
 
@@ -466,8 +483,8 @@ async def browser_type(
     Returns:
         JSON string with typing result
     """
-    if not E2B_DESKTOP_AVAILABLE:
-        return _error_response(error="E2B Desktop not available")
+    if not is_desktop_sandbox_available():
+        return _error_response(error="Desktop sandbox not available. Check SANDBOX_PROVIDER configuration.")
 
     logger.info("browser_type_invoked", text_length=len(text))
 
@@ -534,8 +551,8 @@ async def browser_press_key(
     Returns:
         JSON string with key press result
     """
-    if not E2B_DESKTOP_AVAILABLE:
-        return _error_response(error="E2B Desktop not available")
+    if not is_desktop_sandbox_available():
+        return _error_response(error="Desktop sandbox not available. Check SANDBOX_PROVIDER configuration.")
 
     logger.info("browser_press_key_invoked", key=key)
 
@@ -611,8 +628,8 @@ async def browser_scroll(
     Returns:
         JSON string with scroll result
     """
-    if not E2B_DESKTOP_AVAILABLE:
-        return _error_response(error="E2B Desktop not available")
+    if not is_desktop_sandbox_available():
+        return _error_response(error="Desktop sandbox not available. Check SANDBOX_PROVIDER configuration.")
 
     logger.info("browser_scroll_invoked", direction=direction, amount=amount)
 
@@ -669,8 +686,8 @@ async def browser_get_stream_url(
     Returns:
         JSON string with stream URL and auth key
     """
-    if not E2B_DESKTOP_AVAILABLE:
-        return _error_response(error="E2B Desktop not available")
+    if not is_desktop_sandbox_available():
+        return _error_response(error="Desktop sandbox not available. Check SANDBOX_PROVIDER configuration.")
 
     logger.info("browser_get_stream_url_invoked")
 

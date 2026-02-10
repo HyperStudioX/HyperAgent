@@ -327,6 +327,67 @@ function InputContent({
     );
 }
 
+// Confirm dialog content (Yes/No)
+function ConfirmContent({
+    interrupt,
+    onRespond,
+}: {
+    interrupt: InterruptEvent;
+    onRespond: (response: InterruptResponse) => void;
+}) {
+    const t = useTranslations("hitl");
+
+    return (
+        <div className="space-y-4">
+            {/* Message */}
+            <p className="text-sm text-foreground/80 whitespace-pre-wrap">
+                {interrupt.message}
+            </p>
+
+            {/* Action buttons */}
+            <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                    <Button
+                        variant="primary"
+                        className="flex-1"
+                        onClick={() => onRespond({
+                            interrupt_id: interrupt.interrupt_id,
+                            action: "approve",
+                            value: "yes",
+                        })}
+                    >
+                        <Check className="w-4 h-4" />
+                        {t("yes")}
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        className="flex-1"
+                        onClick={() => onRespond({
+                            interrupt_id: interrupt.interrupt_id,
+                            action: "deny",
+                            value: "no",
+                        })}
+                    >
+                        <X className="w-4 h-4" />
+                        {t("no")}
+                    </Button>
+                </div>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    onClick={() => onRespond({
+                        interrupt_id: interrupt.interrupt_id,
+                        action: "skip",
+                    })}
+                >
+                    {t("skip")}
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 export function InterruptDialog({ interrupt, onRespond, onCancel }: InterruptDialogProps) {
     const t = useTranslations("hitl");
 
@@ -343,7 +404,9 @@ export function InterruptDialog({ interrupt, onRespond, onCancel }: InterruptDia
         ? Shield
         : interrupt.interrupt_type === "decision"
             ? AlertTriangle
-            : MessageSquare;
+            : interrupt.interrupt_type === "confirm"
+                ? Check
+                : MessageSquare;
 
     // Prevent body scroll when dialog is open
     useEffect(() => {
@@ -410,6 +473,9 @@ export function InterruptDialog({ interrupt, onRespond, onCancel }: InterruptDia
                         )}
                         {interrupt.interrupt_type === "input" && (
                             <InputContent interrupt={interrupt} onRespond={onRespond} />
+                        )}
+                        {interrupt.interrupt_type === "confirm" && (
+                            <ConfirmContent interrupt={interrupt} onRespond={onRespond} />
                         )}
                     </div>
                 </div>

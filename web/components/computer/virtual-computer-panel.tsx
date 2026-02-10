@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useComputerStore, COMPUTER_PANEL_MIN_WIDTH, COMPUTER_PANEL_MAX_WIDTH } from "@/lib/stores/computer-store";
+import type { ComputerMode, TimelineEventType } from "@/lib/stores/computer-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { ComputerHeader } from "./computer-header";
 import { ComputerStatusBar } from "./computer-status-bar";
@@ -11,33 +12,84 @@ import { ComputerPlanView } from "./computer-plan-view";
 import { ComputerBrowserView } from "./computer-browser-view";
 import { ComputerFileView } from "./computer-file-view";
 import { ComputerPlaybackControls } from "./computer-playback-controls";
+import { ComputerErrorBoundary } from "./computer-error-boundary";
 
 export function VirtualComputerPanel() {
-    const {
-        isOpen,
-        panelWidth,
-        activeMode,
-        terminalLines,
-        currentCommand,
-        planItems,
-        browserStream,
-        currentPath,
-        files,
-        selectedFile,
-        isLive,
-        currentStep,
-        totalSteps,
-        closePanel,
-        setMode,
-        setPanelWidth,
-        setBrowserStream,
-        setSelectedFile,
-        setCurrentPath,
-        setCurrentStep,
-        setIsLive,
-        nextStep,
-        prevStep,
-    } = useComputerStore();
+    // Global UI state
+    const isOpen = useComputerStore((state) => state.isOpen);
+    const panelWidth = useComputerStore((state) => state.panelWidth);
+    const activeMode = useComputerStore((state) => state.activeMode);
+    const followAgent = useComputerStore((state) => state.followAgent);
+    const autoOpen = useComputerStore((state) => state.autoOpen);
+
+    // Per-conversation state via selector functions (cached to avoid infinite loops)
+    const terminalLines = useComputerStore((state) => state.getTerminalLines());
+    const currentCommand = useComputerStore((state) => state.getCurrentCommand());
+    const currentCwd = useComputerStore((state) => state.getCurrentCwd());
+    const planItems = useComputerStore((state) => state.getPlanItems());
+    const browserStream = useComputerStore((state) => state.getBrowserStream());
+    const isLive = useComputerStore((state) => state.getIsLive());
+    const currentStep = useComputerStore((state) => state.getCurrentStep());
+    const totalSteps = useComputerStore((state) => state.getTotalSteps());
+    const timeline = useComputerStore((state) => state.getTimeline());
+
+    // Compute visible data slices based on timeline position
+    // When not live, only show items that existed at the given timeline step
+    const visibleCounts = useMemo(() => {
+        if (isLive) {
+            return {
+                terminal: terminalLines.length,
+                plan: planItems.length,
+                browser: true,
+                file: true,
+            };
+        }
+
+        // Find the maximum dataIndex for each type within the current timeline window
+        const maxIndices: Record<TimelineEventType, number> = {
+            terminal: -1,
+            plan: -1,
+            browser: -1,
+            file: -1,
+        };
+
+        for (let i = 0; i < Math.min(currentStep, timeline.length); i++) {
+            const event = timeline[i];
+            if (event.dataIndex > maxIndices[event.type]) {
+                maxIndices[event.type] = event.dataIndex;
+            }
+        }
+
+        return {
+            terminal: maxIndices.terminal + 1,
+            plan: maxIndices.plan + 1,
+            browser: maxIndices.browser >= 0,
+            file: maxIndices.file >= 0,
+        };
+    }, [isLive, currentStep, timeline, terminalLines.length, planItems.length]);
+
+    const visibleTerminalLines = useMemo(
+        () => isLive ? terminalLines : terminalLines.slice(0, visibleCounts.terminal),
+        [isLive, terminalLines, visibleCounts.terminal]
+    );
+
+    const visiblePlanItems = useMemo(
+        () => isLive ? planItems : planItems.slice(0, visibleCounts.plan),
+        [isLive, planItems, visibleCounts.plan]
+    );
+
+    // Actions
+    const closePanel = useComputerStore((state) => state.closePanel);
+    const setModeByUser = useComputerStore((state) => state.setModeByUser);
+    const setPanelWidth = useComputerStore((state) => state.setPanelWidth);
+    const setBrowserStream = useComputerStore((state) => state.setBrowserStream);
+    const setCurrentStep = useComputerStore((state) => state.setCurrentStep);
+    const setIsLive = useComputerStore((state) => state.setIsLive);
+    const nextStep = useComputerStore((state) => state.nextStep);
+    const prevStep = useComputerStore((state) => state.prevStep);
+    const clearTerminal = useComputerStore((state) => state.clearTerminal);
+    const setFollowAgent = useComputerStore((state) => state.setFollowAgent);
+    const setAutoOpen = useComputerStore((state) => state.setAutoOpen);
 
     const {
         activeProgress,
@@ -57,12 +109,44 @@ export function VirtualComputerPanel() {
         return () => window.removeEventListener("resize", checkDesktop);
     }, []);
 
-    // Sync browser stream from agent progress store
+    // Track tab activity: mark tabs that have new content since user last viewed them
+    const lastSeenRef = useRef<Record<ComputerMode, number>>({
+        terminal: terminalLines.length,
+        plan: planItems.length,
+        browser: browserStream ? 1 : 0,
+        file: 0,
+    });
+
+    // Update last-seen counts when user switches to a tab
     useEffect(() => {
-        if (activeProgress?.browserStream) {
+        lastSeenRef.current[activeMode] =
+            activeMode === "terminal" ? terminalLines.length :
+            activeMode === "plan" ? planItems.length :
+            activeMode === "browser" ? (browserStream ? 1 : 0) :
+            0;
+    }, [activeMode, terminalLines.length, planItems.length, browserStream]);
+
+    const tabActivity = useMemo<Partial<Record<ComputerMode, boolean>>>(() => ({
+        terminal: terminalLines.length > lastSeenRef.current.terminal,
+        plan: planItems.length > lastSeenRef.current.plan,
+        browser: (browserStream ? 1 : 0) > lastSeenRef.current.browser,
+    }), [terminalLines.length, planItems.length, browserStream]);
+
+    // Derive sandbox connection status from available signals
+    const sandboxStatus = useMemo<"connected" | "disconnected" | "connecting">(() => {
+        if (activeProgress?.isStreaming) return "connected";
+        if (terminalLines.length > 0 || browserStream || planItems.length > 0) return "connected";
+        return "disconnected";
+    }, [activeProgress?.isStreaming, terminalLines.length, browserStream, planItems.length]);
+
+    // Sync browser stream from agent progress store (compare by value, not reference)
+    const agentStreamUrl = activeProgress?.browserStream?.streamUrl ?? null;
+    const agentSandboxId = activeProgress?.browserStream?.sandboxId ?? null;
+    useEffect(() => {
+        if (activeProgress?.browserStream && agentStreamUrl && agentSandboxId) {
             setBrowserStream(activeProgress.browserStream);
         }
-    }, [activeProgress?.browserStream, setBrowserStream]);
+    }, [agentStreamUrl, agentSandboxId, activeProgress?.browserStream, setBrowserStream]);
 
     // Handle close
     const handleClose = useCallback(() => {
@@ -70,12 +154,6 @@ export function VirtualComputerPanel() {
         // Also clear browser stream in agent progress store
         setAgentBrowserStream(null);
     }, [closePanel, setAgentBrowserStream]);
-
-    // Handle browser stream close
-    const handleBrowserStreamClose = useCallback(() => {
-        setBrowserStream(null);
-        setAgentBrowserStream(null);
-    }, [setBrowserStream, setAgentBrowserStream]);
 
     // Resize handlers
     const startResizing = useCallback((e: React.MouseEvent) => {
@@ -184,8 +262,14 @@ export function VirtualComputerPanel() {
                 {/* Header */}
                 <ComputerHeader
                     activeMode={activeMode}
-                    onModeChange={setMode}
+                    onModeChange={setModeByUser}
                     onClose={handleClose}
+                    sandboxStatus={sandboxStatus}
+                    tabActivity={tabActivity}
+                    followAgent={followAgent}
+                    autoOpen={autoOpen}
+                    onFollowAgentChange={setFollowAgent}
+                    onAutoOpenChange={setAutoOpen}
                 />
 
                 {/* Status bar */}
@@ -195,43 +279,39 @@ export function VirtualComputerPanel() {
                     isActive={isActive}
                 />
 
-                {/* View area */}
-                <div className="flex-1 overflow-hidden flex flex-col">
-                    {activeMode === "terminal" && (
-                        <ComputerTerminalView
-                            lines={terminalLines}
-                            currentStep={currentStep}
-                            isLive={isLive}
-                            className="flex-1"
-                        />
-                    )}
+                {/* View area with error boundary */}
+                <ComputerErrorBoundary fallbackMessage="Failed to render computer panel">
+                    <div className="flex-1 overflow-hidden flex flex-col">
+                        {activeMode === "terminal" && (
+                            <ComputerTerminalView
+                                lines={visibleTerminalLines}
+                                isLive={isLive}
+                                currentCommand={currentCommand}
+                                currentCwd={currentCwd}
+                                onClear={clearTerminal}
+                                className="flex-1"
+                            />
+                        )}
 
-                    {activeMode === "plan" && (
-                        <ComputerPlanView
-                            items={planItems}
-                            className="flex-1"
-                        />
-                    )}
+                        {activeMode === "plan" && (
+                            <ComputerPlanView
+                                items={visiblePlanItems}
+                                className="flex-1"
+                            />
+                        )}
 
-                    {activeMode === "browser" && (
-                        <ComputerBrowserView
-                            stream={browserStream}
-                            onStreamClose={handleBrowserStreamClose}
-                            className="flex-1"
-                        />
-                    )}
+                        {activeMode === "browser" && (
+                            <ComputerBrowserView
+                                stream={browserStream}
+                                className="flex-1"
+                            />
+                        )}
 
-                    {activeMode === "file" && (
-                        <ComputerFileView
-                            currentPath={currentPath}
-                            files={files}
-                            selectedFile={selectedFile}
-                            onFileSelect={setSelectedFile}
-                            onPathChange={setCurrentPath}
-                            className="flex-1"
-                        />
-                    )}
-                </div>
+                        {activeMode === "file" && (
+                            <ComputerFileView className="flex-1" />
+                        )}
+                    </div>
+                </ComputerErrorBoundary>
 
                 {/* Playback controls */}
                 <ComputerPlaybackControls

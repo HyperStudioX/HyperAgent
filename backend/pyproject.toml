@@ -15,7 +15,7 @@ dependencies = [
     "langchain-openai>=0.2.0",
     "langchain-google-genai>=2.0.0",
     "langchain-community>=0.3.0",
-    "httpx>=0.28.0",
+    "httpx[socks]>=0.28.0",
     "redis>=5.2.0",
     "asyncpg>=0.30.0",
     "sqlalchemy[asyncio]>=2.0.0",
@@ -43,6 +43,9 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",
+]
+local-sandbox = [
+    "boxlite>=0.1.0",
 ]
 
 [tool.ruff]

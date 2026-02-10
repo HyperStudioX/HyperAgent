@@ -31,6 +31,7 @@ from app.models.schemas import (
 )
 from app.repository import deep_research_repository
 from app.services.file_storage import file_storage_service
+from app.sandbox import cleanup_sandboxes_for_task
 from app.workers.task_queue import task_queue
 
 logger = get_logger(__name__)
@@ -534,6 +535,19 @@ async def stream_query(
                             "timestamp": event.get("timestamp"),
                         })
 
+                    elif event_type == "workspace_update":
+                        yield _sse_data({
+                            "type": "workspace_update",
+                            "operation": event.get("operation", "create"),
+                            "path": event.get("path", ""),
+                            "name": event.get("name", ""),
+                            "is_directory": event.get("is_directory", False),
+                            "size": event.get("size"),
+                            "sandbox_type": event.get("sandbox_type", "app"),
+                            "sandbox_id": event.get("sandbox_id", ""),
+                            "timestamp": event.get("timestamp"),
+                        })
+
                     elif event_type == "skill_output":
                         yield _sse_data({
                             "type": "skill_output",
@@ -598,9 +612,28 @@ async def stream_query(
                             "data": event.get("error", "Unknown error"),
                         })
 
+            except asyncio.CancelledError:
+                # SSE connection was closed by client
+                logger.info(
+                    "sse_connection_cancelled",
+                    task_id=chat_task_id,
+                    user_id=current_user.id,
+                )
+                raise
             except Exception as e:
                 logger.error("agent_stream_error", mode=request.mode.value, error=str(e))
                 yield _sse_data({"type": "error", "data": str(e)})
+            finally:
+                # Cleanup sandbox sessions when SSE connection ends
+                # This prevents orphaned sandboxes from running until timeout
+                try:
+                    await cleanup_sandboxes_for_task(current_user.id, chat_task_id)
+                except Exception as cleanup_error:
+                    logger.warning(
+                        "sse_disconnect_cleanup_failed",
+                        task_id=chat_task_id,
+                        error=str(cleanup_error),
+                    )
 
         return StreamingResponse(
             agent_generator(),

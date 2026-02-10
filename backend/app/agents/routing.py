@@ -22,7 +22,6 @@ Available agents:
 
 IMPORTANT: Route almost everything to CHAT agent. It has skills for:
 - Image generation (image_generation skill)
-- Writing content (simple_writing skill)
 - Code generation (code_generation skill)
 - Code review (code_review skill)
 - Code execution (execute_code tool)
@@ -61,10 +60,10 @@ Query: "Review this code for bugs"
 {"agent": "chat", "confidence": 0.95, "reason": "Code review - chat has code_review skill"}
 
 Query: "Write a blog post about climate change"
-{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat has simple_writing skill"}
+{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat handles writing directly"}
 
 Query: "Write an email to my team"
-{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat has simple_writing skill"}
+{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat handles writing directly"}
 
 Query: "Analyze this CSV file and create visualizations of the trends"
 {"agent": "data", "confidence": 0.95, "reason": "Data analytics and visualization task"}
@@ -126,7 +125,7 @@ AGENT_NAME_MAP = {
     "data": AgentType.DATA,
     "app": AgentType.CHAT,  # App mode routes to chat agent with app_builder skill
     "image": AgentType.CHAT,  # Image mode routes to chat agent with image_generation skill
-    "writing": AgentType.CHAT,  # Writing mode routes to chat agent with simple_writing skill
+    "writing": AgentType.CHAT,  # Writing mode routes to chat agent
     "CHAT": AgentType.CHAT,
     "RESEARCH": AgentType.RESEARCH,
     "DATA": AgentType.DATA,

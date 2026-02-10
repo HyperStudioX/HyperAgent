@@ -1,4 +1,4 @@
-.PHONY: help install install-web install-backend dev dev-web dev-backend dev-worker dev-worker-watch dev-worker-burst dev-worker-high dev-all build build-web start-web lint lint-web lint-backend format-backend type-check test test-backend clean migrate migrate-down migrate-new migrate-status health queue-stats queue-monitor queue-list queue-clear queue-health queue-test eval eval-routing eval-tools eval-quality eval-langsmith
+.PHONY: help install install-web install-backend dev dev-web dev-backend dev-worker dev-worker-watch dev-worker-burst dev-worker-high dev-all build build-web start-web lint lint-web lint-backend format-backend type-check test test-backend clean migrate migrate-down migrate-new migrate-status health queue-stats queue-monitor queue-list queue-clear queue-health queue-test eval eval-routing eval-tools eval-quality eval-langsmith sandbox-pull-images
 
 # Colors
 CYAN := \033[36m
@@ -220,6 +220,14 @@ queue-health: ## Check worker and queue health
 queue-test: ## Submit a test task to verify worker is processing
 	@echo "$(CYAN)Testing worker with a sample research task...$(RESET)"
 	@cd backend && uv run python test_worker.py
+
+# =============================================================================
+# Sandbox Management
+# =============================================================================
+
+sandbox-pull-images: ## Pull all Docker images required by BoxLite local sandbox
+	@echo "$(CYAN)Pulling BoxLite Docker images...$(RESET)"
+	cd backend && python3 scripts/pull_boxlite_images.py
 
 # Default target
 .DEFAULT_GOAL := help

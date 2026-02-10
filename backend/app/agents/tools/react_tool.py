@@ -1259,20 +1259,25 @@ async def _execute_tools_parallel(
                     events.append(stream_event)
                     on_browser_stream(stream_url, session.sandbox_id, auth_key)
                     logger.info("browser_stream_event_emitted_early", sandbox_id=session.sandbox_id)
+                except NotImplementedError:
+                    # Provider doesn't support streaming (e.g., BoxLite) — skip
+                    logger.debug("browser_stream_not_supported_by_provider")
                 except Exception as stream_err:
                     if "already running" in str(stream_err).lower():
-                        if session.executor.sandbox and session.executor.sandbox.stream:
-                            auth_key = await asyncio.to_thread(
-                                session.executor.sandbox.stream.get_auth_key
-                            )
-                            stream_url = await asyncio.to_thread(
-                                session.executor.sandbox.stream.get_url, auth_key=auth_key
+                        # Stream already running — try to get URL again
+                        try:
+                            stream_url, auth_key = await session.executor.get_stream_url(
+                                require_auth=True
                             )
                             stream_event = agent_events.browser_stream(
-                                stream_url=stream_url, sandbox_id=session.sandbox_id, auth_key=auth_key
+                                stream_url=stream_url,
+                                sandbox_id=session.sandbox_id,
+                                auth_key=auth_key,
                             )
                             events.append(stream_event)
                             on_browser_stream(stream_url, session.sandbox_id, auth_key)
+                        except Exception:
+                            logger.warning("browser_stream_retry_failed", error=str(stream_err))
                     else:
                         logger.warning("browser_stream_early_failed", error=str(stream_err))
             except Exception as e:

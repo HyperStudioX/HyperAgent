@@ -52,22 +52,6 @@
       "description": "Style check should invoke code_review skill"
     },
     {
-      "id": "skill_writing_email",
-      "input": "Write a professional email to decline a meeting invitation",
-      "expected_skill": "simple_writing",
-      "expected_tool": null,
-      "category": "writing",
-      "description": "Email writing should invoke simple_writing skill"
-    },
-    {
-      "id": "skill_writing_article",
-      "input": "Write a short article about the benefits of meditation",
-      "expected_skill": "simple_writing",
-      "expected_tool": null,
-      "category": "writing",
-      "description": "Article writing should invoke simple_writing skill"
-    },
-    {
       "id": "skill_web_research",
       "input": "Research the latest trends in sustainable energy",
       "expected_skill": "web_research",

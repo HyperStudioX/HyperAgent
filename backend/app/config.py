@@ -87,19 +87,28 @@ class Settings(BaseSettings):
     local_storage_path: str = "./uploads"  # For local development
 
     # LangGraph Configuration
-    langgraph_recursion_limit: int = 50  # Maximum recursion depth for graph execution (increased for handoff-heavy workflows)
+    langgraph_recursion_limit: int = (
+        50  # Maximum recursion depth for graph execution (increased for handoff-heavy workflows)
+    )
     subgraph_timeout: int = 300  # Timeout in seconds for subgraph invocations (5 minutes)
     routing_timeout: int = 30  # Timeout in seconds for routing decisions
     research_task_timeout: int = 1800  # Timeout in seconds for research tasks (30 minutes)
 
     # Context Compression
     context_compression_enabled: bool = True  # Enable LLM-based context compression
-    context_compression_token_threshold: int = 60000  # Token threshold to trigger compression (60% of 100k budget)
+    context_compression_token_threshold: int = (
+        60000  # Token threshold to trigger compression (60% of 100k budget)
+    )
     context_compression_preserve_recent: int = 10  # Number of recent messages to always preserve
+
+    # Sandbox Provider
+    sandbox_provider: Literal["e2b", "boxlite"] = "e2b"
 
     # E2B Code Sandbox
     e2b_api_key: str = ""
-    e2b_template_id: str = ""  # Optional: custom template with pre-installed packages for faster startup
+    e2b_template_id: str = (
+        ""  # Optional: custom template with pre-installed packages for faster startup
+    )
     e2b_code_timeout: int = 300  # 5 minutes for code execution sandbox
     e2b_session_timeout_minutes: int = 10  # Session timeout for code sandbox manager
 
@@ -108,6 +117,20 @@ class Settings(BaseSettings):
     e2b_desktop_default_browser: str = "google-chrome"
     e2b_desktop_session_timeout_minutes: int = 15  # Session timeout for browser sandbox manager
     e2b_desktop_stream_ready_wait_ms: int = 3000  # Wait time for stream to be ready before actions
+
+    # BoxLite Local Sandbox
+    boxlite_code_image: str = "python:3.12-slim"
+    boxlite_desktop_image: str = "boxlite/desktop:latest"
+    boxlite_app_image: str = "node:20-slim"
+    boxlite_cpus: int = 2
+    boxlite_memory_mib: int = 1024
+    boxlite_disk_size_gb: int = 4  # Disk size in GB (needed for npm/node scaffolding)
+    boxlite_working_dir: str = "/home/user"
+    boxlite_code_timeout: int = 300
+    boxlite_desktop_timeout: int = 900
+    boxlite_desktop_default_browser: str = "chromium-browser"
+    boxlite_auto_remove: bool = True
+    boxlite_app_host_port_start: int = 10000
 
     # Search
     tavily_api_key: str = ""

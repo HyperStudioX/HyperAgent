@@ -1,16 +1,17 @@
-"""Sandbox package for E2B sandbox management and operations.
+"""Sandbox package for sandbox management and operations.
 
 This package contains:
 - Execution sandbox management (code execution sandboxes)
 - Desktop sandbox management (desktop/browser sandboxes)
+- App sandbox management (web app development sandboxes)
 - Sandbox file operations
 - Unified metrics for all sandbox managers
-- Availability checks for graceful degradation
+- Provider-aware availability checks for graceful degradation
+- Support for multiple providers: E2B (cloud) and BoxLite (local)
 """
 
 from typing import Any
 
-from app.config import settings
 from app.sandbox import file_operations
 from app.sandbox.app_sandbox_manager import (
     APP_TEMPLATES,
@@ -18,7 +19,6 @@ from app.sandbox.app_sandbox_manager import (
     AppSandboxSession,
     get_app_sandbox_manager,
 )
-from app.sandbox.desktop_executor import E2B_DESKTOP_AVAILABLE
 from app.sandbox.desktop_sandbox_manager import (
     DesktopSandboxManager,
     DesktopSandboxSession,
@@ -91,18 +91,36 @@ def is_execution_sandbox_available() -> bool:
     """Check if execution sandbox functionality is available.
 
     Returns:
-        True if E2B API key is configured, False otherwise
+        True if the configured sandbox provider is available for code execution
     """
-    return bool(settings.e2b_api_key)
+    from app.sandbox.provider import is_provider_available
+
+    available, _ = is_provider_available("execution")
+    return available
 
 
 def is_desktop_sandbox_available() -> bool:
     """Check if desktop sandbox functionality is available.
 
     Returns:
-        True if E2B Desktop SDK is installed and API key is configured
+        True if the configured sandbox provider supports desktop/browser automation
     """
-    return E2B_DESKTOP_AVAILABLE and bool(settings.e2b_api_key)
+    from app.sandbox.provider import is_provider_available
+
+    available, _ = is_provider_available("desktop")
+    return available
+
+
+def is_app_sandbox_available() -> bool:
+    """Check if app sandbox functionality is available.
+
+    Returns:
+        True if the configured sandbox provider is available for app development
+    """
+    from app.sandbox.provider import is_provider_available
+
+    available, _ = is_provider_available("app")
+    return available
 
 
 def get_sandbox_availability() -> dict[str, Any]:
@@ -110,36 +128,119 @@ def get_sandbox_availability() -> dict[str, Any]:
 
     Returns:
         Dict with availability information:
+            - provider: Current sandbox provider name
             - execution_sandbox: Whether execution sandbox is available
             - desktop_sandbox: Whether desktop sandbox is available
-            - e2b_api_key_configured: Whether E2B API key is set
-            - e2b_desktop_sdk_installed: Whether e2b-desktop package is installed
+            - app_sandbox: Whether app sandbox is available
             - issues: List of issues preventing sandbox usage
     """
+    from app.sandbox.provider import get_sandbox_provider, is_provider_available
+
     issues = []
 
-    if not settings.e2b_api_key:
-        issues.append("E2B API key not configured (set E2B_API_KEY)")
+    exec_available, exec_issue = is_provider_available("execution")
+    desktop_available, desktop_issue = is_provider_available("desktop")
+    app_available, app_issue = is_provider_available("app")
 
-    if not E2B_DESKTOP_AVAILABLE:
-        issues.append("E2B Desktop SDK not installed (pip install e2b-desktop)")
+    if exec_issue:
+        issues.append(exec_issue)
+    if desktop_issue and desktop_issue not in issues:
+        issues.append(desktop_issue)
+    if app_issue and app_issue not in issues:
+        issues.append(app_issue)
 
     return {
-        "execution_sandbox": is_execution_sandbox_available(),
-        "desktop_sandbox": is_desktop_sandbox_available(),
-        "e2b_api_key_configured": bool(settings.e2b_api_key),
-        "e2b_desktop_sdk_installed": E2B_DESKTOP_AVAILABLE,
+        "provider": get_sandbox_provider(),
+        "execution_sandbox": exec_available,
+        "desktop_sandbox": desktop_available,
+        "app_sandbox": app_available,
+        "desktop_available": is_desktop_sandbox_available(),
         "issues": issues,
     }
 
 
-def is_app_sandbox_available() -> bool:
-    """Check if app sandbox functionality is available.
+async def cleanup_sandboxes_for_task(user_id: str, task_id: str) -> dict[str, bool]:
+    """Clean up all sandbox sessions associated with a user/task.
+
+    Call this when an SSE connection drops to free up sandbox resources.
+
+    Args:
+        user_id: User identifier
+        task_id: Task/conversation identifier
 
     Returns:
-        True if E2B API key is configured, False otherwise
+        Dict indicating which sandbox types were cleaned up
     """
-    return bool(settings.e2b_api_key)
+    from app.core.logging import get_logger
+
+    logger = get_logger(__name__)
+
+    results: dict[str, bool] = {
+        "desktop": False,
+        "execution": False,
+        "app": False,
+    }
+    cleanup_errors: dict[str, str] = {}
+
+    # Cleanup desktop sandbox
+    try:
+        desktop_manager = get_desktop_sandbox_manager()
+        results["desktop"] = await desktop_manager.cleanup_session(user_id=user_id, task_id=task_id)
+    except Exception as e:
+        cleanup_errors["desktop"] = str(e)
+        logger.warning(
+            "desktop_sandbox_cleanup_failed",
+            user_id=user_id,
+            task_id=task_id,
+            error=str(e),
+        )
+
+    # Cleanup execution sandbox
+    try:
+        execution_manager = get_execution_sandbox_manager()
+        results["execution"] = await execution_manager.cleanup_session(
+            user_id=user_id, task_id=task_id
+        )
+    except Exception as e:
+        cleanup_errors["execution"] = str(e)
+        logger.warning(
+            "execution_sandbox_cleanup_failed",
+            user_id=user_id,
+            task_id=task_id,
+            error=str(e),
+        )
+
+    # Cleanup app sandbox
+    try:
+        app_manager = get_app_sandbox_manager()
+        results["app"] = await app_manager.cleanup_session(user_id=user_id, task_id=task_id)
+    except Exception as e:
+        cleanup_errors["app"] = str(e)
+        logger.warning(
+            "app_sandbox_cleanup_failed",
+            user_id=user_id,
+            task_id=task_id,
+            error=str(e),
+        )
+
+    if cleanup_errors:
+        logger.error(
+            "sandbox_cleanup_partial_failure",
+            user_id=user_id,
+            task_id=task_id,
+            failed_types=list(cleanup_errors.keys()),
+            errors=cleanup_errors,
+        )
+
+    if any(results.values()):
+        logger.info(
+            "sandboxes_cleaned_on_disconnect",
+            user_id=user_id,
+            task_id=task_id,
+            results=results,
+        )
+
+    return results
 
 
 __all__ = [
@@ -162,10 +263,11 @@ __all__ = [
     "file_operations",
     # Metrics
     "get_sandbox_metrics",
+    # Cleanup
+    "cleanup_sandboxes_for_task",
     # Availability checks
     "is_execution_sandbox_available",
     "is_desktop_sandbox_available",
     "is_app_sandbox_available",
     "get_sandbox_availability",
-    "E2B_DESKTOP_AVAILABLE",
 ]

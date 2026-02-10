@@ -1,0 +1,95 @@
+"""Sandbox Runtime Protocol.
+
+Defines the low-level interface for sandbox command execution, file I/O,
+port forwarding, and lifecycle management. All sandbox providers (E2B, BoxLite)
+must implement this protocol.
+"""
+
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+
+@dataclass
+class CommandResult:
+    """Result of a command execution in a sandbox."""
+
+    exit_code: int
+    stdout: str
+    stderr: str
+
+
+@runtime_checkable
+class SandboxRuntime(Protocol):
+    """Protocol for sandbox runtime operations.
+
+    This protocol abstracts the low-level sandbox operations that differ between
+    providers (E2B, BoxLite, etc.). Higher-level code should depend on this
+    protocol rather than on provider-specific classes.
+    """
+
+    @property
+    def sandbox_id(self) -> str:
+        """Get the unique identifier for this sandbox."""
+        ...
+
+    async def run_command(
+        self,
+        command: str,
+        timeout: int = 60,
+        cwd: str | None = None,
+    ) -> CommandResult:
+        """Run a shell command in the sandbox.
+
+        Args:
+            command: Shell command to execute
+            timeout: Timeout in seconds
+            cwd: Working directory for the command
+
+        Returns:
+            CommandResult with exit_code, stdout, stderr
+        """
+        ...
+
+    async def read_file(
+        self,
+        path: str,
+        format: str = "text",
+    ) -> bytes | str:
+        """Read a file from the sandbox.
+
+        Args:
+            path: File path in the sandbox
+            format: "text" for string, "bytes" for binary
+
+        Returns:
+            File content as str (text) or bytes (binary)
+        """
+        ...
+
+    async def write_file(
+        self,
+        path: str,
+        content: bytes | str,
+    ) -> None:
+        """Write content to a file in the sandbox.
+
+        Args:
+            path: File path in the sandbox
+            content: Content to write (str or bytes)
+        """
+        ...
+
+    async def get_host_url(self, port: int) -> str:
+        """Get the public URL for a forwarded port.
+
+        Args:
+            port: Port number in the sandbox
+
+        Returns:
+            Public URL string (e.g., "https://sandbox-id-port.e2b.dev" or "localhost:10000")
+        """
+        ...
+
+    async def kill(self) -> None:
+        """Terminate and clean up the sandbox."""
+        ...

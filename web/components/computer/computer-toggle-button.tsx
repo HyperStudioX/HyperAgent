@@ -14,7 +14,16 @@ interface ComputerToggleButtonProps {
 
 export function ComputerToggleButton({ className }: ComputerToggleButtonProps) {
     const t = useTranslations("computer");
-    const { isOpen, togglePanel, terminalLines, browserStream } = useComputerStore();
+
+    // Global UI state
+    const isOpen = useComputerStore((state) => state.isOpen);
+    const togglePanel = useComputerStore((state) => state.togglePanel);
+    const unreadActivityCount = useComputerStore((state) => state.unreadActivityCount);
+
+    // Per-conversation state via selector functions (cached to avoid infinite loops)
+    const terminalLines = useComputerStore((state) => state.getTerminalLines());
+    const browserStream = useComputerStore((state) => state.getBrowserStream());
+
     const { activeProgress } = useAgentProgressStore();
 
     // Show activity indicator if there's terminal activity or browser stream
@@ -32,11 +41,20 @@ export function ComputerToggleButton({ className }: ComputerToggleButtonProps) {
                 className
             )}
             title={t("title")}
+            aria-label={t("title")}
+            aria-pressed={isOpen}
         >
             <Monitor className="w-4 h-4" />
 
-            {/* Activity indicator */}
-            {hasActivity && (
+            {/* Unread activity count badge */}
+            {!isOpen && unreadActivityCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium leading-none">
+                    {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
+                </span>
+            )}
+
+            {/* Activity indicator (when no unread count) */}
+            {hasActivity && (unreadActivityCount === 0 || isOpen) && (
                 <span
                     className={cn(
                         "absolute top-1 right-1 w-2 h-2 rounded-full",

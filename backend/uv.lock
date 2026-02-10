@@ -365,6 +365,23 @@ wheels = [
 ]
 
 [[package]]
+name = "boxlite"
+version = "0.5.10"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/f2/87b31fc3a68ce9a25d0c02aa055561fe377d4c017c52fb81bf91fa8f5662/boxlite-0.5.10-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:8f91f45ae419553bf433b2e725a6e96e42d67c800d173caa1480580ce94d3cf1", size = 32204103, upload-time = "2026-02-06T16:00:09.737Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/66/604ca87bdf284ff10f42deeffc9a4b933aef86bcd71398f3c3bcd2bb07aa/boxlite-0.5.10-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:89c7f99915e12b96081aa171bc95f8ea7647d4df2c66158925201f668a406c99", size = 33800672, upload-time = "2026-02-06T16:00:12.661Z" },
+    { url = "https://files.pythonhosted.org/packages/66/ed/c681348167e725132519a0579554843795f9672df563b6c42b776d33a3c3/boxlite-0.5.10-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:b3ea0258e1d168c9083cb67b2c49118f4726d6152d08cc93b81c190aa68bb9cf", size = 32199177, upload-time = "2026-02-06T16:00:15.473Z" },
+    { url = "https://files.pythonhosted.org/packages/31/59/9c062ba15a85c1299cf4b87e1ab61f514e4fafad1d9db83ebc64bef073c9/boxlite-0.5.10-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:e365d40f5fc7c2f2c3226d22399b07e9b75afaefc82da0784f54922d6f7ad7bd", size = 33794508, upload-time = "2026-02-06T16:00:18.686Z" },
+    { url = "https://files.pythonhosted.org/packages/41/79/72672cb8e29b1b7ab85352a05f3ca08c314de8c85c942ed8de9dd37e1dd5/boxlite-0.5.10-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:e5d87c69a6439d93c345d1608f7d58d7be065d555e925a9923cfb8621db7303f", size = 32198294, upload-time = "2026-02-06T16:00:22.049Z" },
+    { url = "https://files.pythonhosted.org/packages/67/73/a6e87cf135057230431ef1bc2646a8c08e51cf710cb4f286bde50e8b74ec/boxlite-0.5.10-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:1770da0c25558a7bc936ff11abf45e8a2494c04048d3231f9adca654d466f4a0", size = 33793492, upload-time = "2026-02-06T16:00:24.861Z" },
+    { url = "https://files.pythonhosted.org/packages/05/b1/d6b89b267d96729ff498780ed71f2c39f454faca945be00202f5bcad5f34/boxlite-0.5.10-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:a448e1c501912bbb19671a565a93684660e478e2fe72966bfc59b986a412f529", size = 32201597, upload-time = "2026-02-06T16:00:27.731Z" },
+    { url = "https://files.pythonhosted.org/packages/92/f8/215b82bb83ff02173189bfd8f4594d346ab2558bcec4a782f817877ee347/boxlite-0.5.10-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:a6f5c4c431713be67ff6aa59b9b39bb144cc3519e3c09b5ae6ec70cf747364c8", size = 33798018, upload-time = "2026-02-06T16:00:30.615Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/4e/45ceaf05bdffbfb763233d8c0d6008788ee0c77aa2dc777574c411c8e158/boxlite-0.5.10-cp314-cp314t-macosx_14_0_arm64.whl", hash = "sha256:445de8e212146c457a253372acd65017f5b5b4c3715e3ce5acd0db068eea6301", size = 32198274, upload-time = "2026-02-06T16:00:34.32Z" },
+    { url = "https://files.pythonhosted.org/packages/08/11/201d7e220b21129f476e3f094f5b858b9d9adb7b0514e9aa0037a2662e08/boxlite-0.5.10-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:a489584cb526f738382e2e9d63e467cbf60aa95276e49c1a92ed3bc22fe2984d", size = 33797776, upload-time = "2026-02-06T16:00:37.249Z" },
+]
+
+[[package]]
 name = "bracex"
 version = "2.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1458,6 +1475,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
 ]
 
+[package.optional-dependencies]
+socks = [
+    { name = "socksio" },
+]
+
 [[package]]
 name = "httpx-sse"
 version = "0.4.3"
@@ -1501,7 +1523,7 @@ dependencies = [
     { name = "e2b-desktop" },
     { name = "fastapi" },
     { name = "google-genai" },
-    { name = "httpx" },
+    { name = "httpx", extra = ["socks"] },
     { name = "langchain" },
     { name = "langchain-anthropic" },
     { name = "langchain-community" },
@@ -1531,6 +1553,9 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+local-sandbox = [
+    { name = "boxlite" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1545,13 +1570,14 @@ requires-dist = [
     { name = "arq", specifier = ">=0.26.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "boto3", specifier = ">=1.35.0" },
+    { name = "boxlite", marker = "extra == 'local-sandbox'", specifier = ">=0.1.0" },
     { name = "browser-use", specifier = ">=0.11.2" },
     { name = "e2b", specifier = ">=1.0.0" },
     { name = "e2b-code-interpreter", specifier = ">=1.0.0" },
     { name = "e2b-desktop", specifier = ">=1.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "google-genai", specifier = ">=1.57.0" },
-    { name = "httpx", specifier = ">=0.28.0" },
+    { name = "httpx", extras = ["socks"], specifier = ">=0.28.0" },
     { name = "langchain", specifier = ">=0.3.0" },
     { name = "langchain-anthropic", specifier = ">=0.3.0" },
     { name = "langchain-community", specifier = ">=0.3.0" },
@@ -1577,7 +1603,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "xlrd", specifier = ">=2.0.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "local-sandbox"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -6812,6 +6838,15 @@ wheels = [
 ]
 
 [[package]]
+name = "socksio"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/5c/48a7d9495be3d1c651198fd99dbb6ce190e2274d0f28b9051307bdec6b85/socksio-1.0.0.tar.gz", hash = "sha256:f88beb3da5b5c38b9890469de67d0cb0f9d494b78b106ca1845f96c10b91c4ac", size = 19055, upload-time = "2020-04-17T15:50:34.664Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/c3/6eeb6034408dac0fa653d126c9204ade96b819c936e136c5e8a6897eee9c/socksio-1.0.0-py3-none-any.whl", hash = "sha256:95dc1f15f9b34e8d7b16f06d74b8ccf48f609af32ab33c608d08761c5dcbb1f3", size = 12763, upload-time = "2020-04-17T15:50:31.878Z" },
+]
+
+[[package]]
 name = "soupsieve"
 version = "2.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -7240,6 +7275,9 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/25/d8/9e6b8e7df981a1e3ea3907fd5a74673e791da483e8c307f0b6ff012626d0/torch-2.10.0-1-cp311-none-macosx_11_0_arm64.whl", hash = "sha256:f699f31a236a677b3118bc0a3ef3d89c0c29b5ec0b20f4c4bf0b110378487464", size = 79423460, upload-time = "2026-02-06T17:37:39.657Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/2f/0b295dd8d199ef71e6f176f576473d645d41357b7b8aa978cc6b042575df/torch-2.10.0-1-cp312-none-macosx_11_0_arm64.whl", hash = "sha256:6abb224c2b6e9e27b592a1c0015c33a504b00a0e0938f1499f7f514e9b7bfb5c", size = 79498197, upload-time = "2026-02-06T17:37:27.627Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/1b/af5fccb50c341bd69dc016769503cb0857c1423fbe9343410dfeb65240f2/torch-2.10.0-1-cp313-none-macosx_11_0_arm64.whl", hash = "sha256:7350f6652dfd761f11f9ecb590bfe95b573e2961f7a242eccb3c8e78348d26fe", size = 79498248, upload-time = "2026-02-06T17:37:31.982Z" },
     { url = "https://files.pythonhosted.org/packages/78/89/f5554b13ebd71e05c0b002f95148033e730d3f7067f67423026cc9c69410/torch-2.10.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:3282d9febd1e4e476630a099692b44fdc214ee9bf8ee5377732d9d9dfe5712e4", size = 145992610, upload-time = "2026-01-21T16:25:26.327Z" },
     { url = "https://files.pythonhosted.org/packages/ae/30/a3a2120621bf9c17779b169fc17e3dc29b230c29d0f8222f499f5e159aa8/torch-2.10.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:a2f9edd8dbc99f62bc4dfb78af7bf89499bca3d753423ac1b4e06592e467b763", size = 915607863, upload-time = "2026-01-21T16:25:06.696Z" },
     { url = "https://files.pythonhosted.org/packages/6f/3d/c87b33c5f260a2a8ad68da7147e105f05868c281c63d65ed85aa4da98c66/torch-2.10.0-cp311-cp311-win_amd64.whl", hash = "sha256:29b7009dba4b7a1c960260fc8ac85022c784250af43af9fb0ebafc9883782ebd", size = 113723116, upload-time = "2026-01-21T16:25:21.916Z" },

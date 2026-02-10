@@ -11,7 +11,7 @@ from typing import Any
 
 from app.config import settings
 from app.core.logging import get_logger
-from app.sandbox.code_executor import E2BSandboxExecutor
+from app.sandbox.base_code_executor import BaseCodeExecutor
 
 logger = get_logger(__name__)
 
@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 def get_default_execution_session_timeout() -> timedelta:
     """Get default execution session timeout from settings."""
     return timedelta(minutes=settings.e2b_session_timeout_minutes)
+
 
 # Cleanup interval for expired sessions (60 seconds)
 CLEANUP_INTERVAL_SECONDS = 60
@@ -28,7 +29,7 @@ CLEANUP_INTERVAL_SECONDS = 60
 class ExecutionSandboxSession:
     """Tracks an active code execution sandbox session."""
 
-    executor: E2BSandboxExecutor
+    executor: BaseCodeExecutor
     session_key: str
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_accessed: datetime = field(default_factory=datetime.utcnow)
@@ -37,8 +38,8 @@ class ExecutionSandboxSession:
     @property
     def sandbox_id(self) -> str | None:
         """Get the underlying sandbox ID."""
-        if self.executor and self.executor.sandbox:
-            return self.executor.sandbox.sandbox_id
+        if self.executor:
+            return self.executor.sandbox_id
         return None
 
     @property
@@ -115,10 +116,11 @@ class ExecutionSandboxManager:
             ValueError: If E2B API key not configured
         """
         # Validate prerequisites at manager level (fail fast)
-        if not settings.e2b_api_key:
-            raise ValueError(
-                "E2B API key not configured. Set E2B_API_KEY environment variable."
-            )
+        from app.sandbox.provider import is_provider_available
+
+        available, issue = is_provider_available("execution")
+        if not available:
+            raise ValueError(issue)
 
         session_key = self.make_session_key(user_id, task_id)
         session_timeout = timeout or get_default_execution_session_timeout()
@@ -141,8 +143,10 @@ class ExecutionSandboxManager:
                     # Clean up unhealthy or expired session
                     await self._cleanup_session_internal(session_key)
 
-            # Create new session
-            executor = E2BSandboxExecutor()
+            # Create new session via provider factory
+            from app.sandbox.provider import create_code_executor
+
+            executor = create_code_executor()
             await executor.create_sandbox()
 
             session = ExecutionSandboxSession(
@@ -196,16 +200,17 @@ class ExecutionSandboxManager:
         Returns:
             True if sandbox is healthy, False otherwise
         """
-        if not session.executor.sandbox:
+        if not session.executor.sandbox_id:
             return False
 
         try:
             # Perform a lightweight health check by running a simple command
-            result = await session.executor.sandbox.commands.run(
+            runtime = session.executor.get_runtime()
+            result = await runtime.run_command(
                 "echo 'health_check'",
-                timeout=5,  # 5 second timeout for health check
+                timeout=5,
             )
-            return result.exit_code == 0 and "health_check" in (result.stdout or "")
+            return result.exit_code == 0 and "health_check" in result.stdout
         except Exception as e:
             self._health_check_failures += 1
             logger.warning(
@@ -272,10 +277,7 @@ class ExecutionSandboxManager:
         cleaned = 0
 
         async with self._session_lock:
-            expired_keys = [
-                key for key, session in self._sessions.items()
-                if session.is_expired
-            ]
+            expired_keys = [key for key, session in self._sessions.items() if session.is_expired]
 
             for key in expired_keys:
                 if await self._cleanup_session_internal(key):

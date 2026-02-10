@@ -4,12 +4,14 @@ These tools enable the agent to scaffold, build, and run web applications
 in an E2B sandbox with port forwarding for live previews.
 """
 
+import os
 import time
 from typing import Any, Literal
 
 from langchain_core.tools import tool
 
 from app.core.logging import get_logger
+from app.agents import events
 from app.sandbox.app_sandbox_manager import (
     get_app_sandbox_manager,
     APP_TEMPLATES,
@@ -189,6 +191,20 @@ async def app_write_file(
 
         # Write the file
         result = await manager.write_file(session, path, content)
+
+        # Emit workspace_update event so the frontend file browser updates
+        if result.get("success"):
+            sandbox_id = getattr(session, "session_key", "") or task_id or user_id or "app-sandbox"
+            file_path = result.get("path", path)
+            workspace_event = events.workspace_update(
+                operation="create",
+                path=file_path,
+                name=os.path.basename(file_path),
+                sandbox_type="app",
+                sandbox_id=sandbox_id,
+                size=result.get("size") or result.get("bytes_written"),
+            )
+            result["workspace_events"] = [workspace_event]
 
         return result
 

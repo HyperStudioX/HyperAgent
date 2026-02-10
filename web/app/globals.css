@@ -536,6 +536,26 @@ button, a {
   background: hsl(var(--secondary));
 }
 
+/* Browser progress bar animation */
+@keyframes progress-indeterminate {
+  0% {
+    width: 0%;
+    margin-left: 0%;
+  }
+  50% {
+    width: 60%;
+    margin-left: 20%;
+  }
+  100% {
+    width: 0%;
+    margin-left: 100%;
+  }
+}
+
+.animate-progress-indeterminate {
+  animation: progress-indeterminate 1.5s ease-in-out infinite;
+}
+
 /* Accessibility: Respect prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *,

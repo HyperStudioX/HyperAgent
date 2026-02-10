@@ -1,5 +1,6 @@
 """Chat subagent for general conversation with tool calling and handoff support."""
 
+import json
 from typing import Literal
 
 from langchain_core.messages import (
@@ -568,7 +569,15 @@ async def act_node(state: ChatState) -> dict:
 
                 # Execute the tool
                 result = await tool.ainvoke(args)
-                result_str = str(result) if result is not None else ""
+                # Serialize as JSON for dicts/lists so downstream
+                # json.loads() can parse it; fall back to str() for
+                # other types.
+                if isinstance(result, (dict, list)):
+                    result_str = json.dumps(result, default=str)
+                elif result is not None:
+                    result_str = str(result)
+                else:
+                    result_str = ""
 
                 # Emit tool result event (use preview, not full result)
                 event_list.append(
@@ -587,7 +596,6 @@ async def act_node(state: ChatState) -> dict:
                 # Extract image events from invoke_skill with image_generation skill
                 if tool_name == "invoke_skill" and result_str:
                     try:
-                        import json
                         parsed = json.loads(result_str)
                         if parsed.get("skill_id") == "image_generation":
                             output = parsed.get("output") or {}
@@ -654,7 +662,6 @@ async def act_node(state: ChatState) -> dict:
                 # Extract terminal events from app builder tools
                 if tool_name in app_builder_tools and result_str:
                     try:
-                        import json
                         parsed = json.loads(result_str)
                         terminal_events = parsed.get("terminal_events") or []
                         if terminal_events:
@@ -689,6 +696,18 @@ async def act_node(state: ChatState) -> dict:
                                 "app_builder_browser_stream_emitted_from_tool",
                                 preview_url=preview_url,
                                 sandbox_id=sandbox_id,
+                            )
+
+                        # Extract workspace_update events (file create/modify/delete)
+                        workspace_events = parsed.get("workspace_events") or []
+                        for ws_event in workspace_events:
+                            if isinstance(ws_event, dict) and ws_event.get("type") == "workspace_update":
+                                event_list.append(ws_event)
+                        if workspace_events:
+                            logger.info(
+                                "app_builder_workspace_events_extracted",
+                                tool_name=tool_name,
+                                event_count=len(workspace_events),
                             )
                     except Exception as e:
                         logger.warning("app_builder_event_extraction_failed", error=str(e))

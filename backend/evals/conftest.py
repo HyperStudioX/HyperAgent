@@ -128,18 +128,6 @@ def mock_chat_llm() -> MockChatModel:
                 }
             ],
         ),
-        # Writing
-        MockResponse(
-            pattern=r"write.*email|write.*article|write.*blog",
-            response="I'll write that for you.",
-            tool_calls=[
-                {
-                    "name": "invoke_skill",
-                    "args": {"skill_id": "simple_writing", "params": {"task": "write"}},
-                    "id": "call_write_1",
-                }
-            ],
-        ),
         # Web research
         MockResponse(
             pattern=r"research.*trends|find.*news|search.*recent",

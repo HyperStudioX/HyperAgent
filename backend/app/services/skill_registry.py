@@ -189,7 +189,6 @@ class SkillRegistry:
                 CodeReviewSkill,
                 DataVisualizationSkill,
                 ImageGenerationSkill,
-                SimpleWritingSkill,
                 TaskPlanningSkill,
                 WebResearchSkill,
             )
@@ -200,7 +199,6 @@ class SkillRegistry:
                 CodeReviewSkill,
                 DataVisualizationSkill,
                 ImageGenerationSkill,
-                SimpleWritingSkill,
                 CodeGenerationSkill,
                 TaskPlanningSkill,
                 AppBuilderSkill,

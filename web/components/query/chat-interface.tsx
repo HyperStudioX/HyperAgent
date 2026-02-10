@@ -403,7 +403,20 @@ export function ChatInterface() {
         setCurrentCommand,
         openPanel: openComputerPanel,
         setMode: setComputerMode,
+        smartOpen: smartOpenComputer,
+        setWorkspaceContext,
+        handleWorkspaceUpdate,
+        openWorkspacePanel,
+        setActiveConversation: setComputerActiveConversation,
+        getWorkspaceSandboxId,
     } = useComputerStore();
+
+    const workspaceSandboxId = getWorkspaceSandboxId();
+
+    // Sync computer store's active conversation with chat store
+    useEffect(() => {
+        setComputerActiveConversation(activeConversationId);
+    }, [activeConversationId, setComputerActiveConversation]);
 
     const activeConversation = hasHydrated ? getActiveConversation() : undefined;
     const messages = activeConversation?.messages || [];
@@ -775,7 +788,7 @@ export function ChatInterface() {
                                     }
                                 }
                             } else if (event.type === "browser_stream") {
-                                // Handle browser stream event - show live browser view
+                                // Handle browser stream event - show live browser view in virtual computer
                                 const streamUrl = event.stream_url as string;
                                 const sandboxId = event.sandbox_id as string;
                                 if (streamUrl && sandboxId) {
@@ -784,6 +797,8 @@ export function ChatInterface() {
                                         streamUrl,
                                         sandboxId,
                                     });
+                                    // Force-open virtual computer panel to browser tab
+                                    smartOpenComputer("browser", true);
                                     addAgentEvent(event);
                                 }
                             } else if (event.type === "browser_action") {
@@ -800,6 +815,9 @@ export function ChatInterface() {
                                     status: status === "completed" ? "completed" : "running",
                                 };
                                 addStreamingEvent(browserStageEvent);
+                                // Force-switch to browser on navigate; soft-switch on other actions
+                                const forceSwitch = action === "navigate";
+                                smartOpenComputer("browser", forceSwitch);
                             } else if (event.type === "terminal_command") {
                                 // Handle terminal command - agent is executing a shell command
                                 const command = event.command as string;
@@ -807,8 +825,7 @@ export function ChatInterface() {
                                 if (command) {
                                     setCurrentCommand(command, cwd);
                                     addTerminalLine({ type: "command", content: command, cwd });
-                                    openComputerPanel();
-                                    setComputerMode("terminal");
+                                    smartOpenComputer("terminal", true);
                                     addAgentEvent(event);
                                 }
                             } else if (event.type === "terminal_output") {
@@ -846,6 +863,36 @@ export function ChatInterface() {
                                 }
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
+                            } else if (event.type === "workspace_update") {
+                                // Handle workspace file updates from sandbox
+                                const workspaceEvent = {
+                                    type: "workspace_update" as const,
+                                    operation: event.operation as "create" | "modify" | "delete",
+                                    path: event.path as string,
+                                    name: event.name as string,
+                                    is_directory: event.is_directory as boolean,
+                                    size: event.size as number | undefined,
+                                    sandbox_type: event.sandbox_type as "execution" | "app",
+                                    sandbox_id: event.sandbox_id as string,
+                                    timestamp: event.timestamp as number | undefined,
+                                };
+
+                                // Set workspace context on first event
+                                if (!workspaceSandboxId) {
+                                    setWorkspaceContext(
+                                        workspaceEvent.sandbox_type,
+                                        workspaceEvent.sandbox_id,
+                                        conversationId
+                                    );
+                                }
+
+                                // Update file tree
+                                handleWorkspaceUpdate(workspaceEvent);
+
+                                // Smart-open panel on file creation or modification
+                                if (workspaceEvent.operation === "create" || workspaceEvent.operation === "modify") {
+                                    smartOpenComputer("file", true);
+                                }
                             } else if (event.type === "interrupt") {
                                 const interruptEvent: InterruptEvent = {
                                     type: "interrupt",
@@ -1144,7 +1191,7 @@ export function ChatInterface() {
                                     }
                                 }
                             } else if (event.type === "browser_stream") {
-                                // Handle browser stream event - show live browser view
+                                // Handle browser stream event - show live browser view in virtual computer
                                 const streamUrl = event.stream_url as string;
                                 const sandboxId = event.sandbox_id as string;
                                 const authKey = event.auth_key as string | undefined;
@@ -1155,6 +1202,8 @@ export function ChatInterface() {
                                         sandboxId,
                                         authKey,
                                     });
+                                    // Force-open virtual computer panel to browser tab
+                                    smartOpenComputer("browser", true);
                                     addAgentEvent(event);
                                 }
                             } else if (event.type === "browser_action") {
@@ -1171,6 +1220,9 @@ export function ChatInterface() {
                                     status: status === "completed" ? "completed" : "running",
                                 };
                                 addStreamingEvent(browserStageEvent);
+                                // Force-switch to browser on navigate; soft-switch on other actions
+                                const forceSwitch = action === "navigate";
+                                smartOpenComputer("browser", forceSwitch);
                             } else if (event.type === "skill_output") {
                                 // Handle skill output events
                                 const skillId = event.skill_id as string;
@@ -1186,6 +1238,36 @@ export function ChatInterface() {
                                 }
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
+                            } else if (event.type === "workspace_update") {
+                                // Handle workspace file updates from sandbox (agent task)
+                                const workspaceEvent = {
+                                    type: "workspace_update" as const,
+                                    operation: event.operation as "create" | "modify" | "delete",
+                                    path: event.path as string,
+                                    name: event.name as string,
+                                    is_directory: event.is_directory as boolean,
+                                    size: event.size as number | undefined,
+                                    sandbox_type: event.sandbox_type as "execution" | "app",
+                                    sandbox_id: event.sandbox_id as string,
+                                    timestamp: event.timestamp as number | undefined,
+                                };
+
+                                // Set workspace context on first event
+                                if (!workspaceSandboxId) {
+                                    setWorkspaceContext(
+                                        workspaceEvent.sandbox_type,
+                                        workspaceEvent.sandbox_id,
+                                        conversationId
+                                    );
+                                }
+
+                                // Update file tree
+                                handleWorkspaceUpdate(workspaceEvent);
+
+                                // Smart-open panel on file creation or modification
+                                if (workspaceEvent.operation === "create" || workspaceEvent.operation === "modify") {
+                                    smartOpenComputer("file", true);
+                                }
                             } else if (event.type === "interrupt") {
                                 const interruptEvent: InterruptEvent = {
                                     type: "interrupt",

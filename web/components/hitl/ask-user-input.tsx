@@ -135,6 +135,44 @@ function BooleanInput({
     );
 }
 
+// Approval Approve/Deny input - For tool/action approval requests
+function ApprovalInput({
+    onApprove,
+    onDeny,
+}: {
+    onApprove: () => void;
+    onDeny: () => void;
+}) {
+    const t = useTranslations("hitl");
+
+    return (
+        <div className="flex gap-2">
+            <button
+                className={cn(
+                    "flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors",
+                    "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none",
+                    "bg-transparent text-foreground border-border hover:bg-foreground hover:text-background hover:border-foreground"
+                )}
+                onClick={onApprove}
+            >
+                <Check className="w-4 h-4" />
+                <span>{t("approve")}</span>
+            </button>
+            <button
+                className={cn(
+                    "flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors",
+                    "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none",
+                    "bg-transparent text-foreground border-border hover:bg-foreground hover:text-background hover:border-foreground"
+                )}
+                onClick={onDeny}
+            >
+                <X className="w-4 h-4" />
+                <span>{t("deny")}</span>
+            </button>
+        </div>
+    );
+}
+
 // Text input field - Aligned with design guide
 function TextInput({
     onSubmit,
@@ -242,6 +280,21 @@ export function AskUserInput({ interrupt, onRespond, onCancel }: AskUserInputPro
         });
     }, [interrupt, onRespond]);
 
+    const handleApprove = useCallback(() => {
+        onRespond({
+            interrupt_id: interrupt.interrupt_id,
+            action: "approve",
+        });
+    }, [interrupt, onRespond]);
+
+    const handleDeny = useCallback(() => {
+        onRespond({
+            interrupt_id: interrupt.interrupt_id,
+            action: "deny",
+        });
+    }, [interrupt, onRespond]);
+
+    const isApproval = interrupt.interrupt_type === "approval";
     const isDecision = interrupt.interrupt_type === "decision" && interrupt.options;
     const isInput = interrupt.interrupt_type === "input";
     const isConfirm = interrupt.interrupt_type === "confirm";
@@ -264,6 +317,12 @@ export function AskUserInput({ interrupt, onRespond, onCancel }: AskUserInputPro
 
             {/* Input area */}
             <div className="pl-7">
+                {isApproval && (
+                    <ApprovalInput
+                        onApprove={handleApprove}
+                        onDeny={handleDeny}
+                    />
+                )}
                 {isDecision && interrupt.options && (
                     <DecisionInput
                         options={interrupt.options}

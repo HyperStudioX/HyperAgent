@@ -60,6 +60,9 @@ class EventType(str, Enum):
     INTERRUPT = "interrupt"
     INTERRUPT_RESPONSE = "interrupt_response"
 
+    # Workspace events (file updates in sandboxes)
+    WORKSPACE_UPDATE = "workspace_update"
+
 
 class InterruptType(str, Enum):
     """Types of human-in-the-loop interrupts."""
@@ -301,6 +304,24 @@ class InterruptResponseEvent(BaseModel):
     interrupt_id: str = Field(..., description="ID of the interrupt being responded to")
     action: str = Field(..., description="User action: approve, deny, skip, select, input")
     value: str | None = Field(default=None, description="Selected value or input text")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class WorkspaceUpdateEvent(BaseModel):
+    """Event indicating a file was created, modified, or deleted in the sandbox workspace."""
+
+    type: Literal["workspace_update"] = "workspace_update"
+    operation: Literal["create", "modify", "delete"] = Field(
+        ..., description="Type of file operation"
+    )
+    path: str = Field(..., description="Full path to the file")
+    name: str = Field(..., description="File or directory name")
+    is_directory: bool = Field(default=False, description="Whether this is a directory")
+    size: int | None = Field(default=None, description="File size in bytes")
+    sandbox_type: Literal["execution", "app"] = Field(
+        ..., description="Type of sandbox (execution or app)"
+    )
+    sandbox_id: str = Field(..., description="Sandbox identifier")
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
@@ -751,4 +772,41 @@ def interrupt_response(
         interrupt_id=interrupt_id,
         action=action,
         value=value,
+    ).model_dump()
+
+
+def workspace_update(
+    operation: str,
+    path: str,
+    name: str,
+    sandbox_type: str,
+    sandbox_id: str,
+    is_directory: bool = False,
+    size: int | None = None,
+) -> dict[str, Any]:
+    """Create a workspace update event dictionary.
+
+    This event is emitted when files are created, modified, or deleted
+    in an E2B sandbox workspace.
+
+    Args:
+        operation: Type of operation (create, modify, delete)
+        path: Full path to the file
+        name: File or directory name
+        sandbox_type: Type of sandbox (execution or app)
+        sandbox_id: Sandbox identifier
+        is_directory: Whether this is a directory
+        size: File size in bytes
+
+    Returns:
+        Workspace update event dictionary
+    """
+    return WorkspaceUpdateEvent(
+        operation=operation,
+        path=path,
+        name=name,
+        sandbox_type=sandbox_type,
+        sandbox_id=sandbox_id,
+        is_directory=is_directory,
+        size=size,
     ).model_dump()

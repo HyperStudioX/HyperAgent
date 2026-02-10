@@ -1,31 +1,32 @@
-"""Shared file operation utilities for E2B sandboxes.
+"""Shared file operation utilities for sandboxes.
 
 Provides common file operation implementations that can be used by both
-execution sandboxes and app development sandboxes.
+execution sandboxes and app development sandboxes. Uses the SandboxRuntime
+protocol so this module works with any provider (E2B, BoxLite, etc.).
 """
 
 import base64
+import shlex
 from typing import Any
 
-from e2b import AsyncSandbox
-
 from app.core.logging import get_logger
+from app.sandbox.runtime import SandboxRuntime
 
 logger = get_logger(__name__)
 
 
-async def read_file(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
+async def read_file(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
     """Read a file from the sandbox.
 
     Args:
-        sandbox: E2B sandbox instance
+        sandbox: Sandbox runtime instance
         path: File path in the sandbox
 
     Returns:
         Dict with success status, content, and metadata
     """
     try:
-        content = await sandbox.files.read(path)
+        content = await sandbox.read_file(path)
 
         # Try to decode as text
         try:
@@ -62,7 +63,7 @@ async def read_file(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
 
 
 async def write_file(
-    sandbox: AsyncSandbox,
+    sandbox: SandboxRuntime,
     path: str,
     content: str,
     is_binary: bool = False,
@@ -70,7 +71,7 @@ async def write_file(
     """Write content to a file in the sandbox.
 
     Args:
-        sandbox: E2B sandbox instance
+        sandbox: Sandbox runtime instance
         path: File path in the sandbox
         content: Content to write (base64 for binary files)
         is_binary: Whether content is base64-encoded binary
@@ -97,9 +98,9 @@ async def write_file(
         # Ensure parent directory exists
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
-            await sandbox.commands.run(f"mkdir -p {parent_dir}", timeout=10)
+            await sandbox.run_command(f"mkdir -p {shlex.quote(parent_dir)}", timeout=10)
 
-        await sandbox.files.write(path, file_content)
+        await sandbox.write_file(path, file_content)
 
         logger.info("sandbox_file_written", path=path, bytes=len(file_content), is_binary=is_binary)
 
@@ -122,19 +123,18 @@ async def write_file(
         }
 
 
-async def list_directory(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
+async def list_directory(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
     """List contents of a directory in the sandbox.
 
     Args:
-        sandbox: E2B sandbox instance
+        sandbox: Sandbox runtime instance
         path: Directory path in the sandbox
 
     Returns:
         Dict with success status and directory entries
     """
     try:
-        # Use sandbox command to list directory
-        result = await sandbox.commands.run(f"ls -la {path}", timeout=30)
+        result = await sandbox.run_command(f"ls -la {shlex.quote(path)}", timeout=30)
 
         if result.exit_code != 0:
             return {
@@ -148,7 +148,7 @@ async def list_directory(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
         entries = []
         lines = (result.stdout or "").strip().split("\n")
         for line in lines[1:]:  # Skip the "total" line
-            parts = line.split()
+            parts = line.split(None, 8)
             if len(parts) >= 9:
                 entry = {
                     "permissions": parts[0],
@@ -157,7 +157,7 @@ async def list_directory(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
                     "group": parts[3],
                     "size": int(parts[4]) if parts[4].isdigit() else 0,
                     "date": " ".join(parts[5:8]),
-                    "name": " ".join(parts[8:]),
+                    "name": parts[8],
                     "is_directory": parts[0].startswith("d"),
                 }
                 entries.append(entry)
@@ -182,19 +182,31 @@ async def list_directory(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
         }
 
 
-async def delete_path(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
+async def delete_path(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
     """Delete a file or directory from the sandbox.
 
     Args:
-        sandbox: E2B sandbox instance
+        sandbox: Sandbox runtime instance
         path: Path to delete
 
     Returns:
         Dict with success status
     """
+    # Safety check: refuse to delete root-level directories
+    protected_paths = {"/", "/home", "/root", "/etc", "/usr", "/var", "/tmp",
+                       "/bin", "/sbin", "/lib", "/opt", "/dev", "/proc", "/sys"}
+    normalized = path.rstrip("/") or "/"
+    if normalized in protected_paths:
+        logger.warning("sandbox_delete_refused_protected_path", path=path)
+        return {
+            "success": False,
+            "operation": "delete",
+            "path": path,
+            "error": f"Refusing to delete protected path: {path}",
+        }
+
     try:
-        # Use rm -rf to handle both files and directories
-        result = await sandbox.commands.run(f"rm -rf {path}", timeout=30)
+        result = await sandbox.run_command(f"rm -rf {shlex.quote(path)}", timeout=30)
 
         if result.exit_code != 0:
             return {
@@ -222,18 +234,19 @@ async def delete_path(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
         }
 
 
-async def check_exists(sandbox: AsyncSandbox, path: str) -> dict[str, Any]:
+async def check_exists(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
     """Check if a path exists in the sandbox.
 
     Args:
-        sandbox: E2B sandbox instance
+        sandbox: Sandbox runtime instance
         path: Path to check
 
     Returns:
         Dict with success status and existence flag
     """
     try:
-        result = await sandbox.commands.run(f"test -e {path} && echo 'exists'", timeout=10)
+        cmd = f"test -e {shlex.quote(path)} && echo 'exists'"
+        result = await sandbox.run_command(cmd, timeout=10)
 
         exists = result.exit_code == 0 and "exists" in (result.stdout or "")
 

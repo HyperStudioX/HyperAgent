@@ -1,0 +1,209 @@
+"""BoxLite Runtime adapter.
+
+Wraps boxlite.SimpleBox to satisfy the SandboxRuntime protocol for local
+Docker-based sandbox execution.
+"""
+
+import asyncio
+import base64
+import shlex
+import uuid
+
+import boxlite
+
+from app.config import settings
+from app.core.logging import get_logger
+from app.sandbox.runtime import CommandResult
+
+logger = get_logger(__name__)
+
+
+class BoxLiteRuntime:
+    """Adapter wrapping boxlite.SimpleBox to satisfy SandboxRuntime protocol.
+
+    Maps protocol methods to boxlite SDK calls:
+    - run_command() -> box.exec("bash", "-c", cmd)
+    - read_file()   -> exec cat (text) or base64 (binary)
+    - write_file()  -> exec with heredoc (text) or base64 pipe (binary)
+    - get_host_url() -> lookup pre-configured host:guest port map
+    - kill()        -> box.__aexit__() (async context manager cleanup)
+    """
+
+    def __init__(self, box: "boxlite.SimpleBox", port_map: dict[int, int] | None = None) -> None:
+        self._box = box
+        self._id = f"boxlite-{uuid.uuid4().hex[:12]}"
+        # Maps guest port -> host port
+        self._port_map: dict[int, int] = port_map or {}
+
+    @property
+    def sandbox_id(self) -> str:
+        """Get a unique identifier for this BoxLite sandbox."""
+        return self._id
+
+    @classmethod
+    async def create(
+        cls,
+        image: str = "python:3.12-slim",
+        cpus: int | None = None,
+        memory_mib: int | None = None,
+        disk_size_gb: int | None = None,
+        ports: dict[int, int] | None = None,
+        working_dir: str | None = None,
+    ) -> "BoxLiteRuntime":
+        """Create a new BoxLite sandbox.
+
+        Args:
+            image: Docker image to use
+            cpus: Number of CPUs
+            memory_mib: Memory limit in MiB
+            disk_size_gb: Disk size limit in GB
+            ports: Guest port -> host port mapping
+            working_dir: Working directory inside the container
+
+        Returns:
+            BoxLiteRuntime instance
+        """
+        _cpus = cpus or settings.boxlite_cpus
+        _memory = memory_mib or settings.boxlite_memory_mib
+        _disk = disk_size_gb or settings.boxlite_disk_size_gb
+        _ports = ports or {}
+
+        # Build SimpleBox kwargs
+        kwargs: dict = {}
+        # Only set working_dir when explicitly passed by the caller.
+        # Defaulting to /home/user breaks images where that directory
+        # doesn't exist (e.g. node:20-slim runs as root with /root).
+        if working_dir:
+            kwargs["working_dir"] = working_dir
+        if _ports:
+            # Convert {guest: host} dict to [(host, guest)] tuples
+            kwargs["ports"] = [(host, guest) for guest, host in _ports.items()]
+
+        box = boxlite.SimpleBox(
+            image=image,
+            cpus=_cpus,
+            memory_mib=_memory,
+            disk_size_gb=_disk,
+            auto_remove=settings.boxlite_auto_remove,
+            **kwargs,
+        )
+        await box.start()
+
+        runtime = cls(box, port_map=_ports)
+        logger.info(
+            "boxlite_sandbox_created",
+            sandbox_id=runtime.sandbox_id,
+            image=image,
+            cpus=_cpus,
+            memory_mib=_memory,
+            disk_size_gb=_disk,
+        )
+        return runtime
+
+    async def run_command(
+        self,
+        command: str,
+        timeout: int = 60,
+        cwd: str | None = None,
+    ) -> CommandResult:
+        """Run a command via BoxLite exec."""
+        full_cmd = command
+        if cwd:
+            full_cmd = f"cd {shlex.quote(cwd)} && {command}"
+
+        try:
+            # SimpleBox.exec is async and returns ExecResult directly
+            result = await asyncio.wait_for(
+                self._box.exec("bash", "-c", full_cmd),
+                timeout=timeout,
+            )
+
+            return CommandResult(
+                exit_code=result.exit_code,
+                stdout=result.stdout or "",
+                stderr=result.stderr or "",
+            )
+        except asyncio.TimeoutError:
+            return CommandResult(
+                exit_code=124,
+                stdout="",
+                stderr=f"Command timed out after {timeout}s",
+            )
+
+    async def read_file(
+        self,
+        path: str,
+        format: str = "text",
+    ) -> bytes | str:
+        """Read a file via exec cat/base64."""
+        if format == "bytes":
+            result = await self.run_command(
+                f"base64 {shlex.quote(path)}",
+                timeout=30,
+            )
+            if result.exit_code != 0:
+                raise FileNotFoundError(f"Failed to read {path}: {result.stderr}")
+            return base64.b64decode(result.stdout.strip())
+        else:
+            result = await self.run_command(
+                f"cat {shlex.quote(path)}",
+                timeout=30,
+            )
+            if result.exit_code != 0:
+                raise FileNotFoundError(f"Failed to read {path}: {result.stderr}")
+            return result.stdout
+
+    async def write_file(
+        self,
+        path: str,
+        content: bytes | str,
+    ) -> None:
+        """Write content to a file via exec."""
+        # Ensure parent directory exists
+        parent_dir = "/".join(path.split("/")[:-1])
+        if parent_dir:
+            await self.run_command(f"mkdir -p {shlex.quote(parent_dir)}", timeout=10)
+
+        if isinstance(content, bytes):
+            # Binary write via base64 pipe using printf to avoid echo length limits
+            encoded = base64.b64encode(content).decode("ascii")
+            result = await self.run_command(
+                f"printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(path)}",
+                timeout=30,
+            )
+        else:
+            # Text write via heredoc with random delimiter to prevent injection
+            delimiter = f"BOXLITE_EOF_{uuid.uuid4().hex}"
+            result = await self.run_command(
+                f"cat > {shlex.quote(path)} << '{delimiter}'\n{content}\n{delimiter}",
+                timeout=30,
+            )
+
+        if result.exit_code != 0:
+            raise IOError(f"Failed to write {path}: {result.stderr}")
+
+    async def get_host_url(self, port: int) -> str:
+        """Get the localhost URL for a forwarded port."""
+        if port in self._port_map:
+            host_port = self._port_map[port]
+        else:
+            # If no explicit mapping, assume identity mapping
+            host_port = port
+
+        return f"http://localhost:{host_port}"
+
+    async def kill(self) -> None:
+        """Stop and remove the BoxLite container."""
+        try:
+            # Use async context manager exit for proper cleanup.
+            # SimpleBox.shutdown() has a bug (calls self._box.shutdown()
+            # on the native Box which doesn't have that method).
+            await self._box.__aexit__(None, None, None)
+            logger.info("boxlite_sandbox_stopped", sandbox_id=self._id)
+        except Exception as e:
+            logger.warning("boxlite_sandbox_stop_failed", sandbox_id=self._id, error=str(e))
+
+    @property
+    def raw_box(self) -> "boxlite.SimpleBox":
+        """Access the underlying boxlite.SimpleBox for provider-specific operations."""
+        return self._box

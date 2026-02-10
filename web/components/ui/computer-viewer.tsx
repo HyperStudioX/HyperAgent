@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { Monitor, X, Maximize2, Minimize2, ExternalLink } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -47,20 +47,32 @@ export function ComputerViewer({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const sizeConfig = SIZE_CONFIG[size];
 
-    // Construct stream URL with auth key if provided
-    const streamUrl = useMemo(() => {
-        const baseUrl = stream.streamUrl;
-        const authKey = stream.authKey;
+    // Use the base stream URL without embedding the auth key
+    const streamUrl = stream.streamUrl;
+    const fullscreenIframeRef = useRef<HTMLIFrameElement>(null);
+    const normalIframeRef = useRef<HTMLIFrameElement>(null);
 
-        if (authKey && !baseUrl.includes('authKey=')) {
-            const separator = baseUrl.includes('?') ? '&' : '?';
-            return `${baseUrl}${separator}authKey=${encodeURIComponent(authKey)}`;
-        }
-        return baseUrl;
-    }, [stream.streamUrl, stream.authKey]);
+    // Send auth key to iframe via postMessage after load instead of URL param
+    const handleIframeLoad = useCallback(
+        (iframeRef: React.RefObject<HTMLIFrameElement | null>) => {
+            if (stream.authKey && iframeRef.current?.contentWindow) {
+                try {
+                    const targetOrigin = new URL(stream.streamUrl).origin;
+                    iframeRef.current.contentWindow.postMessage(
+                        { type: "auth", authKey: stream.authKey },
+                        targetOrigin
+                    );
+                } catch {
+                    // URL parsing failed — skip postMessage
+                }
+            }
+        },
+        [stream.authKey, stream.streamUrl]
+    );
 
     const handleOpenExternal = () => {
-        window.open(streamUrl, '_blank', 'noopener,noreferrer');
+        // Open without auth key to prevent exposure via browser history/referrer
+        window.open(stream.streamUrl, '_blank', 'noopener,noreferrer');
     };
 
     if (isFullscreen) {
@@ -113,10 +125,13 @@ export function ComputerViewer({
                 {/* Fullscreen iframe */}
                 <div className="flex-1">
                     <iframe
+                        ref={fullscreenIframeRef}
                         src={streamUrl}
                         className="w-full h-full border-0"
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-pointer-lock"
                         allow="autoplay; fullscreen"
                         referrerPolicy="no-referrer"
+                        onLoad={() => handleIframeLoad(fullscreenIframeRef)}
                     />
                 </div>
             </div>
@@ -157,6 +172,7 @@ export function ComputerViewer({
                             className="h-7 w-7"
                             onClick={() => setIsFullscreen(true)}
                             title="Fullscreen"
+                            aria-expanded={isFullscreen}
                         >
                             <Maximize2 className="w-3.5 h-3.5" />
                         </Button>
@@ -202,13 +218,16 @@ export function ComputerViewer({
                         }}
                     >
                         <iframe
+                            ref={normalIframeRef}
                             src={streamUrl}
                             className="w-full h-full border-0"
                             style={{
                                 display: 'block',
                             }}
+                            sandbox="allow-scripts allow-same-origin allow-popups allow-pointer-lock"
                             allow="autoplay; fullscreen"
                             referrerPolicy="no-referrer"
+                            onLoad={() => handleIframeLoad(normalIframeRef)}
                         />
                     </div>
                 </div>

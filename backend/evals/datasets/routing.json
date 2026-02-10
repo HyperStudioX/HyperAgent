@@ -50,7 +50,7 @@
       "input": "Write an email to my team about the project update",
       "expected_agent": "chat",
       "category": "writing",
-      "description": "Email writing should route to chat (has simple_writing skill)"
+      "description": "Email writing should route to chat"
     },
     {
       "id": "chat_writing_blog",

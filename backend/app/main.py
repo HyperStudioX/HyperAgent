@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import conversations, files, health, hitl, query, skills, tasks
+from app.api import conversations, files, health, hitl, query, sandbox, skills, tasks
 from app.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.base import close_db, init_db
@@ -133,3 +133,4 @@ app.include_router(conversations.router, prefix=settings.api_prefix, tags=["conv
 app.include_router(files.router, prefix=settings.api_prefix, tags=["files"])
 app.include_router(skills.router, prefix=settings.api_prefix, tags=["skills"])
 app.include_router(hitl.router, prefix=settings.api_prefix, tags=["hitl"])
+app.include_router(sandbox.router, prefix=settings.api_prefix, tags=["sandbox"])

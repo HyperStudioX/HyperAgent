@@ -1,4 +1,4 @@
-"""App Sandbox Manager for E2B Session Lifecycle.
+"""App Sandbox Manager for Session Lifecycle.
 
 Provides session-based app development sandbox lifecycle management, enabling sandbox
 sharing across multiple tool calls within the same user/task context.
@@ -11,16 +11,14 @@ Key features:
 """
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from e2b import AsyncSandbox
-
-from app.config import settings
 from app.core.logging import get_logger
-from app.middleware.circuit_breaker import CircuitBreakerOpen, get_e2b_breaker
 from app.sandbox import file_operations
+from app.sandbox.runtime import SandboxRuntime
 
 logger = get_logger(__name__)
 
@@ -103,7 +101,7 @@ class AppProcess:
 class AppSandboxSession:
     """Tracks an active app development sandbox session."""
 
-    sandbox: AsyncSandbox
+    sandbox: SandboxRuntime
     session_key: str
     template: str = "react"
     project_dir: str = "/home/user/app"
@@ -198,10 +196,11 @@ class AppSandboxManager:
             ValueError: If E2B API key not configured or invalid template
         """
         # Validate prerequisites at manager level (fail fast)
-        if not settings.e2b_api_key:
-            raise ValueError(
-                "E2B API key not configured. Set E2B_API_KEY environment variable."
-            )
+        from app.sandbox.provider import is_provider_available
+
+        available, issue = is_provider_available("app")
+        if not available:
+            raise ValueError(issue)
 
         if template not in APP_TEMPLATES:
             raise ValueError(
@@ -229,23 +228,12 @@ class AppSandboxManager:
                     # Clean up unhealthy or expired session
                     await self._cleanup_session_internal(session_key)
 
-            # Create new sandbox with longer timeout
-            breaker = get_e2b_breaker()
+            # Create new sandbox via provider factory
+            from app.sandbox.provider import create_app_runtime
 
             try:
-                async with breaker.call():
-                    sandbox = await AsyncSandbox.create(
-                        api_key=settings.e2b_api_key,
-                        timeout=1800,  # 30 minutes for app development
-                    )
+                sandbox = await create_app_runtime()
                 logger.info("app_sandbox_created", sandbox_id=sandbox.sandbox_id)
-            except CircuitBreakerOpen as e:
-                logger.warning(
-                    "app_sandbox_circuit_open",
-                    service="e2b",
-                    retry_after=e.retry_after,
-                )
-                raise
             except Exception as e:
                 logger.error("app_sandbox_creation_failed", error=str(e))
                 raise
@@ -301,8 +289,11 @@ class AppSandboxManager:
         )
 
         try:
+            # Ensure project parent directory exists (may not exist in all images)
+            await session.sandbox.run_command("mkdir -p /home/user", timeout=10)
+
             # Run scaffold command
-            result = await session.sandbox.commands.run(
+            result = await session.sandbox.run_command(
                 template_config["scaffold_cmd"],
                 timeout=300,  # 5 minutes for scaffolding
                 cwd="/home/user",
@@ -364,7 +355,11 @@ class AppSandboxManager:
         """
         template_config = APP_TEMPLATES.get(session.template, APP_TEMPLATES["react"])
         start_cmd = custom_command or template_config["start_cmd"]
-        server_port = port or template_config["port"]
+        raw_port = port or template_config["port"]
+        # Validate port is an integer to prevent command injection
+        server_port = int(raw_port)
+        if not (1 <= server_port <= 65535):
+            raise ValueError(f"Invalid port number: {server_port}")
 
         logger.info(
             "app_dev_server_starting",
@@ -379,7 +374,7 @@ class AppSandboxManager:
                 await self.stop_dev_server(session)
 
             # Get the public URL for the port first (before starting server)
-            preview_url = session.sandbox.get_host(server_port)
+            preview_url = await session.sandbox.get_host_url(server_port)
 
             # Start the dev server using E2B's background mode
             # The background=True flag runs the command asynchronously
@@ -389,11 +384,21 @@ class AppSandboxManager:
                 sandbox_id=session.sandbox_id,
             )
 
-            # Use setsid with bash -c to create a new session and disown the process
-            # This ensures the process continues running even after the command returns
-            # We need to wrap in bash -c because setsid needs an executable, not shell built-ins
-            background_cmd = f"setsid bash -c '{start_cmd} > /tmp/dev_server.log 2>&1' &"
-            result = await session.sandbox.commands.run(
+            # Write the start command to a temp script to avoid shell injection
+            # from unescaped user-provided custom_command values.
+            # The script records its PID to /tmp/dev_server.pid for reliable cleanup.
+            script_path = "/tmp/_dev_server_start.sh"
+            await session.sandbox.write_file(
+                script_path,
+                "#!/bin/bash\n"
+                "echo $$ > /tmp/dev_server.pid\n"
+                f"{start_cmd} > /tmp/dev_server.log 2>&1\n",
+            )
+            await session.sandbox.run_command(f"chmod +x {script_path}", timeout=5)
+
+            # Use setsid to create a new session so the process survives after return
+            background_cmd = f"setsid {script_path} &"
+            result = await session.sandbox.run_command(
                 background_cmd,
                 timeout=30,
                 cwd="/home/user",
@@ -407,9 +412,26 @@ class AppSandboxManager:
                 sandbox_id=session.sandbox_id,
             )
 
+            # Read the PID written by the start script
+            dev_server_pid: int | None = None
+            try:
+                pid_result = await session.sandbox.run_command(
+                    "cat /tmp/dev_server.pid 2>/dev/null",
+                    timeout=5,
+                )
+                if pid_result.exit_code == 0 and pid_result.stdout.strip().isdigit():
+                    dev_server_pid = int(pid_result.stdout.strip())
+                    logger.info(
+                        "app_dev_server_pid_captured",
+                        pid=dev_server_pid,
+                        sandbox_id=session.sandbox_id,
+                    )
+            except Exception as e:
+                logger.debug("app_dev_server_pid_read_failed", error=str(e))
+
             # Store process info
             session.app_process = AppProcess(
-                pid=None,  # PID not easily available with background process
+                pid=dev_server_pid,
                 command=start_cmd,
                 is_running=True,
             )
@@ -446,7 +468,7 @@ else
     echo 'PORT_CLOSED'
 fi
 """
-                check_result = await session.sandbox.commands.run(
+                check_result = await session.sandbox.run_command(
                     port_check_script,
                     timeout=10,
                     cwd="/home/user",
@@ -464,7 +486,7 @@ fi
 
                 # Also check if the process crashed by looking at the log
                 if attempt > 0 and attempt % 5 == 0:
-                    log_result = await session.sandbox.commands.run(
+                    log_result = await session.sandbox.run_command(
                         "tail -20 /tmp/dev_server.log 2>/dev/null || echo 'No log yet'",
                         timeout=5,
                         cwd="/home/user",
@@ -479,7 +501,7 @@ fi
 
             if not server_ready:
                 # Get the server log to help debug
-                log_result = await session.sandbox.commands.run(
+                log_result = await session.sandbox.run_command(
                     "cat /tmp/dev_server.log 2>/dev/null || echo 'No log available'",
                     timeout=5,
                     cwd="/home/user",
@@ -548,23 +570,48 @@ fi
             }
 
         try:
-            # Kill any node/python processes running on the expected port
-            template_config = APP_TEMPLATES.get(session.template, {})
-            port = template_config.get("port", 3000)
+            pid = session.app_process.pid
+            pid_killed = False
 
-            # More comprehensive kill commands to handle nohup-launched processes
-            kill_commands = [
-                f"fuser -k {port}/tcp 2>/dev/null || true",  # Kill process using the port
-                "pkill -f 'vite' || true",  # Kill vite processes
-                "pkill -f 'npm run dev' || true",  # Kill npm dev processes
-                f"pkill -f 'node.*{port}' || true",  # Kill node processes on port
-                f"pkill -f 'python.*{port}' || true",  # Kill python processes on port
-            ]
+            # Primary method: kill by PID (and its process group) if available
+            if pid is not None:
+                # Kill the process group rooted at the PID (negative PID targets the group)
+                kill_result = await session.sandbox.run_command(
+                    f"kill -- -{pid} 2>/dev/null; kill {pid} 2>/dev/null; echo $?",
+                    timeout=5,
+                )
+                pid_killed = True
+                logger.info(
+                    "app_dev_server_pid_kill_attempted",
+                    pid=pid,
+                    result=kill_result.stdout.strip() if kill_result.stdout else "",
+                    sandbox_id=session.sandbox_id,
+                )
 
-            for cmd in kill_commands:
-                await session.sandbox.commands.run(cmd, timeout=5)
+            # Fallback: kill by port and process name patterns
+            if not pid_killed:
+                template_config = APP_TEMPLATES.get(session.template, {})
+                port = template_config.get("port", 3000)
+
+                kill_commands = [
+                    f"fuser -k {port}/tcp 2>/dev/null || true",
+                    "pkill -f 'vite' || true",
+                    "pkill -f 'npm run dev' || true",
+                    f"pkill -f 'node.*{port}' || true",
+                    f"pkill -f 'python.*{port}' || true",
+                ]
+
+                for cmd in kill_commands:
+                    await session.sandbox.run_command(cmd, timeout=5)
+
+            # Clean up the PID file
+            await session.sandbox.run_command(
+                "rm -f /tmp/dev_server.pid 2>/dev/null || true",
+                timeout=5,
+            )
 
             session.app_process.is_running = False
+            session.app_process.pid = None
             session.preview_url = None
 
             logger.info(
@@ -584,6 +631,30 @@ fi
                 "error": str(e),
             }
 
+    @staticmethod
+    def _resolve_safe_path(path: str, base_dir: str) -> str:
+        """Resolve a path and verify it stays within the base directory.
+
+        Args:
+            path: File path (relative or absolute)
+            base_dir: Base directory that the resolved path must stay within
+
+        Returns:
+            Resolved absolute path
+
+        Raises:
+            ValueError: If the resolved path escapes the base directory
+        """
+        if not path.startswith("/"):
+            full_path = os.path.join(base_dir, path)
+        else:
+            full_path = path
+        resolved = os.path.normpath(full_path)
+        # Ensure the resolved path is within the base directory
+        if not resolved.startswith(os.path.normpath(base_dir) + os.sep) and resolved != os.path.normpath(base_dir):
+            raise ValueError(f"Path traversal denied: {path!r} resolves outside {base_dir}")
+        return resolved
+
     async def write_file(
         self,
         session: AppSandboxSession,
@@ -600,9 +671,7 @@ fi
         Returns:
             Dict with write result
         """
-        # Make path absolute if relative
-        if not path.startswith("/"):
-            path = f"{session.project_dir}/{path}"
+        path = self._resolve_safe_path(path, session.project_dir)
 
         # Use shared file operations
         return await file_operations.write_file(session.sandbox, path, content, is_binary=False)
@@ -621,9 +690,7 @@ fi
         Returns:
             Dict with file content
         """
-        # Make path absolute if relative
-        if not path.startswith("/"):
-            path = f"{session.project_dir}/{path}"
+        path = self._resolve_safe_path(path, session.project_dir)
 
         # Use shared file operations
         return await file_operations.read_file(session.sandbox, path)
@@ -642,11 +709,10 @@ fi
         Returns:
             Dict with file listing
         """
-        # Make path absolute if relative
         if not path:
             path = session.project_dir
-        elif not path.startswith("/"):
-            path = f"{session.project_dir}/{path}"
+        else:
+            path = self._resolve_safe_path(path, session.project_dir)
 
         # Use shared file operations
         return await file_operations.list_directory(session.sandbox, path)
@@ -693,7 +759,7 @@ fi
         )
 
         try:
-            result = await session.sandbox.commands.run(cmd, timeout=300)
+            result = await session.sandbox.run_command(cmd, timeout=300)
 
             if result.exit_code != 0:
                 return {
@@ -742,7 +808,7 @@ fi
         working_dir = cwd or session.project_dir
 
         try:
-            result = await session.sandbox.commands.run(
+            result = await session.sandbox.run_command(
                 command,
                 timeout=timeout,
                 cwd=working_dir,
@@ -799,11 +865,11 @@ fi
 
         try:
             # Perform a lightweight health check
-            result = await session.sandbox.commands.run(
+            result = await session.sandbox.run_command(
                 "echo 'health_check'",
                 timeout=5,
             )
-            return result.exit_code == 0 and "health_check" in (result.stdout or "")
+            return result.exit_code == 0 and "health_check" in result.stdout
         except Exception as e:
             self._health_check_failures += 1
             logger.warning(
@@ -870,10 +936,7 @@ fi
         cleaned = 0
 
         async with self._session_lock:
-            expired_keys = [
-                key for key, session in self._sessions.items()
-                if session.is_expired
-            ]
+            expired_keys = [key for key, session in self._sessions.items() if session.is_expired]
 
             for key in expired_keys:
                 if await self._cleanup_session_internal(key):

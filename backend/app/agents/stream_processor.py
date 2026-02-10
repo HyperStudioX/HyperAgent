@@ -416,11 +416,12 @@ class StreamProcessor:
                 launch_browser=True,
             )
             stream_url, auth_key = await manager.ensure_stream_ready(session)
-            yield agent_events.browser_stream(
-                stream_url=stream_url,
-                sandbox_id=session.sandbox_id,
-                auth_key=auth_key,
-            )
+            if stream_url:
+                yield agent_events.browser_stream(
+                    stream_url=stream_url,
+                    sandbox_id=session.sandbox_id,
+                    auth_key=auth_key,
+                )
         except Exception as e:
             logger.warning("browser_stream_emit_failed", error=str(e))
 

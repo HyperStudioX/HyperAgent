@@ -1,6 +1,6 @@
 """Sandbox File Operations Tool.
 
-Provides a LangChain tool for file operations within E2B sandboxes,
+Provides a LangChain tool for file operations within sandboxes,
 using session-based sandbox management for sharing with code execution.
 """
 
@@ -10,7 +10,6 @@ from typing import Literal
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.config import settings
 from app.core.logging import get_logger
 from app.sandbox import file_operations
 from app.sandbox.execution_sandbox_manager import get_execution_sandbox_manager
@@ -61,7 +60,7 @@ async def sandbox_file(
     user_id: str | None = None,
     task_id: str | None = None,
 ) -> str:
-    """Perform file operations in an E2B sandbox.
+    """Perform file operations in a sandbox.
 
     Supports reading, writing, listing, deleting files and checking existence.
     Uses the same sandbox session as execute_code for consistency.
@@ -93,15 +92,19 @@ async def sandbox_file(
         - bytes_written: Number of bytes written (for 'write')
         - error: Error message if operation failed
     """
-    # Check for E2B API key
-    if not settings.e2b_api_key:
-        logger.warning("e2b_api_key_not_configured")
-        return json.dumps({
-            "success": False,
-            "operation": operation,
-            "path": path,
-            "error": "E2B API key not configured. Set E2B_API_KEY environment variable.",
-        })
+    from app.sandbox.provider import is_provider_available
+
+    available, issue = is_provider_available("execution")
+    if not available:
+        logger.warning("sandbox_not_available", issue=issue)
+        return json.dumps(
+            {
+                "success": False,
+                "operation": operation,
+                "path": path,
+                "error": issue,
+            }
+        )
 
     try:
         # Get or create sandbox session
@@ -112,27 +115,29 @@ async def sandbox_file(
         )
         executor = session.executor
 
-        if not executor.sandbox:
-            return json.dumps({
-                "success": False,
-                "operation": operation,
-                "path": path,
-                "error": "Sandbox not available",
-            })
+        if not executor.sandbox_id:
+            return json.dumps(
+                {
+                    "success": False,
+                    "operation": operation,
+                    "path": path,
+                    "error": "Sandbox not available",
+                }
+            )
 
-        sandbox = executor.sandbox
+        runtime = executor.get_runtime()
 
         # Dispatch to operation handler using shared file_operations
         if operation == "read":
-            result = await file_operations.read_file(sandbox, path)
+            result = await file_operations.read_file(runtime, path)
         elif operation == "write":
-            result = await file_operations.write_file(sandbox, path, content or "", is_binary)
+            result = await file_operations.write_file(runtime, path, content or "", is_binary)
         elif operation == "list":
-            result = await file_operations.list_directory(sandbox, path)
+            result = await file_operations.list_directory(runtime, path)
         elif operation == "delete":
-            result = await file_operations.delete_path(sandbox, path)
+            result = await file_operations.delete_path(runtime, path)
         elif operation == "exists":
-            result = await file_operations.check_exists(sandbox, path)
+            result = await file_operations.check_exists(runtime, path)
         else:
             result = {
                 "success": False,
@@ -145,12 +150,14 @@ async def sandbox_file(
 
     except Exception as e:
         logger.error("sandbox_file_error", operation=operation, path=path, error=str(e))
-        return json.dumps({
-            "success": False,
-            "operation": operation,
-            "path": path,
-            "error": str(e),
-        })
+        return json.dumps(
+            {
+                "success": False,
+                "operation": operation,
+                "path": path,
+                "error": str(e),
+            }
+        )
 
 
 async def sandbox_file_with_context(
@@ -176,12 +183,14 @@ async def sandbox_file_with_context(
     Returns:
         Dict with operation results
     """
-    result_json = await sandbox_file.ainvoke({
-        "operation": operation,
-        "path": path,
-        "content": content,
-        "is_binary": is_binary,
-        "user_id": user_id,
-        "task_id": task_id,
-    })
+    result_json = await sandbox_file.ainvoke(
+        {
+            "operation": operation,
+            "path": path,
+            "content": content,
+            "is_binary": is_binary,
+            "user_id": user_id,
+            "task_id": task_id,
+        }
+    )
     return json.loads(result_json)

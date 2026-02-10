@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useTaskStore } from "@/lib/stores/task-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
+import { useComputerStore } from "@/lib/stores/computer-store";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { UserMenu } from "@/components/auth/user-menu";
 import { PreferencesPanel } from "@/components/ui/preferences-panel";
@@ -42,6 +43,7 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
     } = useTaskStore();
 
     const { closePanel } = useAgentProgressStore();
+    const { setActiveConversation: setComputerActiveConversation } = useComputerStore();
 
     const hasHydrated = chatHydrated && taskHydrated;
     const { theme, setTheme, mounted } = useTheme();
@@ -160,11 +162,13 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
 
         if (item.type === "conversation") {
             setActiveConversation(item.data.id);
+            setComputerActiveConversation(item.data.id);
             setActiveTask(null);
             router.push("/");
         } else {
             setActiveTask(item.data.id);
             setActiveConversation(null);
+            setComputerActiveConversation(null);
             router.push(`/task/${item.data.id}`);
         }
         // Close mobile sidebar after selection
