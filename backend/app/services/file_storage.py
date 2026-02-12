@@ -277,6 +277,11 @@ class FileStorageService:
         try:
             if self.backend == "local":
                 file_path = Path(settings.local_storage_path) / storage_key
+                # Prevent path traversal
+                resolved = file_path.resolve()
+                storage_root = Path(settings.local_storage_path).resolve()
+                if not str(resolved).startswith(str(storage_root)):
+                    raise ValueError("Invalid storage key: path traversal detected")
                 if file_path.exists():
                     file_path.unlink()
                 logger.info("file_deleted_local", storage_key=storage_key)
@@ -298,6 +303,11 @@ class FileStorageService:
 
         if self.backend == "local":
             file_path = Path(settings.local_storage_path) / storage_key
+            # Prevent path traversal
+            resolved = file_path.resolve()
+            storage_root = Path(settings.local_storage_path).resolve()
+            if not str(resolved).startswith(str(storage_root)):
+                raise ValueError("Invalid storage key: path traversal detected")
             with open(file_path, "rb") as f:
                 shutil.copyfileobj(f, buffer)
         else:

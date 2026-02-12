@@ -25,25 +25,22 @@ interface SidebarProps {
 export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose }: SidebarProps) {
     const router = useRouter();
     const { status } = useSession();
-    const {
-        conversations,
-        activeConversationId,
-        hasHydrated: chatHydrated,
-        setActiveConversation,
-        loadConversations,
-        deleteConversation,
-    } = useChatStore();
-    const {
-        tasks,
-        activeTaskId,
-        hasHydrated: taskHydrated,
-        setActiveTask,
-        deleteTask,
-        loadTasks,
-    } = useTaskStore();
+    const conversations = useChatStore((state) => state.conversations);
+    const activeConversationId = useChatStore((state) => state.activeConversationId);
+    const chatHydrated = useChatStore((state) => state.hasHydrated);
+    const setActiveConversation = useChatStore.getState().setActiveConversation;
+    const loadConversations = useChatStore.getState().loadConversations;
+    const deleteConversation = useChatStore.getState().deleteConversation;
 
-    const { closePanel } = useAgentProgressStore();
-    const { setActiveConversation: setComputerActiveConversation } = useComputerStore();
+    const tasks = useTaskStore((state) => state.tasks);
+    const activeTaskId = useTaskStore((state) => state.activeTaskId);
+    const taskHydrated = useTaskStore((state) => state.hasHydrated);
+    const setActiveTask = useTaskStore.getState().setActiveTask;
+    const deleteTask = useTaskStore.getState().deleteTask;
+    const loadTasks = useTaskStore.getState().loadTasks;
+
+    const closePanel = useAgentProgressStore.getState().closePanel;
+    const setComputerActiveConversation = useComputerStore.getState().setActiveConversation;
 
     const hasHydrated = chatHydrated && taskHydrated;
     const { theme, setTheme, mounted } = useTheme();

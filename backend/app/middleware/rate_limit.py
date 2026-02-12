@@ -38,6 +38,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.exclude_paths = exclude_paths or ["/api/v1/health"]
         self._redis: Redis | None = None
 
+        if self.enabled:
+            logger.warning(
+                "rate_limit_proxy_trust_notice",
+                detail="Rate limiting relies on X-Forwarded-For/X-Real-IP headers for client identification. "
+                "Ensure a trusted reverse proxy is configured to set these headers in production, "
+                "otherwise clients can spoof their IP to bypass rate limits.",
+            )
+
     async def _get_redis(self) -> Redis:
         """Get or create Redis connection."""
         if self._redis is None:
@@ -112,7 +120,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
     def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP from request, handling proxies."""
+        """Extract client IP from request, handling proxies.
+
+        WARNING: X-Forwarded-For and X-Real-IP headers are trivially spoofable
+        by clients when no trusted reverse proxy (e.g., nginx, CloudFront, ALB)
+        is configured to strip/overwrite these headers. Without a trusted proxy,
+        an attacker can set arbitrary IPs to bypass rate limiting. In production,
+        configure a trusted proxy layer and only trust headers set by that proxy.
+        """
         # Check X-Forwarded-For header (for requests behind proxy/load balancer)
         forwarded_for = request.headers.get("X-Forwarded-For")
         if forwarded_for:

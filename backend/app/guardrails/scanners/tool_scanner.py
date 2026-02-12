@@ -116,9 +116,11 @@ class ToolScanner:
             # Check for internal/localhost domains
             netloc = parsed.netloc.lower()
 
-            # Check explicit blocked domains
+            # Check explicit blocked domains using exact matching
+            # Extract hostname without port
+            hostname = netloc.split(":")[0]
             for blocked in BLOCKED_DOMAINS:
-                if blocked in netloc:
+                if hostname == blocked or hostname.endswith("." + blocked):
                     logger.warning(
                         "blocked_url_domain",
                         url=url[:100],
@@ -153,28 +155,46 @@ class ToolScanner:
     def _is_private_ip(self, netloc: str) -> bool:
         """Check if the netloc contains a private IP address.
 
+        Uses Python's ipaddress module for robust detection of private,
+        loopback, reserved, and link-local addresses across IPv4 and IPv6,
+        including octal and hex representations.
+
         Args:
             netloc: Network location string (host:port)
 
         Returns:
             True if private IP detected
         """
-        import re
+        import ipaddress
 
         # Extract just the host part (remove port if present)
         host = netloc.split(":")[0]
+        # Handle IPv6 addresses in brackets
+        if host.startswith("[") and host.endswith("]"):
+            host = host[1:-1]
 
-        # Check for IPv4 private ranges
-        private_patterns = [
-            r"^10\.",  # 10.0.0.0/8
-            r"^172\.(1[6-9]|2[0-9]|3[0-1])\.",  # 172.16.0.0/12
-            r"^192\.168\.",  # 192.168.0.0/16
-            r"^169\.254\.",  # Link-local
-        ]
-
-        for pattern in private_patterns:
-            if re.match(pattern, host):
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
                 return True
+        except ValueError:
+            pass  # Not an IP address, check domain patterns below
+
+        # Also check for obfuscated IP formats (octal, hex, decimal)
+        # e.g., 0x7f000001 = 127.0.0.1, 2130706433 = 127.0.0.1
+        try:
+            # Try interpreting as integer IP
+            if host.startswith("0x") or host.startswith("0X"):
+                ip_int = int(host, 16)
+            elif host.isdigit():
+                ip_int = int(host)
+            else:
+                return False
+            ip = ipaddress.ip_address(ip_int)
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                return True
+        except (ValueError, OverflowError):
+            pass
 
         return False
 

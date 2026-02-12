@@ -26,7 +26,11 @@ def _initialize_scanners():
         _scanners_initialized = True
         logger.info("input_scanners_initialized")
     except ImportError as e:
-        logger.warning("llm_guard_import_failed", error=str(e))
+        logger.warning(
+            "llm_guard_not_available",
+            error=str(e),
+            detail="llm-guard not available, falling back to pattern-only jailbreak detection",
+        )
         _scanners_initialized = True  # Mark as initialized to avoid retrying
     except SystemExit as e:
         # llm-guard may call sys.exit when spacy models aren't available

@@ -47,7 +47,6 @@ SAFE_BUILTINS = {
     # Type checking
     "isinstance": isinstance,
     "issubclass": issubclass,
-    "type": type,
     "callable": callable,
     # String and formatting
     "repr": repr,
@@ -69,11 +68,9 @@ SAFE_BUILTINS = {
     "id": id,
     "hash": hash,
     "slice": slice,
-    "object": object,
     "property": property,
     "staticmethod": staticmethod,
     "classmethod": classmethod,
-    "super": super,
     # None, True, False are automatically available
 }
 

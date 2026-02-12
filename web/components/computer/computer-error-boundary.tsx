@@ -9,6 +9,11 @@ const MAX_RETRIES = 3;
 interface Props {
     children: ReactNode;
     fallbackMessage?: string;
+    translations?: {
+        title: string;
+        maxRetries: string;
+        retry: (count: number) => string;
+    };
 }
 
 interface State {
@@ -42,16 +47,22 @@ export class ComputerErrorBoundary extends Component<Props, State> {
     render() {
         if (this.state.hasError) {
             const canRetry = this.state.retryCount < MAX_RETRIES;
+            const translations = this.props.translations;
+            const titleText = this.props.fallbackMessage || translations?.title || "Something went wrong";
+            const maxRetriesText = translations?.maxRetries || "Maximum retries reached. Please reload the page.";
+            const retryText = translations?.retry
+                ? translations.retry(MAX_RETRIES - this.state.retryCount)
+                : `Try Again (${MAX_RETRIES - this.state.retryCount} left)`;
             return (
                 <div className="flex flex-col items-center justify-center h-full p-6 text-center">
                     <div className="flex items-center justify-center w-12 h-12 rounded-full bg-destructive/10 mb-4">
                         <AlertTriangle className="w-6 h-6 text-destructive" />
                     </div>
                     <h3 className="text-sm font-medium mb-2">
-                        {this.props.fallbackMessage || "Something went wrong"}
+                        {titleText}
                     </h3>
                     <p className="text-xs text-muted-foreground mb-4 max-w-[300px]">
-                        {this.state.error?.message || "An unexpected error occurred in the computer panel."}
+                        {this.state.error?.message || this.props.fallbackMessage || "An unexpected error occurred in the computer panel."}
                     </p>
                     {canRetry ? (
                         <Button
@@ -61,11 +72,11 @@ export class ComputerErrorBoundary extends Component<Props, State> {
                             className="gap-2"
                         >
                             <RefreshCw className="w-3.5 h-3.5" />
-                            Try Again ({MAX_RETRIES - this.state.retryCount} left)
+                            {retryText}
                         </Button>
                     ) : (
                         <p className="text-xs text-muted-foreground">
-                            Maximum retries reached. Please reload the page.
+                            {maxRetriesText}
                         </p>
                     )}
                 </div>

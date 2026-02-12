@@ -235,6 +235,15 @@ async def stream_task_progress(
     Connects to Redis pub/sub channel for the task and forwards
     all progress events to the client.
     """
+    # Verify task ownership before starting stream
+    from app.db.base import get_db_session
+
+    async with get_db_session() as db:
+        task = await deep_research_repository.get_task(db, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if task.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     async def event_generator() -> AsyncGenerator[dict, None]:
         redis = Redis.from_url(settings.redis_url, decode_responses=True)

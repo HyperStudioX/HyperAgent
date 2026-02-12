@@ -3,7 +3,7 @@
 import React, { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useComputerStore, COMPUTER_PANEL_MIN_WIDTH, COMPUTER_PANEL_MAX_WIDTH } from "@/lib/stores/computer-store";
-import type { ComputerMode, TimelineEventType } from "@/lib/stores/computer-store";
+import type { ComputerMode, TimelineEventType, TimelineEvent } from "@/lib/stores/computer-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { ComputerHeader } from "./computer-header";
 import { ComputerStatusBar } from "./computer-status-bar";
@@ -13,8 +13,15 @@ import { ComputerBrowserView } from "./computer-browser-view";
 import { ComputerFileView } from "./computer-file-view";
 import { ComputerPlaybackControls } from "./computer-playback-controls";
 import { ComputerErrorBoundary } from "./computer-error-boundary";
+import { useTranslations } from "next-intl";
+
+// Module-level empty array constant for referential stability
+const EMPTY_ARRAY: never[] = [];
+const EMPTY_TIMELINE: TimelineEvent[] = [];
 
 export function VirtualComputerPanel() {
+    const t = useTranslations("computer");
+
     // Global UI state
     const isOpen = useComputerStore((state) => state.isOpen);
     const panelWidth = useComputerStore((state) => state.panelWidth);
@@ -22,16 +29,43 @@ export function VirtualComputerPanel() {
     const followAgent = useComputerStore((state) => state.followAgent);
     const autoOpen = useComputerStore((state) => state.autoOpen);
 
-    // Per-conversation state via selector functions (cached to avoid infinite loops)
-    const terminalLines = useComputerStore((state) => state.getTerminalLines());
-    const currentCommand = useComputerStore((state) => state.getCurrentCommand());
-    const currentCwd = useComputerStore((state) => state.getCurrentCwd());
-    const planItems = useComputerStore((state) => state.getPlanItems());
-    const browserStream = useComputerStore((state) => state.getBrowserStream());
-    const isLive = useComputerStore((state) => state.getIsLive());
-    const currentStep = useComputerStore((state) => state.getCurrentStep());
-    const totalSteps = useComputerStore((state) => state.getTotalSteps());
-    const timeline = useComputerStore((state) => state.getTimeline());
+    // Per-conversation state via direct state access (stable references)
+    const terminalLines = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.terminalLines ?? EMPTY_ARRAY : EMPTY_ARRAY;
+    });
+    const currentCommand = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.currentCommand ?? null : null;
+    });
+    const currentCwd = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.currentCwd ?? "/home/ubuntu" : "/home/ubuntu";
+    });
+    const planItems = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.planItems ?? EMPTY_ARRAY : EMPTY_ARRAY;
+    });
+    const browserStream = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.browserStream ?? null : null;
+    });
+    const isLive = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.isLive ?? true : true;
+    });
+    const currentStep = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.currentStep ?? 0 : 0;
+    });
+    const totalSteps = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.totalSteps ?? 0 : 0;
+    });
+    const timeline = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.timeline ?? EMPTY_TIMELINE : EMPTY_TIMELINE;
+    });
 
     // Compute visible data slices based on timeline position
     // When not live, only show items that existed at the given timeline step
@@ -78,35 +112,32 @@ export function VirtualComputerPanel() {
         [isLive, planItems, visibleCounts.plan]
     );
 
-    // Actions
-    const closePanel = useComputerStore((state) => state.closePanel);
-    const setModeByUser = useComputerStore((state) => state.setModeByUser);
-    const setPanelWidth = useComputerStore((state) => state.setPanelWidth);
-    const setBrowserStream = useComputerStore((state) => state.setBrowserStream);
-    const setCurrentStep = useComputerStore((state) => state.setCurrentStep);
-    const setIsLive = useComputerStore((state) => state.setIsLive);
-    const nextStep = useComputerStore((state) => state.nextStep);
-    const prevStep = useComputerStore((state) => state.prevStep);
-    const clearTerminal = useComputerStore((state) => state.clearTerminal);
-    const setFollowAgent = useComputerStore((state) => state.setFollowAgent);
-    const setAutoOpen = useComputerStore((state) => state.setAutoOpen);
+    // Actions (stable references via getState)
+    const closePanel = useComputerStore.getState().closePanel;
+    const setModeByUser = useComputerStore.getState().setModeByUser;
+    const setPanelWidth = useComputerStore.getState().setPanelWidth;
+    const setBrowserStream = useComputerStore.getState().setBrowserStream;
+    const setCurrentStep = useComputerStore.getState().setCurrentStep;
+    const setIsLive = useComputerStore.getState().setIsLive;
+    const nextStep = useComputerStore.getState().nextStep;
+    const prevStep = useComputerStore.getState().prevStep;
+    const clearTerminal = useComputerStore.getState().clearTerminal;
+    const setFollowAgent = useComputerStore.getState().setFollowAgent;
+    const setAutoOpen = useComputerStore.getState().setAutoOpen;
 
-    const {
-        activeProgress,
-        setBrowserStream: setAgentBrowserStream,
-    } = useAgentProgressStore();
+    const activeProgress = useAgentProgressStore((state) => state.activeProgress);
+    const setAgentBrowserStream = useAgentProgressStore.getState().setBrowserStream;
 
     const [isResizing, setIsResizing] = useState(false);
     const [isDesktop, setIsDesktop] = useState(false);
 
     // Check if we're on desktop (lg breakpoint = 1024px)
     useEffect(() => {
-        const checkDesktop = () => {
-            setIsDesktop(window.innerWidth >= 1024);
-        };
-        checkDesktop();
-        window.addEventListener("resize", checkDesktop);
-        return () => window.removeEventListener("resize", checkDesktop);
+        const mq = window.matchMedia("(min-width: 1024px)");
+        setIsDesktop(mq.matches);
+        const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+        mq.addEventListener("change", handler);
+        return () => mq.removeEventListener("change", handler);
     }, []);
 
     // Track tab activity: mark tabs that have new content since user last viewed them
@@ -228,6 +259,7 @@ export function VirtualComputerPanel() {
                     isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
                 )}
                 onClick={handleClose}
+                aria-hidden="true"
             />
 
             {/* Panel */}
@@ -242,6 +274,8 @@ export function VirtualComputerPanel() {
                 style={{
                     width: isDesktop ? panelWidth : "100%",
                 }}
+                role="complementary"
+                aria-label={t("panelTitle")}
             >
                 {/* Resize handle (left edge) */}
                 <div
@@ -257,6 +291,8 @@ export function VirtualComputerPanel() {
                     aria-valuenow={panelWidth}
                     aria-valuemin={COMPUTER_PANEL_MIN_WIDTH}
                     aria-valuemax={COMPUTER_PANEL_MAX_WIDTH}
+                    aria-label={t("resizeHandle")}
+                    tabIndex={0}
                 />
 
                 {/* Header */}
@@ -280,8 +316,14 @@ export function VirtualComputerPanel() {
                 />
 
                 {/* View area with error boundary */}
-                <ComputerErrorBoundary fallbackMessage="Failed to render computer panel">
-                    <div className="flex-1 overflow-hidden flex flex-col">
+                <ComputerErrorBoundary
+                    translations={{
+                        title: t("errorBoundary.title"),
+                        maxRetries: t("errorBoundary.maxRetries"),
+                        retry: (count: number) => t("errorBoundary.retry", { count }),
+                    }}
+                >
+                    <div className="flex-1 overflow-hidden flex flex-col" role="tabpanel" aria-label={activeMode}>
                         {activeMode === "terminal" && (
                             <ComputerTerminalView
                                 lines={visibleTerminalLines}

@@ -31,7 +31,7 @@ interface ComputerFileViewProps {
     className?: string;
 }
 
-// Map file extensions to specific icons and colors
+/* Semantic file-type colors - intentionally not using theme tokens for file-type differentiation */
 function getFileIcon(filename: string, isDirectory: boolean, isSelected: boolean) {
     if (isDirectory) {
         const Icon = isSelected ? FolderOpen : Folder;
@@ -214,6 +214,9 @@ function FileItem({
                 "hover:bg-secondary/60 transition-colors",
                 isSelected && "bg-secondary"
             )}
+            role="treeitem"
+            aria-selected={isSelected}
+            aria-expanded={isDir ? isSelected : undefined}
         >
             {getFileIcon(entry.name, isDir, isSelected)}
             <span className="flex-1 text-sm truncate">{entry.name}</span>
@@ -370,6 +373,8 @@ export function ComputerFileView({ className }: ComputerFileViewProps) {
                         className="h-6 w-6"
                         onClick={toggleSearch}
                         disabled={!isConnected}
+                        aria-label={t("workspace.search")}
+                        aria-expanded={isSearchOpen}
                     >
                         <Search className={cn("w-3.5 h-3.5", isSearchOpen && "text-primary")} />
                     </Button>
@@ -379,6 +384,7 @@ export function ComputerFileView({ className }: ComputerFileViewProps) {
                         className="h-6 w-6"
                         onClick={handleRefresh}
                         disabled={!isConnected || isRefreshing}
+                        aria-label={t("workspace.refresh")}
                     >
                         {isRefreshing ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -423,6 +429,7 @@ export function ComputerFileView({ className }: ComputerFileViewProps) {
                                         <button
                                             onClick={() => setSearchQuery("")}
                                             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground"
+                                            aria-label={t("workspace.clearSearch")}
                                         >
                                             <X className="w-3 h-3" />
                                         </button>
@@ -433,12 +440,14 @@ export function ComputerFileView({ className }: ComputerFileViewProps) {
 
                         {/* File list */}
                         <ScrollArea className="flex-1">
-                            <div className="py-1">
+                            <div className="py-1" role="tree" aria-label={t("workspace.title")}>
                                 {/* Parent directory */}
                                 {currentPath !== "/" && !searchQuery && (
                                     <button
                                         onClick={handleParentClick}
                                         className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors"
+                                        role="treeitem"
+                                        aria-label={t("workspace.parentDirectory")}
                                     >
                                         <Folder className="w-4 h-4 text-amber-500" />
                                         <span className="text-sm text-muted-foreground">..</span>

@@ -5,12 +5,7 @@ import { Monitor, X, Maximize2, Minimize2, ExternalLink } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-
-export interface ComputerStreamInfo {
-    streamUrl: string;
-    sandboxId: string;
-    authKey?: string;
-}
+import type { ComputerStreamInfo } from "@/lib/stores/agent-progress-store";
 
 type ViewerSize = "small" | "medium" | "large";
 
@@ -43,6 +38,7 @@ export function ComputerViewer({
     size = "large",
 }: ComputerViewerProps) {
     const t = useTranslations("sidebar.progress");
+    const tc = useTranslations("computer");
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const sizeConfig = SIZE_CONFIG[size];
@@ -95,7 +91,7 @@ export function ComputerViewer({
                             size="icon"
                             className="h-8 w-8 text-white hover:bg-white/10"
                             onClick={handleOpenExternal}
-                            title="Open in new tab"
+                            title={tc("openInNewTab")}
                         >
                             <ExternalLink className="w-4 h-4" />
                         </Button>
@@ -104,7 +100,7 @@ export function ComputerViewer({
                             size="icon"
                             className="h-8 w-8 text-white hover:bg-white/10"
                             onClick={() => setIsFullscreen(false)}
-                            title="Exit fullscreen"
+                            title={tc("exitFullscreen")}
                         >
                             <Minimize2 className="w-4 h-4" />
                         </Button>
@@ -114,7 +110,7 @@ export function ComputerViewer({
                                 size="icon"
                                 className="h-8 w-8 text-white hover:bg-white/10"
                                 onClick={onClose}
-                                title="Close"
+                                title={tc("close")}
                             >
                                 <X className="w-4 h-4" />
                             </Button>
@@ -162,7 +158,7 @@ export function ComputerViewer({
                             size="icon"
                             className="h-7 w-7"
                             onClick={handleOpenExternal}
-                            title="Open in new tab"
+                            title={tc("openInNewTab")}
                         >
                             <ExternalLink className="w-3.5 h-3.5" />
                         </Button>
@@ -171,7 +167,7 @@ export function ComputerViewer({
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => setIsFullscreen(true)}
-                            title="Fullscreen"
+                            title={tc("fullscreen")}
                             aria-expanded={isFullscreen}
                         >
                             <Maximize2 className="w-3.5 h-3.5" />
@@ -182,7 +178,7 @@ export function ComputerViewer({
                                 size="icon"
                                 className="h-7 w-7"
                                 onClick={() => setIsExpanded(!isExpanded)}
-                                title={isExpanded ? "Collapse" : "Expand"}
+                                title={isExpanded ? tc("collapse") : tc("expand")}
                             >
                                 {isExpanded ? (
                                     <Minimize2 className="w-3.5 h-3.5" />
@@ -197,7 +193,7 @@ export function ComputerViewer({
                                 size="icon"
                                 className="h-7 w-7"
                                 onClick={onClose}
-                                title="Close"
+                                title={tc("close")}
                             >
                                 <X className="w-3.5 h-3.5" />
                             </Button>

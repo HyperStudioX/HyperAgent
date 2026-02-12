@@ -100,6 +100,8 @@ class WorkerSettings:
     max_jobs = 10
     job_timeout = 1800  # 30 minutes
     keep_result = 86400  # 24 hours
+    # 0.5s poll_delay adds up to 500ms latency for time-sensitive jobs.
+    # Lower to 0.1s if near-real-time responsiveness is needed.
     poll_delay = 0.5  # Seconds between queue polls
 
     # Worker name (for identification in logs and monitoring)

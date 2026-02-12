@@ -8,10 +8,11 @@ Provides endpoints for:
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.agents.hitl.interrupt_manager import get_interrupt_manager
+from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 
 router = APIRouter(prefix="/hitl", tags=["hitl"])
@@ -46,6 +47,7 @@ class PendingInterruptResponse(BaseModel):
 async def respond_to_interrupt(
     thread_id: str,
     request: InterruptResponseRequest,
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> InterruptResponseResult:
     """Submit user response to a pending interrupt.
 
@@ -103,7 +105,10 @@ async def respond_to_interrupt(
 
 
 @router.get("/pending/{thread_id}", response_model=PendingInterruptResponse)
-async def get_pending_interrupt(thread_id: str) -> PendingInterruptResponse:
+async def get_pending_interrupt(
+    thread_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> PendingInterruptResponse:
     """Get any pending interrupt for a thread.
 
     Used for reconnection recovery - when a client reconnects, it can
@@ -152,6 +157,7 @@ async def get_pending_interrupt(thread_id: str) -> PendingInterruptResponse:
 async def cancel_interrupt(
     thread_id: str,
     interrupt_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> InterruptResponseResult:
     """Cancel a pending interrupt.
 

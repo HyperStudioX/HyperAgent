@@ -56,9 +56,12 @@ class CompressionConfig:
 
 
 def estimate_tokens(text: str) -> int:
-    """Estimate token count for text using simple heuristic.
+    """Estimate token count for text.
 
-    Uses ~4 characters per token on average.
+    Uses tiktoken for accurate estimation when available; falls back to a
+    simple heuristic of ~4 characters per token.  Note: the len(text) // 4
+    heuristic underestimates CJK text where each character often maps to a
+    single token.
 
     Args:
         text: Text to estimate tokens for
@@ -66,7 +69,13 @@ def estimate_tokens(text: str) -> int:
     Returns:
         Estimated token count
     """
-    return len(text) // 4 + 1
+    try:
+        import tiktoken
+
+        enc = tiktoken.encoding_for_model("gpt-4")
+        return len(enc.encode(text))
+    except ImportError:
+        return len(text) // 4 + 1
 
 
 def estimate_message_tokens(message: BaseMessage) -> int:

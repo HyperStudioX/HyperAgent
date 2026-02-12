@@ -386,7 +386,8 @@ export function ChatInterface() {
     const loadConversation = useChatStore((state) => state.loadConversation);
     const conversations = useChatStore((state) => state.conversations);
 
-    // Agent progress store for sidebar visibility
+    // Agent progress store - reactive state via selector, actions via getState()
+    const activeProgress = useAgentProgressStore((state) => state.activeProgress);
     const {
         startProgress: startAgentProgress,
         addEvent: addAgentEvent,
@@ -394,10 +395,9 @@ export function ChatInterface() {
         endProgress: endAgentProgress,
         clearProgress: clearAgentProgress,
         setBrowserStream,
-        activeProgress,
-    } = useAgentProgressStore();
+    } = useAgentProgressStore.getState();
 
-    // Computer store for terminal/browser/file panel
+    // Computer store - actions via getState() (stable references)
     const {
         addTerminalLine,
         setCurrentCommand,
@@ -409,9 +409,12 @@ export function ChatInterface() {
         openWorkspacePanel,
         setActiveConversation: setComputerActiveConversation,
         getWorkspaceSandboxId,
-    } = useComputerStore();
+    } = useComputerStore.getState();
 
-    const workspaceSandboxId = getWorkspaceSandboxId();
+    const workspaceSandboxId = useComputerStore((state) => {
+        const id = state.activeConversationId;
+        return id ? state.conversationStates[id]?.workspaceSandboxId ?? null : null;
+    });
 
     // Sync computer store's active conversation with chat store
     useEffect(() => {
@@ -621,13 +624,6 @@ export function ChatInterface() {
                 metadata: msg.metadata || null,
             }));
 
-        // Debug: Log conversation history being sent
-        console.log('[Chat] Sending request with history:', {
-            conversationId,
-            messageCount: conversationMessages.length,
-            historyCount: history.length,
-            historyPreview: history.slice(-3).map(m => ({ role: m.role, content: m.content.substring(0, 30) }))
-        });
 
         const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
         const combinedAttachmentIds = Array.from(new Set([...historyAttachmentIds, ...attachmentIds]));
@@ -753,15 +749,6 @@ export function ChatInterface() {
                                 }
                                 addStreamingEvent(event);
                             } else if (event.type === "tool_result") {
-                                // Debug: Log tool results for app preview debugging
-                                const tool = event.tool || (event.data as any)?.tool;
-                                if (tool === "app_start_server" || tool === "app_get_preview_url" || tool === "invoke_skill") {
-                                    console.log("[DEBUG] Tool result for app preview:", {
-                                        tool,
-                                        hasContent: !!event.content,
-                                        contentPreview: typeof event.content === "string" ? event.content.substring(0, 200) : event.content
-                                    });
-                                }
                                 addStreamingEvent(event);
                             } else if (event.type === "routing") {
                                 addStreamingEvent(event);
@@ -792,7 +779,6 @@ export function ChatInterface() {
                                 const streamUrl = event.stream_url as string;
                                 const sandboxId = event.sandbox_id as string;
                                 if (streamUrl && sandboxId) {
-                                    console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
                                     setBrowserStream({
                                         streamUrl,
                                         sandboxId,
@@ -851,16 +837,6 @@ export function ChatInterface() {
                             } else if (event.type === "skill_output") {
                                 // Handle skill output events
                                 const skillId = event.skill_id as string;
-                                // Debug: Log skill output for app preview debugging
-                                if (skillId === "app_builder") {
-                                    const output = event.output as any;
-                                    console.log("[DEBUG] App builder skill output:", {
-                                        hasOutput: !!output,
-                                        hasPreviewUrl: !!output?.preview_url,
-                                        previewUrl: output?.preview_url,
-                                        template: output?.template
-                                    });
-                                }
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "workspace_update") {
@@ -906,15 +882,7 @@ export function ChatInterface() {
                                     timeout_seconds: (event.timeout_seconds as number) || 120,
                                     timestamp: (event.timestamp as number | undefined) ?? Date.now(),
                                 };
-                                console.log("[HITL] Interrupt received:", {
-                                    interrupt_id: interruptEvent.interrupt_id,
-                                    message: interruptEvent.message?.substring(0, 50),
-                                    timestamp: interruptEvent.timestamp,
-                                });
-                                setActiveInterrupt((prev) => {
-                                    console.log("[HITL] Setting interrupt, prev:", prev?.interrupt_id, "new:", interruptEvent.interrupt_id);
-                                    return interruptEvent;
-                                });
+                                setActiveInterrupt(interruptEvent);
                                 addStreamingEvent(event);
                             } else if (event.type === "error") {
                                 const errorData = typeof event.data === "string" ? event.data : "Unknown error";
@@ -957,7 +925,7 @@ export function ChatInterface() {
             }
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
-                console.log("Chat request cancelled by user");
+                // Chat request cancelled by user - no action needed
             } else {
                 console.error("Chat error:", error);
                 await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
@@ -1025,13 +993,6 @@ export function ChatInterface() {
                 metadata: msg.metadata || null,
             }));
 
-        // Debug: Log conversation history being sent
-        console.log('[Chat] Sending request with history:', {
-            conversationId,
-            messageCount: conversationMessages.length,
-            historyCount: history.length,
-            historyPreview: history.slice(-3).map(m => ({ role: m.role, content: m.content.substring(0, 30) }))
-        });
 
         const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
         const combinedAttachmentIds = agentType === "research"
@@ -1156,15 +1117,6 @@ export function ChatInterface() {
                                 }
                                 addStreamingEvent(event);
                             } else if (event.type === "tool_result") {
-                                // Debug: Log tool results for app preview debugging
-                                const tool = event.tool || (event.data as any)?.tool;
-                                if (tool === "app_start_server" || tool === "app_get_preview_url" || tool === "invoke_skill") {
-                                    console.log("[DEBUG] Tool result for app preview:", {
-                                        tool,
-                                        hasContent: !!event.content,
-                                        contentPreview: typeof event.content === "string" ? event.content.substring(0, 200) : event.content
-                                    });
-                                }
                                 addStreamingEvent(event);
                             } else if (event.type === "routing") {
                                 addStreamingEvent(event);
@@ -1196,7 +1148,6 @@ export function ChatInterface() {
                                 const sandboxId = event.sandbox_id as string;
                                 const authKey = event.auth_key as string | undefined;
                                 if (streamUrl && sandboxId) {
-                                    console.log("[Browser Stream] Received:", { streamUrl, sandboxId });
                                     setBrowserStream({
                                         streamUrl,
                                         sandboxId,
@@ -1226,16 +1177,6 @@ export function ChatInterface() {
                             } else if (event.type === "skill_output") {
                                 // Handle skill output events
                                 const skillId = event.skill_id as string;
-                                // Debug: Log skill output for app preview debugging
-                                if (skillId === "app_builder") {
-                                    const output = event.output as any;
-                                    console.log("[DEBUG] App builder skill output:", {
-                                        hasOutput: !!output,
-                                        hasPreviewUrl: !!output?.preview_url,
-                                        previewUrl: output?.preview_url,
-                                        template: output?.template
-                                    });
-                                }
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
                             } else if (event.type === "workspace_update") {
@@ -1281,15 +1222,7 @@ export function ChatInterface() {
                                     timeout_seconds: (event.timeout_seconds as number) || 120,
                                     timestamp: (event.timestamp as number | undefined) ?? Date.now(),
                                 };
-                                console.log("[HITL] Interrupt received:", {
-                                    interrupt_id: interruptEvent.interrupt_id,
-                                    message: interruptEvent.message?.substring(0, 50),
-                                    timestamp: interruptEvent.timestamp,
-                                });
-                                setActiveInterrupt((prev) => {
-                                    console.log("[HITL] Setting interrupt, prev:", prev?.interrupt_id, "new:", interruptEvent.interrupt_id);
-                                    return interruptEvent;
-                                });
+                                setActiveInterrupt(interruptEvent);
                                 addStreamingEvent(event);
                             } else if (event.type === "error") {
                                 const errorData = typeof event.data === "string" ? event.data : "Unknown error";
@@ -1331,7 +1264,7 @@ export function ChatInterface() {
             }
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
-                console.log("Agent task cancelled by user");
+                // Agent task cancelled by user - no action needed
             } else {
                 console.error("Agent task error:", error);
                 await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
@@ -1416,7 +1349,6 @@ export function ChatInterface() {
 
         // Store the interrupt ID we're responding to
         const respondingToInterruptId = response.interrupt_id;
-        console.log("[HITL] Submitting response:", response);
 
         try {
             // Get the thread ID - use task_id or conversation_id
@@ -1431,7 +1363,6 @@ export function ChatInterface() {
             });
 
             const result = await res.json();
-            console.log("[HITL] Response result:", result);
 
             if (!res.ok) {
                 console.error("[HITL] Server error:", result);
@@ -1443,10 +1374,8 @@ export function ChatInterface() {
             // A new interrupt may have arrived while we were submitting the response
             setActiveInterrupt((current) => {
                 if (current?.interrupt_id === respondingToInterruptId) {
-                    console.log("[HITL] Clearing interrupt:", respondingToInterruptId);
                     return null;
                 }
-                console.log("[HITL] New interrupt arrived, keeping:", current?.interrupt_id);
                 return current;
             });
         }

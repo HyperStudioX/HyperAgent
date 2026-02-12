@@ -100,7 +100,7 @@ export function AttachmentSourceMenu({
             <div
                 className={cn(
                     "fixed z-50 w-[320px]",
-                    "bg-card border border-border rounded-xl shadow-lg",
+                    "bg-card border border-border rounded-xl shadow-sm",
                     "animate-in fade-in slide-in-from-bottom-2 duration-200"
                 )}
                 style={

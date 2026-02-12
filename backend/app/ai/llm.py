@@ -70,6 +70,9 @@ def extract_text_from_content(content: Any) -> str:
 class LLMService:
     """Unified LLM service supporting multiple providers."""
 
+    # Cache LLM clients by (provider, model) to avoid re-creating HTTP clients
+    _cache: dict[tuple[str, str], BaseChatModel] = {}
+
     def __init__(self):
         self._anthropic: ChatAnthropic | None = None
         self._openai: ChatOpenAI | None = None
@@ -109,14 +112,29 @@ class LLMService:
         self, provider: LLMProvider = LLMProvider.ANTHROPIC, model: str | None = None
     ) -> BaseChatModel:
         """Get LLM instance for the specified provider."""
+        # Resolve the effective model name for cache lookup
         if provider == LLMProvider.ANTHROPIC:
-            return self._get_anthropic(model)
+            effective_model = model or settings.default_model_anthropic
         elif provider == LLMProvider.OPENAI:
-            return self._get_openai(model)
+            effective_model = model or settings.default_model_openai
         elif provider == LLMProvider.GEMINI:
-            return self._get_gemini(model)
+            effective_model = model or settings.default_model_gemini
         else:
             raise ValueError(f"Unknown provider: {provider}")
+
+        cache_key = (provider.value, effective_model)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        if provider == LLMProvider.ANTHROPIC:
+            client = self._get_anthropic(model)
+        elif provider == LLMProvider.OPENAI:
+            client = self._get_openai(model)
+        else:
+            client = self._get_gemini(model)
+
+        self._cache[cache_key] = client
+        return client
 
     def get_llm_for_tier(
         self,

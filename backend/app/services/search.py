@@ -56,8 +56,32 @@ class SearchCache:
         logger.debug("search_cache_hit", query=query[:50])
         return entry.results
 
+    @staticmethod
+    def _strip_raw_content(results: list) -> list:
+        """Return a copy of results with raw_content stripped to reduce memory usage.
+
+        The `content` field on SearchResult can hold large raw HTML/text from pages.
+        We keep snippets but drop the heavy content field for cached copies.
+        """
+        stripped = []
+        for r in results:
+            if isinstance(r, SearchResult):
+                stripped.append(SearchResult(
+                    title=r.title,
+                    url=r.url,
+                    snippet=r.snippet,
+                    content=None,  # Strip heavy raw_content from cache
+                    relevance_score=r.relevance_score,
+                ))
+            else:
+                stripped.append(r)
+        return stripped
+
     def set(self, query: str, max_results: int, search_depth: str, include_raw_content: bool, results: list) -> None:
-        """Cache search results with TTL."""
+        """Cache search results with TTL.
+
+        Strips raw_content from cached results to reduce memory usage.
+        """
         # Evict oldest entries if cache is full
         if len(self._cache) >= self._max_size:
             self._evict_expired()
@@ -69,7 +93,7 @@ class SearchCache:
 
         key = self._make_key(query, max_results, search_depth, include_raw_content)
         self._cache[key] = CacheEntry(
-            results=results,
+            results=self._strip_raw_content(results),
             expires_at=time.time() + self._ttl,
         )
         logger.debug("search_cache_set", query=query[:50], cache_size=len(self._cache))

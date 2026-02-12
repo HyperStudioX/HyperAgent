@@ -60,6 +60,10 @@ interface ParsedMetadata {
     agentEvents?: AgentEvent[];
 }
 
+// Memoized markdown plugin arrays at module level
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS = [rehypeKatex];
+
 // Stages that should not trigger progress panel rendering
 const HIDDEN_STAGES = new Set(["thinking", "routing"]);
 
@@ -280,12 +284,7 @@ export const MessageBubble = memo(function MessageBubble({
     const appPreviews = useMemo(() => {
         const events = streamingEvents || agentEvents || [];
         if (events.length > 0) {
-            console.log("[DEBUG] Extracting app previews from", events.length, "events");
-            const previews = extractAppPreviews(events);
-            if (previews.length > 0) {
-                console.log("[DEBUG] Found app previews:", previews);
-            }
-            return previews;
+            return extractAppPreviews(events);
         }
         return [];
     }, [streamingEvents, agentEvents]);
@@ -360,8 +359,8 @@ export const MessageBubble = memo(function MessageBubble({
                 >
                     {normalizedContent && (
                         <ReactMarkdown
-                            remarkPlugins={[remarkGfm, remarkMath]}
-                            rehypePlugins={[rehypeKatex]}
+                            remarkPlugins={REMARK_PLUGINS}
+                            rehypePlugins={REHYPE_PLUGINS}
                             components={markdownComponents}
                         >
                             {normalizedContent}
@@ -432,8 +431,13 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
     );
 }, (prevProps, nextProps) => {
-    // During streaming, always re-render to show updates
+    // During streaming, throttle re-renders for small content changes
     if (nextProps.isStreaming || prevProps.isStreaming) {
+        const prevLen = prevProps.message.content?.length ?? 0;
+        const nextLen = nextProps.message.content?.length ?? 0;
+        if (Math.abs(nextLen - prevLen) < 20 && prevProps.isStreaming === nextProps.isStreaming) {
+            return true; // Skip re-render for small content changes
+        }
         return false;
     }
     // For non-streaming messages, use default shallow comparison

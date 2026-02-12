@@ -21,27 +21,28 @@ interface DesktopSidebarProps {
 }
 
 export function DesktopSidebar({ className }: DesktopSidebarProps) {
-    const { desktopSidebarOpen, toggleDesktopSidebar, sidebarWidth, setSidebarWidth } = useSidebarStore();
+    const desktopSidebarOpen = useSidebarStore((state) => state.desktopSidebarOpen);
+    const sidebarWidth = useSidebarStore((state) => state.sidebarWidth);
+    const toggleDesktopSidebar = useSidebarStore.getState().toggleDesktopSidebar;
+    const setSidebarWidth = useSidebarStore.getState().setSidebarWidth;
     const router = useRouter();
     const [isResizing, setIsResizing] = useState(false);
     const sidebarRef = useRef<HTMLElement>(null);
     const { status } = useSession();
-    const {
-        conversations,
-        activeConversationId,
-        hasHydrated: chatHydrated,
-        setActiveConversation,
-        loadConversations,
-        deleteConversation,
-    } = useChatStore();
-    const {
-        tasks,
-        activeTaskId,
-        hasHydrated: taskHydrated,
-        setActiveTask,
-        deleteTask,
-        loadTasks,
-    } = useTaskStore();
+
+    const conversations = useChatStore((state) => state.conversations);
+    const activeConversationId = useChatStore((state) => state.activeConversationId);
+    const chatHydrated = useChatStore((state) => state.hasHydrated);
+    const setActiveConversation = useChatStore.getState().setActiveConversation;
+    const loadConversations = useChatStore.getState().loadConversations;
+    const deleteConversation = useChatStore.getState().deleteConversation;
+
+    const tasks = useTaskStore((state) => state.tasks);
+    const activeTaskId = useTaskStore((state) => state.activeTaskId);
+    const taskHydrated = useTaskStore((state) => state.hasHydrated);
+    const setActiveTask = useTaskStore.getState().setActiveTask;
+    const deleteTask = useTaskStore.getState().deleteTask;
+    const loadTasks = useTaskStore.getState().loadTasks;
 
     const hasHydrated = chatHydrated && taskHydrated;
 
@@ -70,10 +71,8 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
 
         // Only load from API if authenticated, otherwise just set hydrated
         if (status === "authenticated") {
-            console.log("[DesktopSidebar] Loading conversations from database");
             loadConversations();
         } else {
-            console.log("[DesktopSidebar] Not authenticated, using local mode");
             useChatStore.setState({ hasHydrated: true });
         }
     }, [status, chatHydrated, loadConversations]);
@@ -85,10 +84,8 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
         }
 
         if (status === "authenticated") {
-            console.log("[DesktopSidebar] Loading tasks from database");
             loadTasks();
         } else {
-            console.log("[DesktopSidebar] Not authenticated, using local tasks only");
             useTaskStore.setState({ hasHydrated: true });
         }
     }, [status, taskHydrated, loadTasks]);

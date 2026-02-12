@@ -12,6 +12,9 @@ Key features:
 
 import asyncio
 import os
+import re
+import shlex
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -32,6 +35,15 @@ def get_default_app_session_timeout() -> timedelta:
 # Cleanup interval for expired sessions (60 seconds)
 CLEANUP_INTERVAL_SECONDS = 60
 
+# Skip health checks if last successful check was less than this many seconds ago
+HEALTH_CHECK_SKIP_SECONDS = 30
+
+# Regex for validating package names (prevents shell injection)
+_PACKAGE_NAME_RE = re.compile(r'^[a-zA-Z0-9._-]+([<>=!~]+[a-zA-Z0-9.*]+)?$')
+
+# Shell metacharacters that are not allowed in custom commands
+_SHELL_METACHARACTERS = set(';|&$`')
+
 # Supported app templates
 # Note: Using vite@5 instead of vite@latest because E2B sandbox has Node.js 20.9.0
 # and Vite 6+ requires Node.js 20.19+ or 22.12+
@@ -51,7 +63,7 @@ APP_TEMPLATES = {
     "nextjs": {
         "name": "Next.js",
         "scaffold_cmd": "npx create-next-app@14 app --typescript --tailwind --eslint --app --src-dir --use-npm --no-git",
-        "start_cmd": "cd app && npm run dev",
+        "start_cmd": "cd app && npm run dev -- -H 0.0.0.0",
         "port": 3000,
     },
     "vue": {
@@ -81,7 +93,7 @@ APP_TEMPLATES = {
     "static": {
         "name": "Static HTML",
         "scaffold_cmd": "mkdir -p app && npx -y serve app",
-        "start_cmd": "npx -y serve app -l 3000",
+        "start_cmd": "npx -y serve app -l 3000 --listen 0.0.0.0",
         "port": 3000,
     },
 }
@@ -112,6 +124,10 @@ class AppSandboxSession:
     # Running process info
     app_process: AppProcess | None = None
     preview_url: str | None = None
+    internal_url: str | None = None  # Raw localhost URL for proxy use
+
+    # Timestamp of last successful health check (monotonic clock)
+    last_health_check: float = 0.0
 
     @property
     def sandbox_id(self) -> str | None:
@@ -146,6 +162,8 @@ class AppSandboxManager:
         self._sessions: dict[str, AppSandboxSession] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._session_lock = asyncio.Lock()
+        # Port allocation counter for BoxLite host port mapping
+        self._next_host_port_offset: int = 0
         # Metrics counters
         self._total_created: int = 0
         self._total_cleaned: int = 0
@@ -229,10 +247,22 @@ class AppSandboxManager:
                     await self._cleanup_session_internal(session_key)
 
             # Create new sandbox via provider factory
+            from app.config import settings
             from app.sandbox.provider import create_app_runtime
 
+            # Determine the container port for this template and allocate
+            # a host port so the dev server is reachable from the host.
+            template_config = APP_TEMPLATES[template]
+            container_port = int(template_config["port"])
+
+            runtime_kwargs: dict[str, Any] = {}
+            if settings.sandbox_provider == "boxlite":
+                host_port = settings.boxlite_app_host_port_start + self._next_host_port_offset
+                self._next_host_port_offset += 1
+                runtime_kwargs["ports"] = {container_port: host_port}
+
             try:
-                sandbox = await create_app_runtime()
+                sandbox = await create_app_runtime(**runtime_kwargs)
                 logger.info("app_sandbox_created", sandbox_id=sandbox.sandbox_id)
             except Exception as e:
                 logger.error("app_sandbox_creation_failed", error=str(e))
@@ -355,6 +385,15 @@ class AppSandboxManager:
         """
         template_config = APP_TEMPLATES.get(session.template, APP_TEMPLATES["react"])
         start_cmd = custom_command or template_config["start_cmd"]
+
+        # Reject custom commands containing shell metacharacters to prevent injection
+        if custom_command:
+            if any(ch in custom_command for ch in _SHELL_METACHARACTERS):
+                raise ValueError(
+                    f"Custom command contains disallowed shell metacharacters: "
+                    f"avoid using ; | & $ or backticks"
+                )
+
         raw_port = port or template_config["port"]
         # Validate port is an integer to prevent command injection
         server_port = int(raw_port)
@@ -373,8 +412,18 @@ class AppSandboxManager:
             if session.app_process and session.app_process.is_running:
                 await self.stop_dev_server(session)
 
-            # Get the public URL for the port first (before starting server)
-            preview_url = await session.sandbox.get_host_url(server_port)
+            # Get the raw URL for the port (before starting server)
+            from app.config import settings
+
+            raw_url = await session.sandbox.get_host_url(server_port)
+            session.internal_url = raw_url  # Store for proxy use
+
+            # For BoxLite, route through backend proxy so iframe doesn't need
+            # direct Docker port access. E2B URLs are publicly accessible.
+            if settings.sandbox_provider == "boxlite":
+                preview_url = f"/api/v1/sandbox/app/{session.sandbox_id}/"
+            else:
+                preview_url = raw_url
 
             # Start the dev server using E2B's background mode
             # The background=True flag runs the command asynchronously
@@ -435,7 +484,7 @@ class AppSandboxManager:
                 command=start_cmd,
                 is_running=True,
             )
-            session.preview_url = f"https://{preview_url}"
+            session.preview_url = preview_url
 
             # Give the server a moment to initialize before polling
             await asyncio.sleep(2)
@@ -739,7 +788,15 @@ fi
                 "message": "No packages to install",
             }
 
-        packages_str = " ".join(packages)
+        # Validate package names to prevent shell injection
+        for pkg in packages:
+            if not _PACKAGE_NAME_RE.match(pkg):
+                return {
+                    "success": False,
+                    "error": f"Invalid package name: {pkg!r}",
+                }
+
+        packages_str = " ".join(shlex.quote(pkg) for pkg in packages)
 
         if package_manager == "npm":
             cmd = f"cd {session.project_dir} && npm install {packages_str}"
@@ -828,6 +885,21 @@ fi
                 "error": str(e),
             }
 
+    async def get_session_by_sandbox_id(self, sandbox_id: str) -> AppSandboxSession | None:
+        """Look up a session by its sandbox_id (used by proxy endpoint).
+
+        Args:
+            sandbox_id: The sandbox identifier
+
+        Returns:
+            AppSandboxSession if found, None otherwise
+        """
+        for session in self._sessions.values():
+            if session.sandbox_id == sandbox_id:
+                session.touch()
+                return session
+        return None
+
     async def get_session(
         self,
         user_id: str | None = None,
@@ -854,6 +926,9 @@ fi
     async def _is_sandbox_healthy(self, session: AppSandboxSession) -> bool:
         """Check if a sandbox session is still healthy and responsive.
 
+        Skips the actual health check command if the last successful check
+        was less than HEALTH_CHECK_SKIP_SECONDS ago.
+
         Args:
             session: The session to check
 
@@ -863,13 +938,21 @@ fi
         if not session.sandbox:
             return False
 
+        # Skip health check if last successful check was recent
+        now = time.monotonic()
+        if session.last_health_check > 0 and (now - session.last_health_check) < HEALTH_CHECK_SKIP_SECONDS:
+            return True
+
         try:
             # Perform a lightweight health check
             result = await session.sandbox.run_command(
                 "echo 'health_check'",
                 timeout=5,
             )
-            return result.exit_code == 0 and "health_check" in result.stdout
+            healthy = result.exit_code == 0 and "health_check" in result.stdout
+            if healthy:
+                session.last_health_check = now
+            return healthy
         except Exception as e:
             self._health_check_failures += 1
             logger.warning(

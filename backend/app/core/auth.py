@@ -61,7 +61,7 @@ def decode_jwt(token: str) -> TokenPayload:
             token,
             settings.nextauth_secret,
             algorithms=["HS256"],
-            options={"verify_aud": False},
+            # Audience verification enabled; configure audience claim in JWT issuer if needed
         )
         return TokenPayload(**payload)
     except jwt.ExpiredSignatureError:

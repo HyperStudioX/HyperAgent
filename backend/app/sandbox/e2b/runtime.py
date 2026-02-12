@@ -63,8 +63,11 @@ class E2BRuntime:
         await self._sandbox.files.write(path, content)
 
     async def get_host_url(self, port: int) -> str:
-        """Get the public host URL for a port via E2B."""
-        return self._sandbox.get_host(port)
+        """Get the public host URL for a port via E2B.
+
+        Returns a full URL with scheme, e.g. "https://sandbox-id-5173.e2b.dev".
+        """
+        return f"https://{self._sandbox.get_host(port)}"
 
     async def kill(self) -> None:
         """Kill the E2B sandbox."""

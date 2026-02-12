@@ -183,7 +183,10 @@ class BoxLiteRuntime:
             raise IOError(f"Failed to write {path}: {result.stderr}")
 
     async def get_host_url(self, port: int) -> str:
-        """Get the localhost URL for a forwarded port."""
+        """Get the localhost URL for a forwarded port.
+
+        Returns a full URL with scheme, e.g. "http://localhost:10000".
+        """
         if port in self._port_map:
             host_port = self._port_map[port]
         else:

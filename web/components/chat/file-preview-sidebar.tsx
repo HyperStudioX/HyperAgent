@@ -91,7 +91,7 @@ export function FilePreviewSidebar() {
             {/* Backdrop for mobile */}
             <div
                 className={cn(
-                    "fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300",
+                    "fixed inset-0 bg-black/20 z-40 lg:hidden transition-opacity duration-300",
                     isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
                 )}
                 onClick={closePreview}

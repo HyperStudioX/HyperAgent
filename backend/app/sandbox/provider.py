@@ -171,6 +171,7 @@ async def create_app_runtime(**kwargs) -> SandboxRuntime:
             cpus=kwargs.get("cpus", settings.boxlite_cpus),
             memory_mib=kwargs.get("memory_mib", settings.boxlite_memory_mib),
             disk_size_gb=kwargs.get("disk_size_gb", settings.boxlite_disk_size_gb),
+            ports=kwargs.get("ports"),
         )
 
     else:

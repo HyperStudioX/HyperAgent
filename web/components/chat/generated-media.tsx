@@ -91,7 +91,7 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
             return (
                 <span className="block relative group/image">
                     {isLoading && (
-                        <span className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl">
+                        <span className="absolute inset-0 flex items-center justify-center bg-background/95 rounded-xl">
                             <span className="flex flex-col items-center gap-3">
                                 <Loader2 className="w-6 h-6 animate-spin text-primary" />
                                 <span className="text-xs font-medium text-muted-foreground">{t("loadingImage")}</span>
@@ -150,7 +150,7 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
                         "flex items-center justify-between gap-3",
                         "px-4 md:px-5 py-3",
                         "border-b border-border/50",
-                        "bg-secondary/30 backdrop-blur-sm"
+                        "bg-secondary/30"
                     )}
                 >
                     <span className="flex items-center gap-2.5">
@@ -205,7 +205,7 @@ export function GeneratedMedia({ data, url, mimeType, className }: GeneratedMedi
             {/* Fullscreen modal - ultra-clean with smooth animations */}
             {isFullscreen && (
                 <div
-                    className="fixed inset-0 z-50 bg-background/98 backdrop-blur-xl animate-in fade-in duration-300"
+                    className="fixed inset-0 z-50 bg-background/98 animate-in fade-in duration-300"
                     onClick={() => setIsFullscreen(false)}
                 >
                     <div className="container h-full max-w-7xl mx-auto p-4 md:p-8 flex flex-col animate-in slide-in-from-bottom-4 duration-400 delay-75">

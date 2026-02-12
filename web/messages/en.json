@@ -508,7 +508,9 @@
         "newResearch": "New Research"
     },
     "common": {
-        "error": "Error"
+        "error": "Error",
+        "delete": "Delete",
+        "loadingMore": "Loading more..."
     },
     "signin": {
         "continueWithGoogle": "Continue with Google"
@@ -613,6 +615,13 @@
         "browser": "Browser",
         "files": "Files",
         "close": "Close",
+        "openInNewTab": "Open in new tab",
+        "exitFullscreen": "Exit fullscreen",
+        "fullscreen": "Fullscreen",
+        "collapse": "Collapse",
+        "expand": "Expand",
+        "terminalOutput": "Terminal output",
+        "errorMessage": "An unexpected error occurred in the computer panel.",
         "usingTerminal": "Agent is using Terminal",
         "usingPlan": "Agent activity log",
         "usingBrowser": "Agent is using Browser",
@@ -643,11 +652,30 @@
         "wordWrap": "Toggle word wrap",
         "noPlanItems": "No activity yet",
         "planItemsWillAppear": "Agent activities will appear here",
+        "planType": {
+            "tool": "Tool",
+            "skill": "Skill",
+            "browser": "Browser",
+            "step": "Step"
+        },
+        "planInProgress": "In progress...",
+        "planProgress": "{completed} of {total} completed",
+        "planFailed": "{count} failed",
+        "errorBoundary": {
+            "title": "Something went wrong",
+            "maxRetries": "Maximum retries reached. Please reload the page.",
+            "retry": "Try Again ({count} left)"
+        },
+        "resizeHandle": "Resize panel",
+        "browserIframeTitle": "Agent browser view",
         "workspace": {
             "title": "Workspace Files",
             "loading": "Loading files...",
             "empty": "No files yet. Files will appear here when the agent creates them.",
             "refresh": "Refresh",
+            "search": "Search files",
+            "clearSearch": "Clear search",
+            "parentDirectory": "Go to parent directory",
             "preview": "Preview",
             "download": "Download",
             "noPreview": "Preview not available for this file type",
@@ -657,7 +685,8 @@
             "copyContent": "Copy content",
             "copied": "Copied",
             "fileCount": "files",
-            "folderCount": "folders"
+            "folderCount": "folders",
+            "fileTooLarge": "File too large to preview ({size} MB)"
         }
     }
 }

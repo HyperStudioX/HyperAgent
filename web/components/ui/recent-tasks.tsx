@@ -103,6 +103,7 @@ export function RecentTasks({
   className,
 }: RecentTasksProps) {
   const t = useTranslations("sidebar");
+  const tCommon = useTranslations("common");
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [visibleCount, setVisibleCount] = useState(INITIAL_RENDER_COUNT);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -307,7 +308,7 @@ export function RecentTasks({
             {hasMore && (
               <div ref={loadMoreRef} className="py-2 text-center">
                 <span className="text-xs text-muted-foreground">
-                  Loading more...
+                  {tCommon("loadingMore")}
                 </span>
               </div>
             )}
@@ -398,6 +399,7 @@ function RecentItemRow({
   onClick,
   onDelete,
 }: RecentItemRowProps) {
+  const tCommon = useTranslations("common");
   const isTask = item.type === "task";
   const conversationType = item.type === "conversation" ? item.data.type : null;
   const title = isTask ? item.data.query : item.data.title;
@@ -471,7 +473,7 @@ function RecentItemRow({
           e.stopPropagation();
           onDelete();
         }}
-        aria-label="Delete"
+        aria-label={tCommon("delete")}
       >
         <Trash2 className="w-4 h-4" />
       </button>

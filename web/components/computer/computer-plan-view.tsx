@@ -35,6 +35,7 @@ function getTypeIcon(type: PlanItem["type"]) {
     }
 }
 
+/* Semantic plan-type colors - intentionally using distinct colors per type for visual differentiation */
 function getTypeColor(type: PlanItem["type"]): string {
     switch (type) {
         case "tool":
@@ -48,6 +49,7 @@ function getTypeColor(type: PlanItem["type"]): string {
     }
 }
 
+/* Semantic plan-type background colors - intentionally using distinct colors per type */
 function getTypeBgColor(type: PlanItem["type"]): string {
     switch (type) {
         case "tool":
@@ -61,16 +63,16 @@ function getTypeBgColor(type: PlanItem["type"]): string {
     }
 }
 
-function getTypeLabel(type: PlanItem["type"]): string {
+function getTypeLabelKey(type: PlanItem["type"]): string {
     switch (type) {
         case "tool":
-            return "Tool";
+            return "planType.tool";
         case "skill":
-            return "Skill";
+            return "planType.skill";
         case "browser":
-            return "Browser";
+            return "planType.browser";
         default:
-            return "Step";
+            return "planType.step";
     }
 }
 
@@ -121,6 +123,7 @@ function TimelineItem({
     isLast: boolean;
     nextItemTimestamp?: number;
 }) {
+    const t = useTranslations("computer");
     const [expanded, setExpanded] = useState(false);
     const [, setTick] = useState(0);
     const TypeIcon = getTypeIcon(item.type);
@@ -171,7 +174,7 @@ function TimelineItem({
                         getTypeColor(item.type)
                     )}>
                         <TypeIcon className="w-2.5 h-2.5" />
-                        <span>{getTypeLabel(item.type)}</span>
+                        <span>{t(getTypeLabelKey(item.type))}</span>
                     </div>
 
                     <span className={cn(
@@ -203,6 +206,7 @@ function TimelineItem({
                 </div>
 
                 {/* Running pulse indicator */}
+                {/* Semantic status indicator - colors match plan type for visual consistency */}
                 {item.status === "running" && (
                     <div className="mt-1.5 flex items-center gap-1.5">
                         <span className="relative flex h-1.5 w-1.5">
@@ -219,7 +223,7 @@ function TimelineItem({
                                 "bg-orange-500"
                             )} />
                         </span>
-                        <span className="text-xs text-muted-foreground/70">In progress...</span>
+                        <span className="text-xs text-muted-foreground/70">{t("planInProgress")}</span>
                     </div>
                 )}
 
@@ -257,7 +261,7 @@ export function ComputerPlanView({
         <ScrollArea className={cn("flex-1 bg-background", className)}>
             <div className="min-h-full">
                 {/* Progress summary header */}
-                <div className="sticky top-0 z-10 bg-muted/50 border-b border-border/50 backdrop-blur-sm px-4 py-2.5">
+                <div className="sticky top-0 z-10 bg-background/95 border-b border-border/50 px-4 py-2.5">
                     <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
                             <ListChecks className="w-3.5 h-3.5 text-muted-foreground" />
@@ -267,10 +271,10 @@ export function ComputerPlanView({
                         </div>
                         {totalCount > 0 && (
                             <span className="text-xs text-muted-foreground tabular-nums">
-                                {completedCount} of {totalCount} completed
+                                {t("planProgress", { completed: completedCount, total: totalCount })}
                                 {failedCount > 0 && (
                                     <span className="text-destructive ml-1">
-                                        ({failedCount} failed)
+                                        ({t("planFailed", { count: failedCount })})
                                     </span>
                                 )}
                             </span>
@@ -282,7 +286,7 @@ export function ComputerPlanView({
                         <div className="h-1 bg-border/30 rounded-full overflow-hidden">
                             <div
                                 className={cn(
-                                    "h-full rounded-full transition-all duration-500",
+                                    "h-full rounded-full transition-colors duration-500",
                                     failedCount > 0
                                         ? "bg-destructive/70"
                                         : completedCount === totalCount

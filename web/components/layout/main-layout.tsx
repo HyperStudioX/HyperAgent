@@ -24,12 +24,11 @@ export function MainLayout({ children }: MainLayoutProps) {
 
     // Check if we're on desktop (lg breakpoint = 1024px)
     useEffect(() => {
-        const checkDesktop = () => {
-            setIsDesktop(window.innerWidth >= 1024);
-        };
-        checkDesktop();
-        window.addEventListener("resize", checkDesktop);
-        return () => window.removeEventListener("resize", checkDesktop);
+        const mq = window.matchMedia("(min-width: 1024px)");
+        setIsDesktop(mq.matches);
+        const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+        mq.addEventListener("change", handler);
+        return () => mq.removeEventListener("change", handler);
     }, []);
 
     // Calculate the right panel width for content adjustment (only on desktop)

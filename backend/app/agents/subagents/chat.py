@@ -51,6 +51,28 @@ from app.models.schemas import LLMProvider
 
 logger = get_logger(__name__)
 
+# Module-level caches for tool lists and config (computed once at import time)
+_cached_chat_tools: list | None = None
+_cached_browser_tool_names: set[str] | None = None
+_cached_app_builder_tool_names: set[str] | None = None
+_cached_react_config = None
+
+
+def _get_cached_chat_tools() -> list:
+    """Get the chat tools list, computing and caching on first call."""
+    global _cached_chat_tools
+    if _cached_chat_tools is None:
+        _cached_chat_tools = get_tools_for_agent("chat", include_handoffs=True)
+    return _cached_chat_tools
+
+
+def _get_cached_react_config():
+    """Get the react config for chat, computing and caching on first call."""
+    global _cached_react_config
+    if _cached_react_config is None:
+        _cached_react_config = get_react_config("chat")
+    return _cached_react_config
+
 
 def _deduplicate_tool_messages(messages: list) -> list:
     """Remove duplicate ToolMessages with the same tool_call_id.
@@ -84,21 +106,27 @@ def _deduplicate_tool_messages(messages: list) -> list:
 
 
 def _get_browser_tool_names() -> set[str]:
-    """Get the set of browser tool names.
+    """Get the set of browser tool names (cached after first call).
 
     Returns:
         Set of browser tool names
     """
-    return {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
+    global _cached_browser_tool_names
+    if _cached_browser_tool_names is None:
+        _cached_browser_tool_names = {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
+    return _cached_browser_tool_names
 
 
 def _get_app_builder_tool_names() -> set[str]:
-    """Get the set of app builder tool names.
+    """Get the set of app builder tool names (cached after first call).
 
     Returns:
         Set of app builder tool names
     """
-    return {t.name for t in get_tools_by_category(ToolCategory.APP_BUILDER)}
+    global _cached_app_builder_tool_names
+    if _cached_app_builder_tool_names is None:
+        _cached_app_builder_tool_names = {t.name for t in get_tools_by_category(ToolCategory.APP_BUILDER)}
+    return _cached_app_builder_tool_names
 
 
 async def _execute_approved_tool(
@@ -214,36 +242,46 @@ async def reason_node(state: ChatState) -> dict:
     lc_messages = _deduplicate_tool_messages(lc_messages)
 
     # Apply context compression before truncation (preserves semantic meaning)
+    # Only create CompressionConfig/ContextCompressor if compression may actually run
     if settings.context_compression_enabled and len(lc_messages) > settings.context_compression_preserve_recent:
-        compression_config = CompressionConfig(
-            token_threshold=settings.context_compression_token_threshold,
-            preserve_recent=settings.context_compression_preserve_recent,
-            enabled=settings.context_compression_enabled,
-        )
-        compressor = ContextCompressor(compression_config)
+        # Quick token estimate to avoid creating compressor when clearly under threshold
+        from app.agents.context_compression import estimate_message_tokens
 
-        try:
-            new_summary, lc_messages = await compressor.compress(
-                lc_messages,
-                existing_summary,
-                provider,
+        estimated_tokens = sum(estimate_message_tokens(m) for m in lc_messages)
+        if existing_summary:
+            from app.agents.context_compression import estimate_tokens
+            estimated_tokens += estimate_tokens(existing_summary)
+
+        if estimated_tokens > settings.context_compression_token_threshold:
+            compression_config = CompressionConfig(
+                token_threshold=settings.context_compression_token_threshold,
+                preserve_recent=settings.context_compression_preserve_recent,
+                enabled=settings.context_compression_enabled,
             )
-            if new_summary:
-                # Inject summary as context after system message
-                lc_messages = inject_summary_as_context(lc_messages, new_summary)
-                new_context_summary = new_summary
-                logger.info("context_compressed", summary_length=len(new_summary))
-                event_list.append({
-                    "type": "stage",
-                    "name": "context",
-                    "description": "Context compressed to preserve conversation history",
-                    "status": "completed",
-                })
-        except Exception as e:
-            logger.warning("context_compression_skipped", error=str(e))
+            compressor = ContextCompressor(compression_config)
+
+            try:
+                new_summary, lc_messages = await compressor.compress(
+                    lc_messages,
+                    existing_summary,
+                    provider,
+                )
+                if new_summary:
+                    # Inject summary as context after system message
+                    lc_messages = inject_summary_as_context(lc_messages, new_summary)
+                    new_context_summary = new_summary
+                    logger.info("context_compressed", summary_length=len(new_summary))
+                    event_list.append({
+                        "type": "stage",
+                        "name": "context",
+                        "description": "Context compressed to preserve conversation history",
+                        "status": "completed",
+                    })
+            except Exception as e:
+                logger.warning("context_compression_skipped", error=str(e))
 
     # Apply message truncation to stay within token budget (fallback safety)
-    config = get_react_config("chat")
+    config = _get_cached_react_config()
     lc_messages, was_truncated = truncate_messages_to_budget(
         lc_messages,
         max_tokens=config.max_message_tokens,
@@ -268,8 +306,8 @@ async def reason_node(state: ChatState) -> dict:
         model_override=model,
     )
 
-    # Get all tools for chat agent
-    all_tools = get_tools_for_agent("chat", include_handoffs=True)
+    # Get all tools for chat agent (cached)
+    all_tools = _get_cached_chat_tools()
     llm_with_tools = llm.bind_tools(all_tools) if all_tools else llm
 
     try:
@@ -373,8 +411,8 @@ async def act_node(state: ChatState) -> dict:
         logger.warning("act_node_no_pending_tool_calls", existing_count=len(existing_tool_result_ids))
         return {"events": event_list, "lc_messages": lc_messages}
 
-    # Get tools
-    all_tools = get_tools_for_agent("chat", include_handoffs=True)
+    # Get tools (cached)
+    all_tools = _get_cached_chat_tools()
     tool_map = {tool.name: tool for tool in all_tools}
     browser_tools = _get_browser_tool_names()
     app_builder_tools = _get_app_builder_tool_names()
@@ -713,7 +751,7 @@ async def act_node(state: ChatState) -> dict:
                         logger.warning("app_builder_event_extraction_failed", error=str(e))
 
                 # Truncate tool result to avoid context overflow
-                config = get_react_config("chat")
+                config = _get_cached_react_config()
                 result_str = truncate_tool_result(result_str, config.tool_result_max_chars)
 
                 tool_results.append(
@@ -807,7 +845,7 @@ def should_continue(state: ChatState) -> Literal["act", "finalize"]:
         if isinstance(msg, AIMessage):
             if msg.tool_calls:
                 # Check iteration limit
-                config = get_react_config("chat")
+                config = _get_cached_react_config()
                 iters = state.get("tool_iterations", 0)
                 if iters >= config.max_iterations:
                     logger.warning(
@@ -886,8 +924,8 @@ async def wait_interrupt_node(state: ChatState) -> dict:
         tool_call_id=tool_call_id,
     )
 
-    # Get tools for potential execution (needed for approval flow)
-    all_tools = get_tools_for_agent("chat", include_handoffs=True)
+    # Get tools for potential execution (needed for approval flow) - cached
+    all_tools = _get_cached_chat_tools()
     tool_map = {tool.name: tool for tool in all_tools}
 
     # Track auto_approve updates

@@ -6,6 +6,8 @@ and image capture.
 """
 
 import base64
+import re
+import shlex
 from io import BytesIO
 from typing import Any, Literal
 
@@ -131,11 +133,17 @@ class E2BSandboxExecutor(BaseCodeExecutor):
         if not self.sandbox:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
+        # Validate package names to prevent command injection
+        pkg_pattern = re.compile(r'^[a-zA-Z0-9._-]+([<>=!~]+[a-zA-Z0-9.*]+)?$')
+        for pkg in packages:
+            if not pkg_pattern.match(pkg):
+                raise ValueError(f"Invalid package name: {pkg}")
+
         if package_manager == "pip":
-            packages_str = " ".join(packages)
+            packages_str = " ".join(shlex.quote(p) for p in packages)
             cmd = f"pip install -q {packages_str}"
         elif package_manager == "npm":
-            packages_str = " ".join(packages)
+            packages_str = " ".join(shlex.quote(p) for p in packages)
             cmd = f"npm install -g {packages_str}"
         else:
             raise ValueError(f"Unsupported package manager: {package_manager}")

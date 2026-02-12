@@ -148,7 +148,7 @@ function ContentHeader({
     }, [content, filename, onDownload]);
 
     const icon = language ? (
-        <FileCode className="w-3.5 h-3.5 text-accent-amber" />
+        <FileCode className="w-3.5 h-3.5 text-amber-500" />
     ) : (
         <FileText className="w-3.5 h-3.5 text-muted-foreground" />
     );
@@ -276,7 +276,7 @@ export function ComputerFileContent({
                     <FileText className="w-12 h-12 text-muted-foreground/50 mb-4" />
                     <p className="text-sm font-medium mb-2">{filename}</p>
                     <p className="text-xs text-muted-foreground">
-                        File too large to preview ({(content.length / (1024 * 1024)).toFixed(1)} MB)
+                        {t("workspace.fileTooLarge", { size: (content.length / (1024 * 1024)).toFixed(1) })}
                     </p>
                 </div>
             );

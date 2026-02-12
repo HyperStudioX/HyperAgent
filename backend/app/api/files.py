@@ -252,7 +252,7 @@ async def download_generated_image(
         raise HTTPException(status_code=404, detail="Generated image not found")
     except Exception as e:
         logger.error("generated_download_failed", error=str(e), storage_key=full_storage_key, error_type=type(e).__name__)
-        raise HTTPException(status_code=500, detail=f"Failed to download generated image: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to download generated image")
 
 
 @router.get("/download/{storage_key:path}")
@@ -301,4 +301,4 @@ async def download_file(
         raise HTTPException(status_code=404, detail="File not found on storage")
     except Exception as e:
         logger.error("download_failed", error=str(e), storage_key=storage_key, error_type=type(e).__name__)
-        raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to download file")

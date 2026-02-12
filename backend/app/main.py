@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import conversations, files, health, hitl, query, sandbox, skills, tasks
+from app.api import conversations, files, health, hitl, query, sandbox, sandbox_proxy, skills, tasks
 from app.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.base import close_db, init_db
@@ -68,8 +68,23 @@ async def lifespan(app: FastAPI):
             tool=settings.guardrails_tool_enabled,
             action=settings.guardrails_violation_action,
         )
+        if settings.guardrails_violation_action != "block":
+            logger.warning(
+                "guardrails_non_blocking",
+                action=settings.guardrails_violation_action,
+                detail="Guardrails violation action is not set to 'block'. Violations will not be prevented.",
+            )
     else:
-        logger.info("guardrails_disabled")
+        logger.warning(
+            "guardrails_disabled_warning",
+            detail="Safety guardrails are disabled. This is not recommended for production.",
+        )
+
+    if not settings.auth_enabled:
+        logger.warning(
+            "auth_disabled_warning",
+            detail="Authentication is disabled. All endpoints are publicly accessible.",
+        )
 
     yield
 
@@ -134,3 +149,4 @@ app.include_router(files.router, prefix=settings.api_prefix, tags=["files"])
 app.include_router(skills.router, prefix=settings.api_prefix, tags=["skills"])
 app.include_router(hitl.router, prefix=settings.api_prefix, tags=["hitl"])
 app.include_router(sandbox.router, prefix=settings.api_prefix, tags=["sandbox"])
+app.include_router(sandbox_proxy.router, prefix=settings.api_prefix, tags=["sandbox-proxy"])

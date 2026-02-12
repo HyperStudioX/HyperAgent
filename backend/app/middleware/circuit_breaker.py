@@ -147,8 +147,11 @@ class CircuitBreaker:
         """Current circuit state."""
         return self._state.state
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         """Check if the circuit allows requests.
+
+        The OPEN -> HALF_OPEN transition is performed under the lock to
+        prevent two coroutines from both transitioning simultaneously.
 
         Returns:
             True if requests should be attempted, False if failing fast
@@ -161,16 +164,21 @@ class CircuitBreaker:
             if self._state.last_failure_time is not None:
                 elapsed = time.time() - self._state.last_failure_time
                 if elapsed >= self.config.recovery_timeout:
-                    # Transition to half-open
-                    self._state.state = CircuitState.HALF_OPEN
-                    self._state.success_count = 0
-                    self._state.half_open_calls = 0
-                    logger.info(
-                        "circuit_breaker_half_open",
-                        service=self.service_name,
-                        elapsed=elapsed,
-                    )
-                    return True
+                    # Transition to half-open under lock to prevent race
+                    async with self._state._lock:
+                        # Re-check after acquiring lock (another coroutine may have transitioned)
+                        if self._state.state != CircuitState.OPEN:
+                            return self._state.state == CircuitState.HALF_OPEN and \
+                                self._state.half_open_calls < self.config.half_open_max_calls
+                        self._state.state = CircuitState.HALF_OPEN
+                        self._state.success_count = 0
+                        self._state.half_open_calls = 0
+                        logger.info(
+                            "circuit_breaker_half_open",
+                            service=self.service_name,
+                            elapsed=elapsed,
+                        )
+                        return True
             return False
 
         if self._state.state == CircuitState.HALF_OPEN:
@@ -258,7 +266,7 @@ class CircuitBreaker:
         Raises:
             CircuitBreakerOpen: If circuit is open
         """
-        if not self.is_available():
+        if not await self.is_available():
             raise CircuitBreakerOpen(
                 self.service_name,
                 self.time_until_retry(),

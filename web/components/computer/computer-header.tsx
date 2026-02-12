@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { TerminalSquare, Monitor, Folder, X, ListTodo, Circle, Settings2, Eye, EyeOff, PanelRightOpen } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ export function ComputerHeader({
     const t = useTranslations("computer");
     const [showSettings, setShowSettings] = useState(false);
     const settingsRef = useRef<HTMLDivElement>(null);
+    const tabListRef = useRef<HTMLDivElement>(null);
 
     // Close settings dropdown when clicking outside
     useEffect(() => {
@@ -53,12 +54,39 @@ export function ComputerHeader({
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [showSettings]);
 
+    // Arrow key navigation for tab buttons
+    const handleTabKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+        const currentIndex = modeConfig.findIndex(({ mode }) => mode === activeMode);
+        let nextIndex: number | null = null;
+
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+            e.preventDefault();
+            nextIndex = (currentIndex + 1) % modeConfig.length;
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+            e.preventDefault();
+            nextIndex = (currentIndex - 1 + modeConfig.length) % modeConfig.length;
+        } else if (e.key === "Home") {
+            e.preventDefault();
+            nextIndex = 0;
+        } else if (e.key === "End") {
+            e.preventDefault();
+            nextIndex = modeConfig.length - 1;
+        }
+
+        if (nextIndex !== null) {
+            onModeChange(modeConfig[nextIndex].mode);
+            // Focus the newly selected tab
+            const buttons = tabListRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+            buttons?.[nextIndex]?.focus();
+        }
+    }, [activeMode, onModeChange]);
+
     return (
         <div className="flex flex-col shrink-0">
             {/* Top row: title + connection status + close */}
             <div className="flex items-center justify-between px-4 h-11 border-b border-border/50">
                 <div className="flex items-center gap-2">
-                    {/* Connection status indicator */}
+                    {/* Connection status indicator - semantic status colors intentionally not using theme tokens */}
                     <Circle
                         className={cn(
                             "w-2 h-2 flex-shrink-0",
@@ -81,6 +109,9 @@ export function ComputerHeader({
                             className="h-7 w-7 text-muted-foreground hover:text-foreground"
                             onClick={() => setShowSettings(!showSettings)}
                             title={t("settings")}
+                            aria-label={t("settings")}
+                            aria-expanded={showSettings}
+                            aria-haspopup="true"
                         >
                             <Settings2 className="w-3.5 h-3.5" />
                         </Button>
@@ -101,6 +132,7 @@ export function ComputerHeader({
                                     <span className="flex-1 text-left text-foreground">
                                         {t("followAgent")}
                                     </span>
+                                    {/* Semantic on/off status colors */}
                                     <span className={cn(
                                         "text-[10px] px-1.5 py-0.5 rounded font-medium",
                                         followAgent
@@ -120,6 +152,7 @@ export function ComputerHeader({
                                     <span className="flex-1 text-left text-foreground">
                                         {t("autoOpen")}
                                     </span>
+                                    {/* Semantic on/off status colors */}
                                     <span className={cn(
                                         "text-[10px] px-1.5 py-0.5 rounded font-medium",
                                         autoOpen
@@ -139,6 +172,7 @@ export function ComputerHeader({
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
                         onClick={onClose}
                         title={t("close")}
+                        aria-label={t("close")}
                     >
                         <X className="w-3.5 h-3.5" />
                     </Button>
@@ -146,7 +180,13 @@ export function ComputerHeader({
             </div>
 
             {/* Tab row: icon+label buttons */}
-            <div className="flex items-center px-2 h-10 border-b border-border/30 gap-0.5">
+            <div
+                className="flex items-center px-2 h-10 border-b border-border/30 gap-0.5"
+                role="tablist"
+                aria-label={t("panelTitle")}
+                ref={tabListRef}
+                onKeyDown={handleTabKeyDown}
+            >
                 {modeConfig.map(({ mode, icon: Icon, labelKey }) => {
                     const isActive = activeMode === mode;
                     const hasActivity = !isActive && tabActivity[mode];
@@ -161,7 +201,9 @@ export function ComputerHeader({
                                     : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                             )}
                             onClick={() => onModeChange(mode)}
-                            aria-current={isActive ? "true" : undefined}
+                            role="tab"
+                            aria-selected={isActive}
+                            tabIndex={isActive ? 0 : -1}
                         >
                             <Icon className="w-3.5 h-3.5 flex-shrink-0" />
                             <span>{t(labelKey)}</span>

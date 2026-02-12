@@ -234,14 +234,6 @@ function TextInput({
 export function AskUserInput({ interrupt, onRespond, onCancel }: AskUserInputProps) {
     const t = useTranslations("hitl");
 
-    // Debug: Log when component renders with new interrupt
-    console.log("[AskUserInput] Rendering with interrupt:", {
-        interrupt_id: interrupt.interrupt_id,
-        message: interrupt.message?.substring(0, 50),
-        options: interrupt.options?.map(o => o.label),
-        interrupt_type: interrupt.interrupt_type,
-    });
-
     const handleExpire = useCallback(() => {
         onRespond({
             interrupt_id: interrupt.interrupt_id,

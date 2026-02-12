@@ -5,34 +5,35 @@
 
 @layer base {
   :root {
-    /* Light Theme - Ultra-clean, neutral with subtle warmth */
-    --background: 0 0% 100%;
-    --foreground: 0 0% 9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 94%;
-    --muted-foreground: 0 0% 45%;
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 0 0% 9%;
-    --radius: 0.625rem;
+    /* Light Theme - Claude warm terracotta (OKLCH) */
+    --background: 0.98 0.01 95.10;
+    --foreground: 0.34 0.03 95.72;
+    --card: 0.98 0.01 95.10;
+    --card-foreground: 0.27 0.02 98.94;
+    --popover: 1.00 0 0;
+    --popover-foreground: 0.27 0.02 98.94;
+    --primary: 0.62 0.14 39.04;
+    --primary-foreground: 1.00 0 0;
+    --secondary: 0.92 0.01 92.99;
+    --secondary-foreground: 0.43 0.02 98.60;
+    --muted: 0.93 0.02 90.24;
+    --muted-foreground: 0.61 0.01 97.42;
+    --accent: 0.94 0.02 70.00;
+    --accent-foreground: 0.27 0.02 98.94;
+    --accent-cyan: 190 80% 42%;
+    --destructive: 0.57 0.22 27.00;
+    --destructive-foreground: 1.00 0 0;
+    --border: 0.88 0.01 97.36;
+    --input: 0.76 0.02 98.35;
+    --ring: 0.62 0.14 39.04;
+    --radius: 0.5rem;
 
-    /* Semantic status colors */
+    /* Semantic status colors (HSL) */
     --success: 142 71% 45%;
     --warning: 38 92% 50%;
     --info: 221 83% 53%;
 
-    /* Terminal colors */
+    /* Terminal colors (HSL) */
     --terminal-bg: 220 13% 10%;
     --terminal-fg: 220 9% 87%;
     --terminal-prompt: 142 71% 45%;
@@ -43,36 +44,66 @@
     --terminal-tool: 187 100% 42%;
     --terminal-skill: 270 60% 65%;
     --terminal-browser: 30 100% 50%;
+
+    /* Chart colors (OKLCH) */
+    --chart-1: 0.56 0.13 43.00;
+    --chart-2: 0.69 0.16 290.41;
+    --chart-3: 0.88 0.03 93.13;
+    --chart-4: 0.88 0.04 298.18;
+    --chart-5: 0.56 0.13 42.06;
+
+    /* Sidebar (OKLCH) */
+    --sidebar: 0.97 0.01 98.88;
+    --sidebar-foreground: 0.36 0.01 106.65;
+    --sidebar-primary: 0.62 0.14 39.04;
+    --sidebar-primary-foreground: 0.99 0 0;
+    --sidebar-accent: 0.92 0.01 92.99;
+    --sidebar-accent-foreground: 0.33 0.02 98.94;
+    --sidebar-border: 0.94 0.01 97.00;
+    --sidebar-ring: 0.62 0.14 39.04;
+
+    /* Shadows */
+    --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-sm: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow-md: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 2px 4px -2px hsl(0 0% 0% / 0.10);
+    --shadow-lg: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 4px 6px -2px hsl(0 0% 0% / 0.10);
+    --shadow-xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 8px 10px -2px hsl(0 0% 0% / 0.10);
+    --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
+    --tracking-normal: 0em;
   }
 
   .dark {
-    /* Dark Theme - True dark with high contrast */
-    --background: 0 0% 7%;
-    --foreground: 0 0% 95%;
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 95%;
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 0 0% 100%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14%;
-    --secondary-foreground: 0 0% 95%;
-    --muted: 0 0% 16%;
-    --muted-foreground: 0 0% 55%;
-    --accent: 0 0% 16%;
-    --accent-foreground: 0 0% 95%;
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
-    --ring: 0 0% 100%;
+    /* Dark Theme - Claude warm charcoal (OKLCH)
+       Hierarchy: muted(0.22) < accent(0.23) < background(0.27) < card(0.30) < secondary(0.33) < border(0.38) */
+    --background: 0.27 0.00 106.64;
+    --foreground: 0.81 0.01 93.01;
+    --card: 0.30 0.01 95.00;
+    --card-foreground: 0.95 0.01 95.10;
+    --popover: 0.31 0.00 106.60;
+    --popover-foreground: 0.92 0.00 106.48;
+    --primary: 0.67 0.13 38.76;
+    --primary-foreground: 1.00 0 0;
+    --secondary: 0.33 0.01 95.00;
+    --secondary-foreground: 0.92 0.01 95.00;
+    --muted: 0.22 0.00 106.71;
+    --muted-foreground: 0.70 0.01 99.07;
+    --accent: 0.23 0.01 95.42;
+    --accent-foreground: 0.97 0.01 98.88;
+    --accent-cyan: 190 70% 55%;
+    --destructive: 0.64 0.21 25.33;
+    --destructive-foreground: 1.00 0 0;
+    --border: 0.38 0.01 106.89;
+    --input: 0.35 0.01 100.22;
+    --ring: 0.67 0.13 38.76;
 
-    /* Semantic status colors */
+    /* Semantic status colors (HSL) */
     --success: 142 71% 50%;
     --warning: 38 92% 55%;
     --info: 221 83% 58%;
 
-    /* Terminal colors (dark mode) */
+    /* Terminal colors (HSL, dark mode) */
     --terminal-bg: 220 13% 6%;
     --terminal-fg: 220 9% 90%;
     --terminal-prompt: 142 71% 50%;
@@ -83,6 +114,46 @@
     --terminal-tool: 187 100% 50%;
     --terminal-skill: 270 60% 70%;
     --terminal-browser: 30 100% 55%;
+
+    /* Chart colors (OKLCH, dark mode) */
+    --chart-1: 0.56 0.13 43.00;
+    --chart-2: 0.69 0.16 290.41;
+    --chart-3: 0.21 0.01 95.42;
+    --chart-4: 0.31 0.05 289.32;
+    --chart-5: 0.56 0.13 42.06;
+
+    /* Sidebar (OKLCH, dark mode) */
+    --sidebar: 0.24 0.00 67.71;
+    --sidebar-foreground: 0.81 0.01 93.01;
+    --sidebar-primary: 0.67 0.13 38.76;
+    --sidebar-primary-foreground: 0.99 0 0;
+    --sidebar-accent: 0.28 0.01 95.00;
+    --sidebar-accent-foreground: 0.81 0.01 93.01;
+    --sidebar-border: 0.36 0.01 106.89;
+    --sidebar-ring: 0.45 0.01 100.00;
+    --tracking-normal: 0em;
+    --radius: 0.5rem;
+
+    /* Shadows */
+    --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-sm: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow-md: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 2px 4px -2px hsl(0 0% 0% / 0.10);
+    --shadow-lg: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 4px 6px -2px hsl(0 0% 0% / 0.10);
+    --shadow-xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 8px 10px -2px hsl(0 0% 0% / 0.10);
+    --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
+  }
+  .theme {
+    --radius: 0.5rem;
+    --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
+    --tracking-tight: calc(var(--tracking-normal) - 0.025em);
+    --tracking-wide: calc(var(--tracking-normal) + 0.025em);
+    --tracking-wider: calc(var(--tracking-normal) + 0.05em);
+    --tracking-widest: calc(var(--tracking-normal) + 0.1em);
+  }
+  body {
+    letter-spacing: var(--tracking-normal);
   }
 }
 
@@ -144,23 +215,23 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: oklch(var(--border));
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: oklch(var(--muted-foreground) / 0.3);
 }
 
 /* Selection */
 ::selection {
-  background: hsl(var(--primary) / 0.15);
-  color: hsl(var(--foreground));
+  background: oklch(var(--primary) / 0.15);
+  color: oklch(var(--foreground));
 }
 
 /* Focus states */
 :focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid oklch(var(--ring));
   outline-offset: 2px;
 }
 
@@ -359,7 +430,7 @@ code:not(pre code) {
 }
 
 /* Touch targets */
-button, a {
+button {
   min-height: 32px;
 }
 
@@ -384,41 +455,41 @@ button, a {
 
 /* Border utilities */
 .border-subtle {
-  border-color: hsl(var(--border) / 0.5);
+  border-color: oklch(var(--border) / 0.5);
 }
 
 .border-muted {
-  border-color: hsl(var(--border) / 0.3);
+  border-color: oklch(var(--border) / 0.3);
 }
 
 /* Brand Typography - clean and minimal */
 .brand-title {
   font-family: var(--font-plus-jakarta-sans), system-ui, sans-serif;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: hsl(var(--foreground));
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: oklch(var(--foreground));
 }
 
 /* Brand title size variants - balanced scale */
 .brand-title-sm {
-  font-size: 1rem; /* 16px */
+  font-size: 17px;
   line-height: 1.25;
   letter-spacing: -0.02em;
 }
 
 .brand-title-md {
-  font-size: 1.5rem; /* 24px */
+  font-size: 32px;
   line-height: 1.2;
 }
 
 .brand-title-lg {
-  font-size: 2rem; /* 32px */
+  font-size: 40px;
   line-height: 1.1;
 }
 
 @media (min-width: 768px) {
   .brand-title-lg {
-    font-size: 2.5rem; /* 40px */
+    font-size: 48px;
   }
 }
 
@@ -443,9 +514,9 @@ button, a {
 .shimmer {
   background: linear-gradient(
     90deg,
-    hsl(var(--muted) / 0.6) 0%,
-    hsl(var(--muted) / 0.3) 50%,
-    hsl(var(--muted) / 0.6) 100%
+    oklch(var(--muted) / 0.6) 0%,
+    oklch(var(--muted) / 0.3) 50%,
+    oklch(var(--muted) / 0.6) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
@@ -465,7 +536,6 @@ button, a {
   animation: typing-bounce 1.4s ease-in-out infinite;
 }
 
-
 /* Auto-resize textarea using modern CSS */
 .textarea-auto-resize {
   field-sizing: content;
@@ -474,7 +544,7 @@ button, a {
 
 /* Focus state - subtle ring per Design Style Guide */
 .focus-glow:focus-visible {
-  box-shadow: 0 0 0 2px hsl(var(--foreground) / 0.2);
+  box-shadow: 0 0 0 2px oklch(var(--foreground) / 0.2);
   outline: none;
 }
 
@@ -491,7 +561,7 @@ button, a {
   display: inline-block;
   width: 1.5px;
   height: 1em;
-  background: hsl(var(--foreground) / 0.9);
+  background: oklch(var(--foreground) / 0.9);
   border-radius: 0.5px;
   transform: translateY(0.08em);
   animation: cursor-blink 0.95s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -524,16 +594,16 @@ button, a {
 
 /* Clean card utilities - no blur effects for simplicity */
 .glass {
-  background: hsl(var(--background));
+  background: oklch(var(--background));
 }
 
 .glass-card {
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
+  background: oklch(var(--card));
+  border: 1px solid oklch(var(--border));
 }
 
 .glass-secondary {
-  background: hsl(var(--secondary));
+  background: oklch(var(--secondary));
 }
 
 /* Browser progress bar animation */

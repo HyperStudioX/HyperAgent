@@ -62,7 +62,7 @@ function CopyButton({ text }: { text: string }) {
                         aria-label={t("copyCommand")}
                     >
                         {copied ? (
-                            <Check className="w-3.5 h-3.5 text-green-400" />
+                            <Check className="w-3.5 h-3.5 text-terminal-prompt" />
                         ) : (
                             <Copy className="w-3.5 h-3.5" />
                         )}
@@ -83,7 +83,7 @@ function TerminalPrompt({ cwd }: { cwd?: string }) {
                 ubuntu@sandbox
             </span>
             <span className="text-terminal-fg">:</span>
-            <span className="text-blue-400">{cwd || "~"}</span>
+            <span className="text-terminal-command">{cwd || "~"}</span>
             <span className="text-terminal-fg">$ </span>
         </>
     );
@@ -242,7 +242,7 @@ export function ComputerTerminalView({
                     className="p-3 font-mono text-sm leading-relaxed min-h-full"
                     role="log"
                     aria-live="polite"
-                    aria-label="Terminal output"
+                    aria-label={t("terminalOutput")}
                 >
                     {visibleLines.length === 0 && !currentCommand ? (
                         <div className="flex flex-col items-center justify-center h-full min-h-[120px] gap-2">

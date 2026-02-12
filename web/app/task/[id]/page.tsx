@@ -1,8 +1,6 @@
 import { MainLayout } from "@/components/layout/main-layout";
 import { ResearchProgress } from "@/components/task/research-progress";
 
-export const dynamic = "force-dynamic";
-
 interface TaskPageProps {
   params: Promise<{ id: string }>;
 }

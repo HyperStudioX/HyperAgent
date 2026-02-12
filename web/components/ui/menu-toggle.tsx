@@ -44,7 +44,7 @@ export function MenuToggle({ isOpen, onClick, className }: MenuToggleProps) {
                     strokeWidth="1.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="transition-all duration-300 ease-out"
+                    className="transition-colors duration-300 ease-out"
                 />
 
                 {/* Vertical divider */}

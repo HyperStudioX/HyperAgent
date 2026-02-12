@@ -54,7 +54,7 @@ const createEventHandlers = (): Map<string, EventHandler> => {
     handlers.set("task_started", (event, ctx) => {
         const backendTaskId = event.task_id;
         if (backendTaskId) {
-            console.log(`[ResearchProgress] Backend task started: ${backendTaskId}`);
+            // Backend task started
         }
         ctx.updateTaskStatus(ctx.taskId, "running");
     });
@@ -305,7 +305,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
             // 1. Check localStorage for NEW task first (just submitted from Home)
             const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
             if (storedTaskInfo) {
-                console.log(`[ResearchProgress] New task detected in local storage for ${taskId}`);
                 try {
                     const info = JSON.parse(storedTaskInfo) as TaskInfo;
                     setTaskInfo(info);
@@ -351,14 +350,12 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
             // 3. Otherwise fetch from API (existing task from history)
             if (!hasHydrated) return; // Wait for hydration before API fetch
 
-            console.log(`[ResearchProgress] Fetching task ${taskId} from API...`);
             try {
                 const response = await fetch(`/api/v1/tasks/${taskId}/result`, {
                     credentials: 'include',
                 });
                 if (response.ok) {
                     const data = await response.json();
-                    console.log(`[ResearchProgress] Task data received from API:`, data);
                     taskLoadedRef.current = true;
 
                     setTaskInfo({
@@ -539,7 +536,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
         } catch (err) {
             // Don't report abort errors
             if (err instanceof Error && err.name === "AbortError") {
-                console.log("[ResearchProgress] Request aborted");
                 return;
             }
             console.error("Research error:", err);
@@ -567,7 +563,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
             const storedTaskInfo = localStorage.getItem(`task-${taskId}`);
             if (storedTaskInfo) {
                 // Don't remove - let user retry later
-                console.log("[ResearchProgress] Component unmounting with pending task");
             }
         };
     }, [taskId]);

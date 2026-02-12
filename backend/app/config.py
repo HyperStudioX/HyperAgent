@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -165,6 +166,13 @@ class Settings(BaseSettings):
     nextauth_secret: str = ""
     google_client_id: str = ""
     auth_enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_auth_config(self):
+        """Ensure NEXTAUTH_SECRET is set when auth is enabled."""
+        if self.auth_enabled and not self.nextauth_secret:
+            raise ValueError("NEXTAUTH_SECRET must be set when auth is enabled")
+        return self
 
     @property
     def cors_origins_list(self) -> list[str]:

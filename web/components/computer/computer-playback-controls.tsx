@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useComputerStore, type TimelineEvent, type PlaybackSpeed } from "@/lib/stores/computer-store";
 
-// Colors for timeline event marker dots
+/* Semantic timeline event colors - intentionally using distinct colors per event type for visual differentiation */
 const EVENT_TYPE_COLORS: Record<TimelineEvent["type"], string> = {
     terminal: "bg-emerald-500",
     plan: "bg-blue-500",
@@ -124,6 +124,7 @@ export function ComputerPlaybackControls({
                 onClick={togglePlayback}
                 disabled={totalSteps === 0}
                 title={isPlaying ? t("pause") : t("play")}
+                aria-label={isPlaying ? t("pause") : t("play")}
             >
                 {isPlaying ? (
                     <Pause className="w-3.5 h-3.5" />
@@ -140,6 +141,7 @@ export function ComputerPlaybackControls({
                 onClick={onPrevStep}
                 disabled={currentStep <= 0}
                 title={t("previousStep")}
+                aria-label={t("previousStep")}
             >
                 <SkipBack className="w-3 h-3" />
             </Button>
@@ -152,6 +154,7 @@ export function ComputerPlaybackControls({
                 onClick={onNextStep}
                 disabled={currentStep >= totalSteps}
                 title={t("nextStep")}
+                aria-label={t("nextStep")}
             >
                 <SkipForward className="w-3 h-3" />
             </Button>
@@ -227,6 +230,7 @@ export function ComputerPlaybackControls({
                         "min-w-[28px] text-center"
                     )}
                     title={t("playbackSpeed")}
+                    aria-label={t("playbackSpeed")}
                 >
                     {playbackSpeed}x
                 </button>
@@ -241,6 +245,7 @@ export function ComputerPlaybackControls({
                         "text-[10px] font-medium",
                         "bg-blue-500/10 text-blue-500"
                     )}
+                    aria-label={t("live")}
                 >
                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
                     {t("live")}
@@ -254,6 +259,7 @@ export function ComputerPlaybackControls({
                         "hover:bg-secondary transition-colors"
                     )}
                     title={t("goToLive")}
+                    aria-label={t("goToLive")}
                 >
                     <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
                     {t("stepOf", { current: currentStep, total: totalSteps })}

@@ -201,7 +201,7 @@ function DecisionContent({
                     <button
                         key={option.value}
                         className={cn(
-                            "w-full text-left p-3 rounded-lg border transition-all",
+                            "w-full text-left p-3 rounded-lg border transition-colors",
                             selected === option.value
                                 ? "border-accent-cyan bg-accent-cyan/10"
                                 : "border-border hover:border-border/80 hover:bg-secondary/50"
@@ -428,7 +428,7 @@ export function InterruptDialog({ interrupt, onRespond, onCancel }: InterruptDia
             <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 pointer-events-none">
                 <div
                     className={cn(
-                        "bg-background border border-border rounded-xl shadow-lg pointer-events-auto",
+                        "bg-background border border-border rounded-xl shadow-sm pointer-events-auto",
                         "w-full max-w-md max-h-[85vh] overflow-hidden",
                         "animate-in zoom-in-95 fade-in duration-200"
                     )}

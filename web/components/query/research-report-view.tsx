@@ -93,7 +93,7 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
             {toc.length > 0 && (
                 <aside
                     className={cn(
-                        "hidden lg:block shrink-0 h-fit sticky top-10 md:top-12 transition-all duration-300 ease-in-out border-r border-transparent",
+                        "hidden lg:block shrink-0 h-fit sticky top-10 md:top-12 transition-colors duration-300 ease-in-out border-r border-transparent",
                         isTocCollapsed ? "w-12" : "w-64"
                     )}
                 >

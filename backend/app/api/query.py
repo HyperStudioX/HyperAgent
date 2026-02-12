@@ -36,6 +36,22 @@ from app.workers.task_queue import task_queue
 
 logger = get_logger(__name__)
 
+# Shared Redis client for research stream subscriptions.
+# Avoids creating a new connection per SSE stream.
+_redis_pool = None
+
+
+def _get_shared_redis():
+    """Get or create a shared Redis client for pub/sub streaming."""
+    global _redis_pool
+    if _redis_pool is None:
+        from redis.asyncio import Redis
+
+        from app.config import settings
+
+        _redis_pool = Redis.from_url(settings.redis_url, decode_responses=True)
+    return _redis_pool
+
 router = APIRouter(prefix="/query")
 
 
@@ -301,8 +317,8 @@ async def query(
         logger.error("chat_error", error=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("chat_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+        logger.error("chat_error", error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred while processing your message.")
 
     else:
         # Handle research mode
@@ -409,6 +425,10 @@ async def stream_query(
                     "Connection": "keep-alive",
                 },
             )
+
+        # Note: The DB session (from Depends(get_db)) is held for the entire
+        # SSE stream lifecycle. Ideally, release it before entering the
+        # long-running generator to free the connection pool slot.
 
         # Stream agent response using supervisor
         async def agent_generator() -> AsyncGenerator[str, None]:
@@ -694,18 +714,14 @@ async def stream_query(
 
         async def research_stream_from_worker() -> AsyncGenerator[dict, None]:
             """Stream research progress from worker via Redis pub/sub."""
-            from redis.asyncio import Redis
-
-            from app.config import settings
-
             # Send initial event with task_id for backward compatibility
             yield {
                 "event": "message",
                 "data": json.dumps({"type": "task_started", "task_id": task_id}),
             }
 
-            # Subscribe to worker progress channel
-            redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            # Subscribe to worker progress channel using shared Redis connection
+            redis = _get_shared_redis()
             pubsub = redis.pubsub()
             channel = f"hyperagent:progress:{task_id}"
 
@@ -842,7 +858,7 @@ async def stream_query(
                 }
             finally:
                 await pubsub.unsubscribe(channel)
-                await redis.aclose()
+                # Note: redis client is shared (module-level pool), do not close it here
 
         return EventSourceResponse(research_stream_from_worker())
 
@@ -865,5 +881,9 @@ async def get_query_status(
 
     if not task_data:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    # Verify the requesting user owns this task
+    if task_data.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     return task_data

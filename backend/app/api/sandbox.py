@@ -62,6 +62,10 @@ async def list_sandbox_files(
         user_id=user_id,
     )
 
+    # Validate path to prevent traversal
+    if ".." in path:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
     try:
         # Get the appropriate sandbox manager
         if sandbox_type == "execution":
@@ -118,7 +122,7 @@ async def list_sandbox_files(
 
     except Exception as e:
         logger.error("list_sandbox_files_error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to list sandbox files")
 
 
 @router.get("/files/content")
@@ -153,6 +157,10 @@ async def read_sandbox_file(
         path=path,
         user_id=user_id,
     )
+
+    # Validate path to prevent traversal
+    if ".." in path:
+        raise HTTPException(status_code=400, detail="Invalid path")
 
     try:
         # Get the appropriate sandbox manager
@@ -194,4 +202,4 @@ async def read_sandbox_file(
         raise
     except Exception as e:
         logger.error("read_sandbox_file_error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to read sandbox file")

@@ -119,7 +119,7 @@ export function ComputerBrowserView({
                 disabled
                 title={t("browserRefresh")}
             >
-                <RotateCw className="w-3 h-3" />
+                <RotateCw className="w-3.5 h-3.5" />
             </Button>
 
             {/* URL bar */}
@@ -146,6 +146,7 @@ export function ComputerBrowserView({
             </div>
 
             {/* Right-side controls */}
+            {/* Semantic live status color - intentionally green */}
             {isLive && stream && (
                 <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -192,7 +193,7 @@ export function ComputerBrowserView({
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 max-w-[80%]">
             <div className={cn(
                 "flex items-center gap-2 px-3 py-1.5 rounded-lg",
-                "bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm",
+                "bg-background/95 border border-border/50 shadow-sm",
                 "animate-in fade-in slide-in-from-bottom-2 duration-200"
             )}>
                 <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0" />
@@ -234,7 +235,7 @@ export function ComputerBrowserView({
                         )}
                         disabled
                     >
-                        <RotateCw className="w-3 h-3" />
+                        <RotateCw className="w-3.5 h-3.5" />
                     </Button>
 
                     {/* Fullscreen URL bar */}
@@ -260,6 +261,7 @@ export function ComputerBrowserView({
                         )}
                     </div>
 
+                    {/* Semantic live status color - intentionally green */}
                     {isLive && (
                         <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-green-500/20">
                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -274,6 +276,8 @@ export function ComputerBrowserView({
                         size="icon"
                         className="h-6 w-6 text-white hover:bg-white/10"
                         onClick={handleScreenshot}
+                        title={t("browserScreenshot")}
+                        aria-label={t("browserScreenshot")}
                     >
                         <Camera className="w-3.5 h-3.5" />
                     </Button>
@@ -283,6 +287,7 @@ export function ComputerBrowserView({
                         className="h-6 w-6 text-white hover:bg-white/10"
                         onClick={() => setIsFullscreen(false)}
                         title={t("browserExitFullscreen")}
+                        aria-label={t("browserExitFullscreen")}
                     >
                         <Minimize2 className="w-3.5 h-3.5" />
                     </Button>
@@ -305,6 +310,7 @@ export function ComputerBrowserView({
                         allow="autoplay; fullscreen"
                         referrerPolicy="no-referrer"
                         onLoad={() => handleIframeLoad(fullscreenIframeRef)}
+                        title={t("browserIframeTitle")}
                     />
                     {actionOverlay}
                 </div>
@@ -331,6 +337,7 @@ export function ComputerBrowserView({
                     allow="autoplay; fullscreen"
                     referrerPolicy="no-referrer"
                     onLoad={() => handleIframeLoad(iframeRef)}
+                    title={t("browserIframeTitle")}
                 />
                 {actionOverlay}
             </div>

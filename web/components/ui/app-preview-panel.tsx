@@ -76,7 +76,7 @@ export function AppPreviewPanel({
       className={cn(
         "rounded-lg border border-border/80 bg-card overflow-hidden flex flex-col",
         isFullscreen
-          ? "fixed inset-4 z-50 shadow-2xl"
+          ? "fixed inset-4 z-50 shadow-sm"
           : "w-full h-[400px]",
         className
       )}
@@ -162,7 +162,7 @@ export function AppPreviewPanel({
       </div>
 
       {/* Content */}
-      <div className="flex-1 relative bg-white">
+      <div className="flex-1 relative bg-background">
         {/* Loading overlay */}
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
@@ -297,7 +297,7 @@ export function InlineAppPreview({
       {/* Expandable preview */}
       {expanded && (
         <div className="border-t border-border/60">
-          <div className="h-[300px] bg-white">
+          <div className="h-[300px] bg-background">
             <iframe
               src={previewUrl}
               className="w-full h-full border-0"

@@ -86,7 +86,8 @@ class SandboxRuntime(Protocol):
             port: Port number in the sandbox
 
         Returns:
-            Public URL string (e.g., "https://sandbox-id-port.e2b.dev" or "localhost:10000")
+            Full URL with scheme (e.g., "https://sandbox-id-port.e2b.dev"
+            or "http://localhost:10000")
         """
         ...
 
