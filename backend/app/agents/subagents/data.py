@@ -96,8 +96,9 @@ async def plan_analysis_node(state: DataAnalysisState) -> dict:
         # Determine analysis type and approach
         planning_prompt = get_planning_prompt(query, attachments_context)
         provider = state.get("provider") or LLMProvider.ANTHROPIC
+        tier = state.get("tier")
         model = state.get("model")
-        llm = llm_service.get_llm(provider=provider, model=model)
+        llm = llm_service.choose_llm_for_task("data", provider=provider, tier_override=tier, model_override=model)
         messages = [SystemMessage(content=PLANNING_SYSTEM_PROMPT)]
         append_history(messages, state.get("messages", []))
         messages.append(HumanMessage(content=planning_prompt))
@@ -255,7 +256,9 @@ async def generate_code_node(state: DataAnalysisState) -> dict:
         provider = state.get("provider") or LLMProvider.ANTHROPIC
         model = state.get("model")
         # Use MAX tier for code generation to ensure high-quality, correct code
-        llm = llm_service.get_llm_for_tier(ModelTier.MAX, provider=provider, model_override=model)
+        llm = llm_service.choose_llm_for_task(
+            "code", provider=provider, tier_override=ModelTier.MAX, model_override=model
+        )
         messages = [SystemMessage(content=DATA_ANALYSIS_SYSTEM_PROMPT)]
         append_history(messages, state.get("messages", []))
         messages.append(HumanMessage(content=code_generation_prompt))

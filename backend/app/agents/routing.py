@@ -83,24 +83,6 @@ Query: "Generate a picture of a cat"
 Query: "Create a detailed academic research paper on quantum computing"
 {"agent": "research", "confidence": 0.9, "reason": "Comprehensive research requiring detailed analysis"}"""
 
-# Fallback prompt for legacy parsing (backward compatibility)
-ROUTER_PROMPT_LEGACY = """You are a routing assistant that determines which specialized agent should handle a user query.
-
-Available agents:
-1. CHAT - Primary agent for most tasks: conversation, Q&A, images, writing, coding, app building, web search. Has powerful skills.
-2. RESEARCH - ONLY for deep, comprehensive research with detailed analysis
-3. DATA - ONLY for data analytics, CSV processing, and data visualization
-
-IMPORTANT: Route almost everything to CHAT (including ALL writing and coding tasks). Only use specialized agents for:
-- RESEARCH: Comprehensive multi-step research with synthesis
-- DATA: Data analytics and visualization
-
-Analyze the user's query and respond with ONLY the agent name (CHAT, RESEARCH, or DATA) followed by a brief reason.
-
-Format your response exactly as:
-AGENT: <agent_name>
-REASON: <brief_explanation>"""
-
 
 @dataclass
 class RoutingResult:

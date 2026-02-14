@@ -76,13 +76,13 @@ function getTypeLabelKey(type: PlanItem["type"]): string {
     }
 }
 
-function formatDuration(startMs: number, endMs?: number): string {
+function formatDuration(startMs: number, endMs: number | undefined, t: (key: string, params?: Record<string, string | number | Date>) => string): string {
     const elapsed = (endMs || Date.now()) - startMs;
-    if (elapsed < 1000) return "<1s";
-    if (elapsed < 60000) return `${Math.round(elapsed / 1000)}s`;
+    if (elapsed < 1000) return t("duration.lessThanSecond");
+    if (elapsed < 60000) return t("duration.seconds", { count: Math.round(elapsed / 1000) });
     const mins = Math.floor(elapsed / 60000);
     const secs = Math.round((elapsed % 60000) / 1000);
-    return `${mins}m ${secs}s`;
+    return t("duration.minutesSeconds", { min: mins, sec: secs });
 }
 
 function StatusIndicator({ status, type }: { status: PlanItem["status"]; type: PlanItem["type"] }) {
@@ -193,7 +193,7 @@ function TimelineItem({
                             "text-[11px] tabular-nums text-muted-foreground/60",
                             item.status === "running" && "text-muted-foreground"
                         )}>
-                            {formatDuration(item.timestamp, endTime)}
+                            {formatDuration(item.timestamp, endTime, t)}
                         </span>
                     </div>
 

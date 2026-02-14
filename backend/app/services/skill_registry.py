@@ -327,6 +327,20 @@ class SkillRegistry:
             skill_name=skill.metadata.name,
         )
 
+    def unload_skill(self, skill_id: str) -> bool:
+        """Remove a skill from the in-memory registry.
+
+        Args:
+            skill_id: Unique identifier for the skill
+
+        Returns:
+            True if the skill was found and removed, False otherwise
+        """
+        if skill_id in self._loaded_skills:
+            del self._loaded_skills[skill_id]
+            return True
+        return False
+
     def get_skill(self, skill_id: str) -> Optional[Skill]:
         """Get a loaded skill by ID.
 

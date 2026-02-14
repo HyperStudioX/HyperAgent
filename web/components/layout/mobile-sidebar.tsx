@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { Sparkles, FolderOpen } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useTaskStore } from "@/lib/stores/task-store";
@@ -18,6 +20,8 @@ interface MobileSidebarProps {
 
 export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
     const router = useRouter();
+    const pathname = usePathname();
+    const t = useTranslations("sidebar");
     const { status } = useSession();
     const {
         conversations,
@@ -252,6 +256,48 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                         }}
                     />
                 </div>
+
+                <div className="mx-3 border-t border-border/50" />
+
+                {/* Skills Link */}
+                <div className="px-3 pt-2 pb-1">
+                    <button
+                        onClick={() => {
+                            router.push("/skills");
+                            onClose();
+                        }}
+                        className={cn(
+                            "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                            pathname === "/skills"
+                                ? "bg-secondary text-foreground"
+                                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                        )}
+                    >
+                        <Sparkles className="w-4 h-4" />
+                        <span>{t("skills")}</span>
+                    </button>
+                </div>
+
+                {/* Projects Link */}
+                <div className="px-3 pb-2">
+                    <button
+                        onClick={() => {
+                            router.push("/projects");
+                            onClose();
+                        }}
+                        className={cn(
+                            "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                            pathname === "/projects" || pathname?.startsWith("/projects/")
+                                ? "bg-secondary text-foreground"
+                                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                        )}
+                    >
+                        <FolderOpen className="w-4 h-4" />
+                        <span>{t("projects")}</span>
+                    </button>
+                </div>
+
+                <div className="mx-3 border-t border-border/50" />
 
                 {/* Recent Items */}
                 {hasHydrated && (

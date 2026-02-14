@@ -6,24 +6,24 @@
 @layer base {
   :root {
     /* Light Theme - Claude warm terracotta (OKLCH) */
-    --background: 0.98 0.01 95.10;
-    --foreground: 0.34 0.03 95.72;
-    --card: 0.98 0.01 95.10;
+    --background: 0.98 0.01 93.48;
+    --foreground: 0.34 0.03 94.42;
+    --card: 0.98 0.01 93.48;
     --card-foreground: 0.27 0.02 98.94;
     --popover: 1.00 0 0;
     --popover-foreground: 0.27 0.02 98.94;
     --primary: 0.62 0.14 39.04;
     --primary-foreground: 1.00 0 0;
-    --secondary: 0.92 0.01 92.99;
+    --secondary: 0.92 0.01 87.42;
     --secondary-foreground: 0.43 0.02 98.60;
-    --muted: 0.93 0.02 90.24;
-    --muted-foreground: 0.61 0.01 97.42;
-    --accent: 0.94 0.02 70.00;
+    --muted: 0.95 0.01 91.46;
+    --muted-foreground: 0.61 0.01 91.49;
+    --accent: 0.92 0.01 87.42;
     --accent-foreground: 0.27 0.02 98.94;
     --accent-cyan: 190 80% 42%;
     --destructive: 0.57 0.22 27.00;
     --destructive-foreground: 1.00 0 0;
-    --border: 0.88 0.01 97.36;
+    --border: 0.91 0.01 97.36;
     --input: 0.76 0.02 98.35;
     --ring: 0.62 0.14 39.04;
     --radius: 0.5rem;
@@ -53,12 +53,12 @@
     --chart-5: 0.56 0.13 42.06;
 
     /* Sidebar (OKLCH) */
-    --sidebar: 0.97 0.01 98.88;
+    --sidebar: 0.97 0.01 93.49;
     --sidebar-foreground: 0.36 0.01 106.65;
     --sidebar-primary: 0.62 0.14 39.04;
     --sidebar-primary-foreground: 0.99 0 0;
-    --sidebar-accent: 0.92 0.01 92.99;
-    --sidebar-accent-foreground: 0.33 0.02 98.94;
+    --sidebar-accent: 0.22 0.01 95.00;
+    --sidebar-accent-foreground: 0.98 0.01 93.48;
     --sidebar-border: 0.94 0.01 97.00;
     --sidebar-ring: 0.62 0.14 39.04;
 
@@ -76,11 +76,11 @@
 
   .dark {
     /* Dark Theme - Claude warm charcoal (OKLCH)
-       Hierarchy: muted(0.22) < accent(0.23) < background(0.27) < card(0.30) < secondary(0.33) < border(0.38) */
+       Hierarchy: muted(0.22) < accent(0.23) < background/card(0.27) < secondary(0.33) < border(0.38) */
     --background: 0.27 0.00 106.64;
     --foreground: 0.81 0.01 93.01;
-    --card: 0.30 0.01 95.00;
-    --card-foreground: 0.95 0.01 95.10;
+    --card: 0.27 0.01 95.00;
+    --card-foreground: 0.98 0.01 93.48;
     --popover: 0.31 0.00 106.60;
     --popover-foreground: 0.92 0.00 106.48;
     --primary: 0.67 0.13 38.76;
@@ -88,14 +88,14 @@
     --secondary: 0.33 0.01 95.00;
     --secondary-foreground: 0.92 0.01 95.00;
     --muted: 0.22 0.00 106.71;
-    --muted-foreground: 0.70 0.01 99.07;
+    --muted-foreground: 0.77 0.02 100.64;
     --accent: 0.23 0.01 95.42;
     --accent-foreground: 0.97 0.01 98.88;
     --accent-cyan: 190 70% 55%;
     --destructive: 0.64 0.21 25.33;
     --destructive-foreground: 1.00 0 0;
     --border: 0.38 0.01 106.89;
-    --input: 0.35 0.01 100.22;
+    --input: 0.43 0.01 99.03;
     --ring: 0.67 0.13 38.76;
 
     /* Semantic status colors (HSL) */
@@ -240,6 +240,11 @@
   transition-property: background-color, border-color, color, opacity;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
+}
+
+/* Prevent transition flicker in Monaco editor syntax spans */
+.monaco-editor * {
+  transition: none !important;
 }
 
 /* Code styling - Cursor-calibrated sizes */

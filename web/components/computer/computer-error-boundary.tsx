@@ -13,6 +13,7 @@ interface Props {
         title: string;
         maxRetries: string;
         retry: (count: number) => string;
+        fallbackErrorMessage: string;
     };
 }
 
@@ -62,7 +63,7 @@ export class ComputerErrorBoundary extends Component<Props, State> {
                         {titleText}
                     </h3>
                     <p className="text-xs text-muted-foreground mb-4 max-w-[300px]">
-                        {this.state.error?.message || this.props.fallbackMessage || "An unexpected error occurred in the computer panel."}
+                        {this.state.error?.message || this.props.fallbackMessage || translations?.fallbackErrorMessage || "An unexpected error occurred in the computer panel."}
                     </p>
                     {canRetry ? (
                         <Button

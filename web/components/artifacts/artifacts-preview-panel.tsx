@@ -6,54 +6,19 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { usePreviewStore } from "@/lib/stores/preview-store";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MenuToggle } from "@/components/ui/menu-toggle";
-
-// Map file extensions to language identifiers for syntax highlighting
-const extensionToLanguage: Record<string, string> = {
-    'py': 'python',
-    'js': 'javascript',
-    'jsx': 'jsx',
-    'ts': 'typescript',
-    'tsx': 'tsx',
-    'json': 'json',
-    'html': 'html',
-    'css': 'css',
-    'md': 'markdown',
-    'yml': 'yaml',
-    'yaml': 'yaml',
-    'xml': 'xml',
-    'sql': 'sql',
-    'sh': 'bash',
-    'bash': 'bash',
-    'java': 'java',
-    'cpp': 'cpp',
-    'c': 'c',
-    'go': 'go',
-    'rs': 'rust',
-    'php': 'php',
-    'rb': 'ruby',
-    'swift': 'swift',
-    'kt': 'kotlin',
-};
-
-function getFileExtension(filename: string): string {
-    const parts = filename.split('.');
-    return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
-}
-
-function getLanguageFromFilename(filename: string): string | null {
-    const ext = getFileExtension(filename);
-    return extensionToLanguage[ext] || null;
-}
+import { getLanguageFromFilename } from "@/lib/utils/file-types";
 
 export function FilePreviewSidebar() {
     const { previewFile: file, isOpen, closePreview } = usePreviewStore();
     const [isExpanded, setIsExpanded] = useState(false);
+    const t = useTranslations("preview");
 
     if (!file || !isOpen) return null;
 
@@ -133,7 +98,7 @@ export function FilePreviewSidebar() {
                             size="icon"
                             className="hidden lg:flex"
                             onClick={() => setIsExpanded(!isExpanded)}
-                            title={isExpanded ? "Minimize" : "Maximize"}
+                            title={isExpanded ? t("minimize") : t("maximize")}
                         >
                             {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                         </Button>
@@ -150,7 +115,7 @@ export function FilePreviewSidebar() {
                     <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={handleDownload} className="h-8 gap-2">
                             <Download className="w-3.5 h-3.5" />
-                            Download
+                            {t("download")}
                         </Button>
                         {file.previewUrl && (
                             <Button
@@ -160,7 +125,7 @@ export function FilePreviewSidebar() {
                                 className="h-8 gap-2"
                             >
                                 <ExternalLink className="w-3.5 h-3.5" />
-                                Raw
+                                {t("raw")}
                             </Button>
                         )}
                     </div>
@@ -192,12 +157,12 @@ export function FilePreviewSidebar() {
                                 <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
                                     <FileText className="w-8 h-8 text-muted-foreground/50" />
                                 </div>
-                                <h4 className="text-base font-medium">No Preview Available</h4>
+                                <h4 className="text-base font-medium">{t("noPreview")}</h4>
                                 <p className="text-sm text-muted-foreground mt-1 max-w-[240px]">
-                                    We can't preview this file type directly. You can download it to view it locally.
+                                    {t("unsupportedType")}
                                 </p>
                                 <Button variant="outline" className="mt-6" onClick={handleDownload}>
-                                    Download {file.filename}
+                                    {t("downloadFile", { filename: file.filename })}
                                 </Button>
                             </div>
                         )}
@@ -209,30 +174,39 @@ export function FilePreviewSidebar() {
 }
 
 function TextFilePreview({ url }: { url: string }) {
-    const [content, setContent] = useState<string>("Loading content...");
+    const t = useTranslations("preview");
+    const [content, setContent] = useState<string | null>(null);
+    const [error, setError] = useState(false);
 
     useEffect(() => {
         fetch(url, { credentials: 'include' })
             .then(res => res.text())
             .then(text => setContent(text.slice(0, 50000)))
-            .catch(() => setContent("Failed to load file content. Please try downloading the file."));
+            .catch(() => setError(true));
     }, [url]);
 
+    if (error) return <>{t("failedToLoad")}</>;
+    if (content === null) return <>{t("loadingContent")}</>;
     return <>{content}</>;
 }
 
 function CodeFilePreview({ url, language, filename }: { url: string; language: string; filename: string }) {
-    const [content, setContent] = useState<string>("Loading...");
+    const t = useTranslations("preview");
+    const [content, setContent] = useState<string | null>(null);
     const { resolvedTheme } = useTheme();
 
     useEffect(() => {
         fetch(url, { credentials: 'include' })
             .then(res => res.text())
             .then(text => setContent(text.slice(0, 50000)))
-            .catch(() => setContent("// Failed to load file content"));
-    }, [url]);
+            .catch(() => setContent("// " + t("failedToLoad")));
+    }, [url, t]);
 
     const isDark = resolvedTheme === "dark";
+
+    if (content === null) {
+        return <div className="p-6 text-sm text-muted-foreground">{t("loading")}</div>;
+    }
 
     return (
         <div className="space-y-4">
@@ -264,14 +238,19 @@ function CodeFilePreview({ url, language, filename }: { url: string; language: s
 }
 
 function MarkdownPreview({ url }: { url: string }) {
-    const [content, setContent] = useState<string>("Loading...");
+    const t = useTranslations("preview");
+    const [content, setContent] = useState<string | null>(null);
 
     useEffect(() => {
         fetch(url, { credentials: 'include' })
             .then(res => res.text())
             .then(text => setContent(text.slice(0, 100000)))
-            .catch(() => setContent("# Failed to load content"));
-    }, [url]);
+            .catch(() => setContent("# " + t("failedToLoad")));
+    }, [url, t]);
+
+    if (content === null) {
+        return <div className="p-6 text-sm text-muted-foreground">{t("loading")}</div>;
+    }
 
     return (
         <div className={cn(
@@ -291,6 +270,7 @@ function MarkdownPreview({ url }: { url: string }) {
 }
 
 function ImagePreview({ url, filename }: { url: string; filename: string }) {
+    const t = useTranslations("preview");
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -315,8 +295,8 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
         };
     }, [url]);
 
-    if (error) return <p className="text-destructive p-4">Error loading image: {error}</p>;
-    if (!blobUrl) return <p className="text-muted-foreground animate-pulse p-4">Loading image...</p>;
+    if (error) return <p className="text-destructive p-4">{t("failedToLoadImage", { error })}</p>;
+    if (!blobUrl) return <p className="text-muted-foreground animate-pulse p-4">{t("loadingImage")}</p>;
 
     return (
         <img
@@ -328,6 +308,7 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
 }
 
 function PDFPreview({ url, filename }: { url: string; filename: string }) {
+    const t = useTranslations("preview");
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
     useEffect(() => {
@@ -346,7 +327,7 @@ function PDFPreview({ url, filename }: { url: string; filename: string }) {
         };
     }, [url]);
 
-    if (!blobUrl) return <div className="h-[400px] flex items-center justify-center text-muted-foreground">Loading PDF...</div>;
+    if (!blobUrl) return <div className="h-[400px] flex items-center justify-center text-muted-foreground">{t("loadingPdf")}</div>;
 
     return (
         <div className="rounded-xl border border-border/50 overflow-hidden h-[70vh] shadow-inner">

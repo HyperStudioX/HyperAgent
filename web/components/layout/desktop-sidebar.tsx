@@ -2,8 +2,10 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { Sparkles, FolderOpen } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useTaskStore } from "@/lib/stores/task-store";
@@ -26,6 +28,8 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
     const toggleDesktopSidebar = useSidebarStore.getState().toggleDesktopSidebar;
     const setSidebarWidth = useSidebarStore.getState().setSidebarWidth;
     const router = useRouter();
+    const pathname = usePathname();
+    const t = useTranslations("sidebar");
     const [isResizing, setIsResizing] = useState(false);
     const sidebarRef = useRef<HTMLElement>(null);
     const { status } = useSession();
@@ -216,6 +220,42 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                     }}
                 />
             </div>
+
+            <div className="mx-3 border-t border-border/50" />
+
+            {/* Skills Link */}
+            <div className="px-3 pt-2 pb-1">
+                <button
+                    onClick={() => router.push("/skills")}
+                    className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                        pathname === "/skills"
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                    )}
+                >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{t("skills")}</span>
+                </button>
+            </div>
+
+            {/* Projects Link */}
+            <div className="px-3 pb-2">
+                <button
+                    onClick={() => router.push("/projects")}
+                    className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                        pathname === "/projects" || pathname?.startsWith("/projects/")
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                    )}
+                >
+                    <FolderOpen className="w-4 h-4" />
+                    <span>{t("projects")}</span>
+                </button>
+            </div>
+
+            <div className="mx-3 border-t border-border/50" />
 
             {/* Recent Items */}
             {hasHydrated && (

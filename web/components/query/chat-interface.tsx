@@ -785,7 +785,7 @@ export function ChatInterface() {
                                     });
                                     // Force-open virtual computer panel to browser tab
                                     smartOpenComputer("browser", true);
-                                    addAgentEvent(event);
+                                    addStreamingEvent(event);
                                 }
                             } else if (event.type === "browser_action") {
                                 // Handle browser action events - sync progress with browser stream
@@ -1155,7 +1155,7 @@ export function ChatInterface() {
                                     });
                                     // Force-open virtual computer panel to browser tab
                                     smartOpenComputer("browser", true);
-                                    addAgentEvent(event);
+                                    addStreamingEvent(event);
                                 }
                             } else if (event.type === "browser_action") {
                                 // Handle browser action events - sync progress with browser stream

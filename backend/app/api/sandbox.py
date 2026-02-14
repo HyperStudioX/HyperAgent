@@ -104,14 +104,15 @@ async def list_sandbox_files(
                 continue
 
             full_path = f"{path.rstrip('/')}/{name}"
-            entries.append(
-                {
-                    "name": name,
-                    "path": full_path,
-                    "type": "directory" if entry.get("is_directory") else "file",
-                    "size": entry.get("size", 0),
-                }
-            )
+            entry_data: dict = {
+                "name": name,
+                "path": full_path,
+                "type": "directory" if entry.get("is_directory") else "file",
+                "size": entry.get("size", 0),
+            }
+            if "modified_at" in entry:
+                entry_data["modified_at"] = entry["modified_at"]
+            entries.append(entry_data)
 
         return {
             "success": True,
@@ -189,7 +190,7 @@ async def read_sandbox_file(
                 detail=result.get("error", "Failed to read file"),
             )
 
-        return {
+        response: dict = {
             "success": True,
             "path": path,
             "content": result.get("content", ""),
@@ -197,6 +198,9 @@ async def read_sandbox_file(
             "size": result.get("size", 0),
             "sandbox_id": session.sandbox_id,
         }
+        if result.get("content_type"):
+            response["content_type"] = result["content_type"]
+        return response
 
     except HTTPException:
         raise

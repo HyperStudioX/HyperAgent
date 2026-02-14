@@ -1,6 +1,7 @@
 """Chat subagent for general conversation with tool calling and handoff support."""
 
 import json
+import threading
 from typing import Literal
 
 from langchain_core.messages import (
@@ -30,6 +31,12 @@ from app.agents.tools import (
     get_tools_by_category,
     get_tools_for_agent,
 )
+from app.agents.tools.context_injection import inject_tool_context
+from app.agents.tools.event_extraction import (
+    extract_app_builder_events,
+    extract_image_events,
+    extract_skill_events,
+)
 from app.agents.tools.react_tool import (
     truncate_messages_to_budget,
     truncate_tool_result,
@@ -40,7 +47,6 @@ from app.agents.utils import (
     create_stage_event,
     create_tool_call_event,
     create_tool_result_event,
-    extract_and_add_image_events,
 )
 from app.ai.llm import extract_text_from_content, llm_service
 from app.config import settings
@@ -51,26 +57,31 @@ from app.models.schemas import LLMProvider
 
 logger = get_logger(__name__)
 
-# Module-level caches for tool lists and config (computed once at import time)
+# Module-level caches for tool lists and config (computed once, thread-safe)
 _cached_chat_tools: list | None = None
 _cached_browser_tool_names: set[str] | None = None
 _cached_app_builder_tool_names: set[str] | None = None
 _cached_react_config = None
+_cache_lock = threading.Lock()
 
 
 def _get_cached_chat_tools() -> list:
-    """Get the chat tools list, computing and caching on first call."""
+    """Get the chat tools list, computing and caching on first call (thread-safe)."""
     global _cached_chat_tools
     if _cached_chat_tools is None:
-        _cached_chat_tools = get_tools_for_agent("chat", include_handoffs=True)
+        with _cache_lock:
+            if _cached_chat_tools is None:
+                _cached_chat_tools = get_tools_for_agent("chat", include_handoffs=True)
     return _cached_chat_tools
 
 
 def _get_cached_react_config():
-    """Get the react config for chat, computing and caching on first call."""
+    """Get the react config for chat, computing and caching on first call (thread-safe)."""
     global _cached_react_config
     if _cached_react_config is None:
-        _cached_react_config = get_react_config("chat")
+        with _cache_lock:
+            if _cached_react_config is None:
+                _cached_react_config = get_react_config("chat")
     return _cached_react_config
 
 
@@ -106,26 +117,30 @@ def _deduplicate_tool_messages(messages: list) -> list:
 
 
 def _get_browser_tool_names() -> set[str]:
-    """Get the set of browser tool names (cached after first call).
+    """Get the set of browser tool names (cached after first call, thread-safe).
 
     Returns:
         Set of browser tool names
     """
     global _cached_browser_tool_names
     if _cached_browser_tool_names is None:
-        _cached_browser_tool_names = {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
+        with _cache_lock:
+            if _cached_browser_tool_names is None:
+                _cached_browser_tool_names = {t.name for t in get_tools_by_category(ToolCategory.BROWSER)}
     return _cached_browser_tool_names
 
 
 def _get_app_builder_tool_names() -> set[str]:
-    """Get the set of app builder tool names (cached after first call).
+    """Get the set of app builder tool names (cached after first call, thread-safe).
 
     Returns:
         Set of app builder tool names
     """
     global _cached_app_builder_tool_names
     if _cached_app_builder_tool_names is None:
-        _cached_app_builder_tool_names = {t.name for t in get_tools_by_category(ToolCategory.APP_BUILDER)}
+        with _cache_lock:
+            if _cached_app_builder_tool_names is None:
+                _cached_app_builder_tool_names = {t.name for t in get_tools_by_category(ToolCategory.APP_BUILDER)}
     return _cached_app_builder_tool_names
 
 
@@ -156,22 +171,7 @@ async def _execute_approved_tool(
     tool = tool_map[tool_name]
 
     # Inject context args for tools that need session management
-    browser_tools = _get_browser_tool_names()
-    app_builder_tools = _get_app_builder_tool_names()
-    if tool_name in browser_tools:
-        tool_args["user_id"] = user_id
-        tool_args["task_id"] = task_id
-    elif tool_name in app_builder_tools:
-        # Inject user_id and task_id for app sandbox session management
-        tool_args["user_id"] = user_id
-        tool_args["task_id"] = task_id
-    elif tool_name == "invoke_skill":
-        # Inject user_id and task_id for skill invocation
-        tool_args["user_id"] = user_id
-        tool_args["task_id"] = task_id
-    elif tool_name == "generate_image":
-        # Inject user_id for image generation storage
-        tool_args["user_id"] = user_id
+    inject_tool_context(tool_name, tool_args, user_id, task_id)
 
     try:
         result = await tool.ainvoke(tool_args)
@@ -587,23 +587,8 @@ async def act_node(state: ChatState) -> dict:
                 continue
 
             try:
-                # Add context args for tools that need session management
-                # Note: Only inject for tools that explicitly accept user_id/task_id
-                if tool_name in browser_tools:
-                    args["user_id"] = user_id
-                    args["task_id"] = task_id
-                elif tool_name in app_builder_tools:
-                    # Inject user_id and task_id for app sandbox session management
-                    args["user_id"] = user_id
-                    args["task_id"] = task_id
-                elif tool_name == "invoke_skill":
-                    # Inject user_id and task_id for skill invocation
-                    args["user_id"] = user_id
-                    args["task_id"] = task_id
-                elif tool_name == "generate_image":
-                    # Inject user_id for image generation storage
-                    args["user_id"] = user_id
-                # Note: list_skills and other tools don't need context injection
+                # Inject context args for tools that need session management
+                inject_tool_context(tool_name, args, user_id, task_id)
 
                 # Execute the tool
                 result = await tool.ainvoke(args)
@@ -622,133 +607,16 @@ async def act_node(state: ChatState) -> dict:
                     create_tool_result_event(tool_name, result_str[:500], tool_call_id)
                 )
 
-                # Extract image events BEFORE truncation (preserve full base64 data)
-                if tool_name == "generate_image" and result_str:
-                    extract_and_add_image_events(
-                        result_str, event_list, start_index=image_event_count
-                    )
-                    image_event_count = sum(
-                        1 for e in event_list if isinstance(e, dict) and e.get("type") == "image"
-                    )
-
-                # Extract image events from invoke_skill with image_generation skill
-                if tool_name == "invoke_skill" and result_str:
-                    try:
-                        parsed = json.loads(result_str)
-                        if parsed.get("skill_id") == "image_generation":
-                            output = parsed.get("output") or {}
-                            images = output.get("images") or []
-                            if images:
-                                # Wrap images in expected format for extract_and_add_image_events
-                                extract_and_add_image_events(
-                                    json.dumps({"success": True, "images": images}),
-                                    event_list,
-                                    start_index=image_event_count,
-                                )
-                                image_event_count = sum(
-                                    1 for e in event_list if isinstance(e, dict) and e.get("type") == "image"
-                                )
-                        # Emit browser_stream event for app_builder skill with preview_url
-                        elif parsed.get("skill_id") == "app_builder":
-                            output = parsed.get("output") or {}
-                            preview_url = output.get("preview_url")
-                            if preview_url and output.get("success"):
-                                # Extract sandbox_id from the session (use task_id as fallback identifier)
-                                sandbox_id = task_id or user_id or "app-sandbox"
-                                event_list.append(
-                                    events.browser_stream(
-                                        stream_url=preview_url,
-                                        sandbox_id=sandbox_id,
-                                        auth_key=None,  # App sandboxes don't use auth keys
-                                    )
-                                )
-                                logger.info(
-                                    "app_builder_browser_stream_emitted",
-                                    preview_url=preview_url,
-                                    sandbox_id=sandbox_id,
-                                )
-
-                        # Extract terminal and stage events from any skill execution
-                        skill_events = parsed.get("events") or []
-                        if skill_events:
-                            logger.info(
-                                "chat_act_node_skill_events",
-                                skill_id=parsed.get("skill_id"),
-                                event_count=len(skill_events),
-                                event_types=[e.get("type") for e in skill_events if isinstance(e, dict)],
-                            )
-                        for skill_event in skill_events:
-                            if isinstance(skill_event, dict):
-                                event_type = skill_event.get("type")
-                                if event_type in (
-                                    "terminal_command",
-                                    "terminal_output",
-                                    "terminal_error",
-                                    "terminal_complete",
-                                    "stage",
-                                    "browser_stream",
-                                ):
-                                    event_list.append(skill_event)
-                                    logger.info(
-                                        "skill_event_extracted",
-                                        skill_id=parsed.get("skill_id"),
-                                        event_type=event_type,
-                                    )
-                    except Exception as e:
-                        logger.warning("invoke_skill_image_extraction_failed", error=str(e))
-
-                # Extract terminal events from app builder tools
-                if tool_name in app_builder_tools and result_str:
-                    try:
-                        parsed = json.loads(result_str)
-                        terminal_events = parsed.get("terminal_events") or []
-                        if terminal_events:
-                            logger.info(
-                                "app_builder_terminal_events_extracted",
-                                tool_name=tool_name,
-                                event_count=len(terminal_events),
-                            )
-                        for terminal_event in terminal_events:
-                            if isinstance(terminal_event, dict):
-                                event_type = terminal_event.get("type")
-                                if event_type in (
-                                    "terminal_command",
-                                    "terminal_output",
-                                    "terminal_error",
-                                    "terminal_complete",
-                                ):
-                                    event_list.append(terminal_event)
-
-                        # Also emit browser_stream event if preview_url is present
-                        preview_url = parsed.get("preview_url")
-                        if preview_url and parsed.get("success"):
-                            sandbox_id = parsed.get("sandbox_id") or task_id or user_id or "app-sandbox"
-                            event_list.append(
-                                events.browser_stream(
-                                    stream_url=preview_url,
-                                    sandbox_id=sandbox_id,
-                                    auth_key=None,
-                                )
-                            )
-                            logger.info(
-                                "app_builder_browser_stream_emitted_from_tool",
-                                preview_url=preview_url,
-                                sandbox_id=sandbox_id,
-                            )
-
-                        # Extract workspace_update events (file create/modify/delete)
-                        workspace_events = parsed.get("workspace_events") or []
-                        for ws_event in workspace_events:
-                            if isinstance(ws_event, dict) and ws_event.get("type") == "workspace_update":
-                                event_list.append(ws_event)
-                        if workspace_events:
-                            logger.info(
-                                "app_builder_workspace_events_extracted",
-                                tool_name=tool_name,
-                                event_count=len(workspace_events),
-                            )
-                    except Exception as e:
-                        logger.warning("app_builder_event_extraction_failed", error=str(e))
+                # Extract events from tool results BEFORE truncation
+                image_event_count = extract_image_events(
+                    tool_name, result_str, event_list, image_event_count
+                )
+                image_event_count = extract_skill_events(
+                    tool_name, result_str, event_list, image_event_count, task_id, user_id
+                )
+                extract_app_builder_events(
+                    tool_name, result_str, event_list, app_builder_tools, task_id, user_id
+                )
 
                 # Truncate tool result to avoid context overflow
                 config = _get_cached_react_config()

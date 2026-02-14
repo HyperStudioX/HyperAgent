@@ -1,5 +1,7 @@
 """Output scanner for toxicity, PII, and harmful content detection."""
 
+import threading
+
 from app.config import settings
 from app.core.logging import get_logger
 from app.guardrails.base import ScanResult, ViolationType
@@ -7,45 +9,50 @@ from app.guardrails.utils import truncate_for_logging
 
 logger = get_logger(__name__)
 
-# Lazy initialization flag
+# Lazy initialization flag (thread-safe with double-check locking)
 _scanners_initialized = False
 _toxicity_scanner = None
 _sensitive_scanner = None
+_init_lock = threading.Lock()
 
 
 def _initialize_scanners():
-    """Lazily initialize llm-guard output scanners."""
+    """Lazily initialize llm-guard output scanners (thread-safe)."""
     global _scanners_initialized, _toxicity_scanner, _sensitive_scanner
 
     if _scanners_initialized:
         return
 
-    try:
-        from llm_guard.output_scanners import Sensitive, Toxicity
+    with _init_lock:
+        if _scanners_initialized:
+            return
 
-        _toxicity_scanner = Toxicity(threshold=0.7)
-        _sensitive_scanner = Sensitive(redact=True)
-        _scanners_initialized = True
-        logger.info("output_scanners_initialized")
-    except ImportError as e:
-        logger.warning("llm_guard_import_failed", error=str(e))
-        _scanners_initialized = True
-    except SystemExit as e:
-        # llm-guard may call sys.exit when spacy models aren't available
-        logger.warning("llm_guard_model_download_required", error=str(e))
-        _scanners_initialized = True
-    except Exception as e:
-        # Known issue: llm-guard 0.3.x has compatibility issues with Pydantic v2
-        # Fall back to pattern-based detection only
-        error_msg = str(e)
-        if "REGEX" in error_msg or "type" in error_msg:
-            logger.warning(
-                "llm_guard_pydantic_incompatibility",
-                detail="llm-guard has Pydantic v2 compatibility issues, using pattern-based detection only"
-            )
-        else:
-            logger.error("output_scanners_init_failed", error=error_msg)
-        _scanners_initialized = True
+        try:
+            from llm_guard.output_scanners import Sensitive, Toxicity
+
+            _toxicity_scanner = Toxicity(threshold=0.7)
+            _sensitive_scanner = Sensitive(redact=True)
+            _scanners_initialized = True
+            logger.info("output_scanners_initialized")
+        except ImportError as e:
+            logger.warning("llm_guard_import_failed", error=str(e))
+            _scanners_initialized = True
+        except SystemExit as e:
+            # llm-guard may call sys.exit when spacy models aren't available
+            logger.warning("llm_guard_model_download_required", error=str(e))
+            _scanners_initialized = True
+        except Exception as e:
+            # Known issue: llm-guard 0.3.x has compatibility issues with Pydantic v2
+            # Fall back to pattern-based detection only
+            error_msg = str(e)
+            if "REGEX" in error_msg or "type" in error_msg:
+                logger.warning(
+                    "llm_guard_pydantic_incompatibility",
+                    detail="llm-guard has Pydantic v2 compatibility issues, using pattern-based detection only"
+                )
+            else:
+                logger.error("output_scanners_init_failed", error=error_msg)
+            _scanners_initialized = True
 
 
 class OutputScanner:

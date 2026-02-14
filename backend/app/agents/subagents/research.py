@@ -23,6 +23,7 @@ from app.agents.tools import (
     parse_search_results,
     get_tools_for_agent,
 )
+from app.agents.tools.context_injection import inject_tool_context
 from app.agents.utils import (
     extract_and_add_image_events,
     create_stage_event,
@@ -350,29 +351,17 @@ async def search_tools_node(state: ResearchState) -> dict:
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {"lc_messages": lc_messages, "events": event_list}
 
-    context_tool_names = {
-        "browser_navigate",
-        "browser_click",
-        "browser_type",
-        "browser_scroll",
-        "browser_press_key",
-        "browser_screenshot",
-        "browser_get_stream_url",
-        "execute_code",
-        "sandbox_file",
-    }
+    # Inject context (user_id/task_id) into tool args that need session management
     effective_message = last_message
     if user_id or task_id:
         updated_tool_calls = []
         for tool_call in last_message.tool_calls:
             tool_name = tool_call.get("name") or ""
             tool_args = tool_call.get("args") or {}
-            if tool_name in context_tool_names:
-                tool_args = dict(tool_args)
-                if user_id is not None:
-                    tool_args["user_id"] = user_id
-                if task_id is not None:
-                    tool_args["task_id"] = task_id
+            original_args = tool_args
+            tool_args = dict(tool_args)
+            inject_tool_context(tool_name, tool_args, user_id, task_id)
+            if tool_args != original_args:
                 tool_call = {**tool_call, "args": tool_args}
             updated_tool_calls.append(tool_call)
         effective_message = AIMessage(

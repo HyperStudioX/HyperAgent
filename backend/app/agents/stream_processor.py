@@ -352,7 +352,10 @@ class StreamProcessor:
             async for e in self._emit_browser_stream(tool_input):
                 yield e
 
-        # Track tool call
+        # Track tool call - deduplicate with on_chat_model_stream emissions.
+        # on_chat_model_stream uses LLM-assigned tool_call_id, while on_tool_start
+        # uses run_id as fallback. Skip emitting if we already have a pending
+        # (unresolved) tool_call for the same tool name from on_chat_model_stream.
         tool_call_id = None
         if isinstance(tool_input, dict):
             tool_call_id = tool_input.get("tool_call_id")
@@ -361,18 +364,44 @@ class StreamProcessor:
             tool_call_id = str(run_id)
 
         if tool_name and tool_call_id and tool_call_id not in self.emitted_tool_call_ids:
-            self.emitted_tool_call_ids.add(tool_call_id)
-            self.pending_tool_calls[tool_call_id] = {
-                "tool": tool_name,
-                "run_id": run_id,
-            }
-            self.pending_tool_calls_by_tool.setdefault(tool_name, []).append(tool_call_id)
-
-            yield agent_events.tool_call(
-                tool=tool_name,
-                args=tool_input if isinstance(tool_input, dict) else {},
-                tool_id=tool_call_id,
+            # Check if a tool_call was already emitted for this tool via on_chat_model_stream.
+            # Count pending (emitted but unresolved) calls for this tool name.
+            pending_ids_for_tool = self.pending_tool_calls_by_tool.get(tool_name, [])
+            # Count how many on_tool_start we've already processed for this tool
+            # (tracked by having run_id in pending_tool_calls)
+            already_started = sum(
+                1 for pid in pending_ids_for_tool
+                if self.pending_tool_calls.get(pid, {}).get("run_id")
             )
+            unmatched_pending = len(pending_ids_for_tool) - already_started
+
+            if unmatched_pending > 0:
+                # This on_tool_start corresponds to an already-emitted tool_call from chat stream.
+                # Register the run_id mapping for tool_result resolution but don't emit again.
+                self.emitted_tool_call_ids.add(tool_call_id)
+                # Link the run_id to the first unmatched pending call
+                for pid in pending_ids_for_tool:
+                    if not self.pending_tool_calls.get(pid, {}).get("run_id"):
+                        self.pending_tool_calls[pid]["run_id"] = run_id
+                        break
+                self.pending_tool_calls[tool_call_id] = {
+                    "tool": tool_name,
+                    "run_id": run_id,
+                }
+            else:
+                # No pending call from chat stream — this is a fresh tool_call (e.g., only on_tool_start fires)
+                self.emitted_tool_call_ids.add(tool_call_id)
+                self.pending_tool_calls[tool_call_id] = {
+                    "tool": tool_name,
+                    "run_id": run_id,
+                }
+                self.pending_tool_calls_by_tool.setdefault(tool_name, []).append(tool_call_id)
+
+                yield agent_events.tool_call(
+                    tool=tool_name,
+                    args=tool_input if isinstance(tool_input, dict) else {},
+                    tool_id=tool_call_id,
+                )
 
         # Browser action events
         if tool_name in BROWSER_ACTION_DESCRIPTIONS:

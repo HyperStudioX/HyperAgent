@@ -1,5 +1,6 @@
 """Vision analysis tool for LangGraph agents."""
 
+import asyncio
 import base64
 import json
 from urllib.parse import urlparse
@@ -15,20 +16,23 @@ logger = get_logger(__name__)
 
 # Module-level HTTP client for connection reuse (avoids creating new client per request)
 _http_client: httpx.AsyncClient | None = None
+_http_client_lock = asyncio.Lock()
 
 
 async def get_http_client() -> httpx.AsyncClient:
-    """Get or create a shared HTTP client with connection pooling."""
+    """Get or create a shared HTTP client with connection pooling (async-safe)."""
     global _http_client
     if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            timeout=30.0,
-            limits=httpx.Limits(
-                max_keepalive_connections=20,
-                max_connections=100,
-                keepalive_expiry=30.0,
-            ),
-        )
+        async with _http_client_lock:
+            if _http_client is None or _http_client.is_closed:
+                _http_client = httpx.AsyncClient(
+                    timeout=30.0,
+                    limits=httpx.Limits(
+                        max_keepalive_connections=20,
+                        max_connections=100,
+                        keepalive_expiry=30.0,
+                    ),
+                )
     return _http_client
 
 

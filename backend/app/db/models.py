@@ -32,6 +32,9 @@ class User(Base):
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    projects: Mapped[list["Project"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     files: Mapped[list["File"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -83,8 +86,14 @@ class ResearchTask(Base):
     retry_count: Mapped[int] = mapped_column(default=0)
     priority: Mapped[int] = mapped_column(default=0)
 
+    # Project association
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Relationships
     user: Mapped["User"] = relationship(back_populates="research_tasks")
+    project: Mapped["Project | None"] = relationship(back_populates="research_tasks")
     steps: Mapped[list["ResearchStep"]] = relationship(
         back_populates="task", cascade="all, delete-orphan", order_by="ResearchStep.created_at"
     )
@@ -114,6 +123,7 @@ class ResearchTask(Base):
             "report": self.report,
             "error": self.error,
             "user_id": self.user_id,
+            "project_id": self.project_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
@@ -239,6 +249,50 @@ class BackgroundTask(Base):
         }
 
 
+class Project(Base):
+    """Project model for organizing conversations and research tasks."""
+
+    __tablename__ = "projects"
+    __table_args__ = (
+        Index("ix_projects_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="projects")
+    conversations: Mapped[list["Conversation"]] = relationship(
+        back_populates="project"
+    )
+    research_tasks: Mapped[list["ResearchTask"]] = relationship(
+        back_populates="project"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "color": self.color,
+            "user_id": self.user_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class Conversation(Base):
     """Conversation model for chat sessions."""
 
@@ -255,6 +309,9 @@ class Conversation(Base):
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -264,6 +321,7 @@ class Conversation(Base):
 
     # Relationships
     user: Mapped["User"] = relationship(back_populates="conversations")
+    project: Mapped["Project | None"] = relationship(back_populates="conversations")
     messages: Mapped[list["ConversationMessage"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan", order_by="ConversationMessage.created_at"
     )
@@ -277,6 +335,7 @@ class Conversation(Base):
             "title": self.title,
             "type": self.type,
             "user_id": self.user_id,
+            "project_id": self.project_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -94,7 +94,7 @@ def mock_chat_llm() -> MockChatModel:
     responses = [
         # Image generation
         MockResponse(
-            pattern=r"generate.*image|create.*picture|draw",
+            pattern=r"generate.*(?:image|photo|picture)|create.*picture|draw",
             response="I'll generate that image for you.",
             tool_calls=[
                 {
@@ -106,7 +106,7 @@ def mock_chat_llm() -> MockChatModel:
         ),
         # Code generation
         MockResponse(
-            pattern=r"write.*code|write.*function|write.*class",
+            pattern=r"(?:write|create).*(?:code|function|class)",
             response="I'll write that code for you.",
             tool_calls=[
                 {
@@ -118,7 +118,7 @@ def mock_chat_llm() -> MockChatModel:
         ),
         # Code review
         MockResponse(
-            pattern=r"review.*code|check.*code.*bugs",
+            pattern=r"review.*code|check.*(?:code|function).*(?:bugs|style|issues|practices)",
             response="I'll review that code.",
             tool_calls=[
                 {

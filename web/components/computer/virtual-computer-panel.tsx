@@ -321,6 +321,7 @@ export function VirtualComputerPanel() {
                         title: t("errorBoundary.title"),
                         maxRetries: t("errorBoundary.maxRetries"),
                         retry: (count: number) => t("errorBoundary.retry", { count }),
+                        fallbackErrorMessage: t("errorBoundary.fallbackMessage"),
                     }}
                 >
                     <div className="flex-1 overflow-hidden flex flex-col" role="tabpanel" aria-label={activeMode}>

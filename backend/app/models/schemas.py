@@ -219,6 +219,7 @@ class ConversationResponse(BaseModel):
     title: str
     type: ConversationType
     user_id: str
+    project_id: str | None = None
     created_at: str
     updated_at: str
     messages: list[ConversationMessageResponse] = Field(default_factory=list)
@@ -231,6 +232,7 @@ class ConversationListResponse(BaseModel):
     title: str
     type: ConversationType
     user_id: str
+    project_id: str | None = None
     created_at: str
     updated_at: str
 
@@ -261,6 +263,58 @@ class UpdateMessageRequest(BaseModel):
     """Request to update a message."""
 
     content: str
+
+
+# Project Schemas
+class CreateProjectRequest(BaseModel):
+    """Request to create a new project."""
+
+    name: str
+    description: str | None = None
+    color: str | None = None
+
+
+class UpdateProjectRequest(BaseModel):
+    """Request to update a project."""
+
+    name: str | None = None
+    description: str | None = None
+    color: str | None = None
+
+
+class ProjectListResponse(BaseModel):
+    """Response model for project list with item counts."""
+
+    id: str
+    name: str
+    description: str | None = None
+    color: str | None = None
+    user_id: str
+    created_at: str
+    updated_at: str
+    conversation_count: int = 0
+    research_task_count: int = 0
+
+
+class ProjectResponse(BaseModel):
+    """Response model for a single project with items."""
+
+    id: str
+    name: str
+    description: str | None = None
+    color: str | None = None
+    user_id: str
+    created_at: str
+    updated_at: str
+    conversations: list[ConversationListResponse] = Field(default_factory=list)
+    research_tasks: list[dict] = Field(default_factory=list)
+
+
+class AssignItemRequest(BaseModel):
+    """Request to assign or remove items from a project."""
+
+    conversation_ids: list[str] = Field(default_factory=list)
+    research_task_ids: list[str] = Field(default_factory=list)
 
 
 # Multimodal Schemas

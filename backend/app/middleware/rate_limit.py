@@ -3,10 +3,10 @@
 from typing import Callable
 
 from fastapi import HTTPException, Request, Response
-from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.logging import get_logger
+from app.core.redis import get_redis
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         Args:
             app: FastAPI application
-            redis_url: Redis connection URL
+            redis_url: Redis connection URL (kept for interface compatibility)
             requests_per_minute: Maximum requests allowed per minute per IP
             enabled: Whether rate limiting is enabled
             exclude_paths: Paths to exclude from rate limiting (e.g., ["/health"])
@@ -36,7 +36,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.rpm = requests_per_minute
         self.enabled = enabled
         self.exclude_paths = exclude_paths or ["/api/v1/health"]
-        self._redis: Redis | None = None
 
         if self.enabled:
             logger.warning(
@@ -45,16 +44,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 "Ensure a trusted reverse proxy is configured to set these headers in production, "
                 "otherwise clients can spoof their IP to bypass rate limits.",
             )
-
-    async def _get_redis(self) -> Redis:
-        """Get or create Redis connection."""
-        if self._redis is None:
-            self._redis = Redis.from_url(
-                self.redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-            )
-        return self._redis
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request with rate limiting."""
@@ -71,7 +60,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         rate_limit_key = f"rate_limit:{client_ip}"
 
         try:
-            redis = await self._get_redis()
+            redis = get_redis()
 
             # Increment counter
             current_count = await redis.incr(rate_limit_key)
@@ -146,7 +135,5 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return "unknown"
 
     async def close(self) -> None:
-        """Close Redis connection."""
-        if self._redis:
-            await self._redis.close()
-            self._redis = None
+        """Close Redis connection (no-op: uses shared pool from core.redis)."""
+        pass

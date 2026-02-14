@@ -53,6 +53,10 @@ class SearchCache:
             del self._cache[key]
             return None
 
+        # Proactively evict expired entries when cache is above 80% capacity
+        if len(self._cache) > int(self._max_size * 0.8):
+            self._evict_expired()
+
         logger.debug("search_cache_hit", query=query[:50])
         return entry.results
 

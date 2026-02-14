@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
     FileText,
     Download,
@@ -10,79 +10,30 @@ import {
     Copy,
     Check,
     FileSearch,
+    Maximize2,
+    X,
+    Eye,
+    Code2,
 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-
-// Map file extensions to language identifiers for syntax highlighting
-const extensionToLanguage: Record<string, string> = {
-    py: "python",
-    js: "javascript",
-    jsx: "jsx",
-    ts: "typescript",
-    tsx: "tsx",
-    json: "json",
-    html: "html",
-    css: "css",
-    scss: "scss",
-    less: "less",
-    md: "markdown",
-    yml: "yaml",
-    yaml: "yaml",
-    xml: "xml",
-    sql: "sql",
-    sh: "bash",
-    bash: "bash",
-    zsh: "bash",
-    java: "java",
-    cpp: "cpp",
-    c: "c",
-    h: "c",
-    hpp: "cpp",
-    go: "go",
-    rs: "rust",
-    php: "php",
-    rb: "ruby",
-    swift: "swift",
-    kt: "kotlin",
-    scala: "scala",
-    r: "r",
-    lua: "lua",
-    vim: "vim",
-    dockerfile: "dockerfile",
-    makefile: "makefile",
-    toml: "toml",
-    ini: "ini",
-    env: "bash",
-    gitignore: "bash",
-};
-
-function getFileExtension(filename: string): string {
-    const parts = filename.split(".");
-    if (parts.length === 1) {
-        // Handle files like Dockerfile, Makefile
-        const lowerName = filename.toLowerCase();
-        if (lowerName === "dockerfile") return "dockerfile";
-        if (lowerName === "makefile") return "makefile";
-        return "";
-    }
-    return parts[parts.length - 1].toLowerCase();
-}
-
-function getLanguageFromFilename(filename: string): string | null {
-    const ext = getFileExtension(filename);
-    return extensionToLanguage[ext] || null;
-}
-
-function isImageFile(filename: string): boolean {
-    const ext = getFileExtension(filename);
-    return ["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"].includes(ext);
-}
+import {
+    getLanguageFromFilename,
+    getMimeType,
+    isImageFile,
+    isSvgFile,
+    isVideoFile,
+    isAudioFile,
+    isPdfFile,
+    isMarkdownFile,
+} from "@/lib/utils/file-types";
 
 interface ComputerFileContentProps {
     filename: string;
@@ -94,15 +45,35 @@ interface ComputerFileContentProps {
     className?: string;
 }
 
+/** Download binary content encoded as base64 */
+function downloadBase64(content: string, filename: string, mimeType: string) {
+    const byteChars = atob(content);
+    const byteArray = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+        byteArray[i] = byteChars.charCodeAt(i);
+    }
+    const blob = new Blob([byteArray], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 function ContentHeader({
     filename,
     language,
     content,
+    isBinary,
     onDownload,
 }: {
     filename: string;
     language: string | null;
     content: string | null;
+    isBinary?: boolean;
     onDownload?: () => void;
 }) {
     const t = useTranslations("computer");
@@ -115,7 +86,6 @@ function ContentHeader({
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch {
-            // Fallback for older browsers
             const textarea = document.createElement("textarea");
             textarea.value = content;
             textarea.style.position = "fixed";
@@ -135,17 +105,20 @@ function ContentHeader({
             onDownload();
             return;
         }
-        // Client-side download from content
-        const blob = new Blob([content], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }, [content, filename, onDownload]);
+        if (isBinary) {
+            downloadBase64(content, filename, getMimeType(filename));
+        } else {
+            const blob = new Blob([content], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    }, [content, filename, isBinary, onDownload]);
 
     const icon = language ? (
         <FileCode className="w-3.5 h-3.5 text-amber-500" />
@@ -157,7 +130,7 @@ function ContentHeader({
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-secondary/10">
             <div className="flex items-center gap-2 min-w-0">
                 {icon}
-                <span className="text-xs font-mono text-muted-foreground truncate max-w-[140px]">
+                <span className="text-xs font-mono text-muted-foreground truncate max-w-[240px]">
                     {filename}
                 </span>
                 {language && (
@@ -167,7 +140,7 @@ function ContentHeader({
                 )}
             </div>
             <div className="flex items-center gap-0.5">
-                {content && (
+                {content && !isBinary && (
                     <Button
                         variant="ghost"
                         size="icon"
@@ -210,9 +183,16 @@ export function ComputerFileContent({
     const t = useTranslations("computer");
     const { resolvedTheme } = useTheme();
     const isDark = resolvedTheme === "dark";
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [markdownMode, setMarkdownMode] = useState<"preview" | "raw">("preview");
 
     const language = getLanguageFromFilename(filename);
     const isImage = isImageFile(filename);
+    const isSvg = isSvgFile(filename);
+    const isVideo = isVideoFile(filename);
+    const isAudio = isAudioFile(filename);
+    const isPdf = isPdfFile(filename);
+    const isMarkdown = isMarkdownFile(filename);
 
     // Loading state
     if (isLoading) {
@@ -236,7 +216,7 @@ export function ComputerFileContent({
         );
     }
 
-    // No content state - improved empty state
+    // No content state
     if (content === null) {
         return (
             <div className={cn("flex flex-col items-center justify-center h-full py-12", className)}>
@@ -248,26 +228,117 @@ export function ComputerFileContent({
         );
     }
 
-    // Binary file - show download option
-    if (isBinary && !isImage) {
+    // --- SVG file (text content, not binary) ---
+    if (isSvg && !isBinary) {
+        const dataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(content)}`;
         return (
-            <div className={cn("flex flex-col items-center justify-center h-full py-12", className)}>
-                <div className="w-12 h-12 rounded-xl bg-secondary/50 flex items-center justify-center mb-4">
-                    <FileText className="w-6 h-6 text-muted-foreground/50" />
+            <div className={cn("flex flex-col h-full", className)}>
+                <ContentHeader filename={filename} language={null} content={content} onDownload={onDownload} />
+                <div className="flex-1 flex items-center justify-center p-4 relative group">
+                    <img
+                        src={dataUri}
+                        alt={filename}
+                        className="max-w-full max-h-full object-contain rounded-lg cursor-pointer"
+                        onClick={() => setIsFullscreen(true)}
+                    />
+                    <button
+                        onClick={() => setIsFullscreen(true)}
+                        className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded-lg bg-background/80 border border-border/50 hover:bg-secondary"
+                        title={t("fullscreen")}
+                    >
+                        <Maximize2 className="w-4 h-4" />
+                    </button>
                 </div>
-                <p className="text-sm font-medium mb-2">{filename}</p>
-                <p className="text-xs text-muted-foreground mb-4">{t("workspace.noPreview")}</p>
-                {onDownload && (
-                    <Button variant="outline" size="sm" onClick={onDownload}>
-                        <Download className="w-4 h-4 mr-2" />
-                        {t("workspace.download")}
-                    </Button>
+                {isFullscreen && (
+                    <FullscreenModal
+                        src={dataUri}
+                        filename={filename}
+                        onClose={() => setIsFullscreen(false)}
+                        onDownload={() => {
+                            const blob = new Blob([content], { type: "image/svg+xml" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }}
+                    />
                 )}
             </div>
         );
     }
 
-    // Image file - display base64 image (with size guard)
+    // --- Video file (binary) ---
+    if (isVideo && isBinary) {
+        const MAX_VIDEO_SIZE = 10 * 1024 * 1024; // 10MB base64 limit
+        if (content.length > MAX_VIDEO_SIZE) {
+            return (
+                <BinaryDownloadFallback
+                    filename={filename}
+                    content={content}
+                    t={t}
+                    className={className}
+                    message={t("workspace.fileTooLarge", { size: (content.length / (1024 * 1024)).toFixed(1) })}
+                />
+            );
+        }
+        const mimeType = getMimeType(filename);
+        return (
+            <div className={cn("flex flex-col h-full", className)}>
+                <ContentHeader filename={filename} language={null} content={content} isBinary onDownload={onDownload} />
+                <div className="flex-1 flex items-center justify-center p-4">
+                    <video
+                        controls
+                        className="max-w-full max-h-full rounded-lg"
+                    >
+                        <source src={`data:${mimeType};base64,${content}`} type={mimeType} />
+                    </video>
+                </div>
+            </div>
+        );
+    }
+
+    // --- Audio file (binary) ---
+    if (isAudio && isBinary) {
+        const mimeType = getMimeType(filename);
+        return (
+            <div className={cn("flex flex-col h-full", className)}>
+                <ContentHeader filename={filename} language={null} content={content} isBinary onDownload={onDownload} />
+                <div className="flex-1 flex items-center justify-center p-8">
+                    <audio controls className="w-full max-w-md" src={`data:${mimeType};base64,${content}`} />
+                </div>
+            </div>
+        );
+    }
+
+    // --- PDF file (binary) ---
+    if (isPdf && isBinary) {
+        return (
+            <PdfPreview
+                content={content}
+                filename={filename}
+                onDownload={onDownload}
+                className={className}
+            />
+        );
+    }
+
+    // --- Binary file with download (generic binary that's not image/video/audio/pdf) ---
+    if (isBinary && !isImage) {
+        return (
+            <BinaryDownloadFallback
+                filename={filename}
+                content={content}
+                t={t}
+                className={className}
+            />
+        );
+    }
+
+    // --- Image file (binary, base64) with fullscreen ---
     if (isImage && isBinary) {
         const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
         if (content.length > MAX_IMAGE_SIZE) {
@@ -282,30 +353,142 @@ export function ComputerFileContent({
             );
         }
 
-        const ext = getFileExtension(filename);
-        const mimeMap: Record<string, string> = {
-            svg: "image/svg+xml",
-            jpg: "image/jpeg",
-            jpeg: "image/jpeg",
-            png: "image/png",
-            gif: "image/gif",
-            webp: "image/webp",
-            ico: "image/x-icon",
-            bmp: "image/bmp",
-        };
-        const mimeType = mimeMap[ext] || `image/${ext}`;
+        const mimeType = getMimeType(filename);
+        const imageSrc = `data:${mimeType};base64,${content}`;
+
         return (
-            <div className={cn("flex items-center justify-center h-full p-4", className)}>
-                <img
-                    src={`data:${mimeType};base64,${content}`}
-                    alt={filename}
-                    className="max-w-full max-h-full object-contain rounded-lg"
-                />
+            <div className={cn("flex flex-col h-full", className)}>
+                <ContentHeader filename={filename} language={null} content={content} isBinary onDownload={onDownload} />
+                <div className="flex-1 flex items-center justify-center p-4 relative group">
+                    <img
+                        src={imageSrc}
+                        alt={filename}
+                        className="max-w-full max-h-full object-contain rounded-lg cursor-pointer"
+                        onClick={() => setIsFullscreen(true)}
+                    />
+                    <button
+                        onClick={() => setIsFullscreen(true)}
+                        className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded-lg bg-background/80 border border-border/50 hover:bg-secondary"
+                        title={t("fullscreen")}
+                    >
+                        <Maximize2 className="w-4 h-4" />
+                    </button>
+                </div>
+                {isFullscreen && (
+                    <FullscreenModal
+                        src={imageSrc}
+                        filename={filename}
+                        onClose={() => setIsFullscreen(false)}
+                        onDownload={() => downloadBase64(content, filename, mimeType)}
+                    />
+                )}
             </div>
         );
     }
 
-    // Code file with syntax highlighting (plain text fallback for large files)
+    // --- Markdown file with preview/raw toggle ---
+    if (isMarkdown && !isBinary) {
+        return (
+            <div className={cn("flex flex-col h-full", className)}>
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-secondary/10">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-xs font-mono text-muted-foreground truncate max-w-[240px]">
+                            {filename}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-primary/70 bg-primary/10 px-1.5 py-0.5 rounded">
+                            markdown
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-6 w-6", markdownMode === "preview" && "bg-primary/10 text-primary")}
+                            onClick={() => setMarkdownMode("preview")}
+                            title={t("workspace.preview")}
+                        >
+                            <Eye className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-6 w-6", markdownMode === "raw" && "bg-primary/10 text-primary")}
+                            onClick={() => setMarkdownMode("raw")}
+                            title="Raw"
+                        >
+                            <Code2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => {
+                                const blob = new Blob([content], { type: "text/plain" });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = filename;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                            }}
+                            title={t("workspace.download")}
+                        >
+                            <Download className="w-3.5 h-3.5" />
+                        </Button>
+                    </div>
+                </div>
+                <ScrollArea className="flex-1">
+                    {markdownMode === "preview" ? (
+                        <div className={cn(
+                            "p-4 prose prose-sm prose-neutral dark:prose-invert max-w-none",
+                            "prose-headings:font-bold prose-headings:tracking-tight",
+                            "prose-a:text-primary prose-a:font-medium hover:prose-a:underline",
+                            "prose-code:text-xs prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none",
+                            "prose-pre:bg-muted/50 prose-pre:border prose-pre:border-border/50 prose-pre:rounded-xl",
+                            "prose-img:rounded-xl prose-img:border border-border/50",
+                            "prose-blockquote:border-l-4 prose-blockquote:border-primary/20 prose-blockquote:bg-primary/5 prose-blockquote:py-1 prose-blockquote:px-5 prose-blockquote:rounded-r-lg"
+                        )}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {content}
+                            </ReactMarkdown>
+                        </div>
+                    ) : (
+                        <div className="p-0">
+                            {content.length > 100 * 1024 ? (
+                                <PlainTextWithLineNumbers content={content} />
+                            ) : (
+                                <SyntaxHighlighter
+                                    language="markdown"
+                                    style={isDark ? oneDark : oneLight}
+                                    customStyle={{
+                                        margin: 0,
+                                        padding: "0.75rem 1rem",
+                                        background: "transparent",
+                                        fontSize: "12px",
+                                        lineHeight: "1.5",
+                                    }}
+                                    showLineNumbers
+                                    lineNumberStyle={{
+                                        minWidth: "2.5em",
+                                        paddingRight: "0.75em",
+                                        opacity: 0.4,
+                                        textAlign: "right",
+                                    }}
+                                >
+                                    {content}
+                                </SyntaxHighlighter>
+                            )}
+                        </div>
+                    )}
+                </ScrollArea>
+            </div>
+        );
+    }
+
+    // --- Code file with syntax highlighting ---
     const SYNTAX_HIGHLIGHT_SIZE_LIMIT = 100 * 1024; // 100KB
     if (language) {
         const usePlainText = content.length > SYNTAX_HIGHLIGHT_SIZE_LIMIT;
@@ -349,7 +532,7 @@ export function ComputerFileContent({
         );
     }
 
-    // Plain text file with line numbers
+    // --- Plain text file with line numbers ---
     return (
         <div className={cn("flex flex-col h-full", className)}>
             <ContentHeader
@@ -366,6 +549,8 @@ export function ComputerFileContent({
         </div>
     );
 }
+
+// --- Sub-components ---
 
 function PlainTextWithLineNumbers({ content }: { content: string }) {
     const lines = content.split("\n");
@@ -391,5 +576,147 @@ function PlainTextWithLineNumbers({ content }: { content: string }) {
                 </tbody>
             </table>
         </pre>
+    );
+}
+
+/** Binary fallback with client-side download from base64 content */
+function BinaryDownloadFallback({
+    filename,
+    content,
+    t,
+    className,
+    message,
+}: {
+    filename: string;
+    content: string;
+    t: ReturnType<typeof useTranslations>;
+    className?: string;
+    message?: string;
+}) {
+    const handleDownload = useCallback(() => {
+        downloadBase64(content, filename, getMimeType(filename));
+    }, [content, filename]);
+
+    return (
+        <div className={cn("flex flex-col items-center justify-center h-full py-12", className)}>
+            <div className="w-12 h-12 rounded-xl bg-secondary/50 flex items-center justify-center mb-4">
+                <FileText className="w-6 h-6 text-muted-foreground/50" />
+            </div>
+            <p className="text-sm font-medium mb-2">{filename}</p>
+            <p className="text-xs text-muted-foreground mb-4">
+                {message || t("workspace.noPreview")}
+            </p>
+            <Button variant="outline" size="sm" onClick={handleDownload}>
+                <Download className="w-4 h-4 mr-2" />
+                {t("workspace.download")}
+            </Button>
+        </div>
+    );
+}
+
+/** PDF preview using iframe with blob URL */
+function PdfPreview({
+    content,
+    filename,
+    onDownload,
+    className,
+}: {
+    content: string;
+    filename: string;
+    onDownload?: () => void;
+    className?: string;
+}) {
+    const [blobUrl, setBlobUrl] = useState("");
+
+    useEffect(() => {
+        const byteChars = atob(content);
+        const byteArray = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+            byteArray[i] = byteChars.charCodeAt(i);
+        }
+        const blob = new Blob([byteArray], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        // Use a microtask to avoid synchronous setState warning
+        queueMicrotask(() => setBlobUrl(url));
+        return () => URL.revokeObjectURL(url);
+    }, [content]);
+
+    if (!blobUrl) {
+        return (
+            <div className={cn("flex items-center justify-center h-full", className)}>
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+
+    return (
+        <div className={cn("flex flex-col h-full", className)}>
+            <ContentHeader
+                filename={filename}
+                language={null}
+                content={content}
+                isBinary
+                onDownload={onDownload}
+            />
+            <iframe
+                src={`${blobUrl}#view=FitH&toolbar=0`}
+                className="flex-1 w-full border-0"
+                title={filename}
+            />
+        </div>
+    );
+}
+
+/** Fullscreen modal for images */
+function FullscreenModal({
+    src,
+    filename,
+    onClose,
+    onDownload,
+}: {
+    src: string;
+    filename: string;
+    onClose: () => void;
+    onDownload: () => void;
+}) {
+    return (
+        <div
+            className="fixed inset-0 z-50 bg-background/98 animate-in fade-in duration-200"
+            onClick={onClose}
+        >
+            <div className="h-full flex flex-col p-4">
+                <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-medium truncate">{filename}</span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDownload();
+                            }}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-secondary/60 hover:bg-secondary transition-colors"
+                        >
+                            <Download className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={onClose}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-muted hover:bg-muted/80 transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+                <div
+                    className="flex-1 overflow-auto flex items-center justify-center"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <img
+                        src={src}
+                        alt={filename}
+                        className="max-w-none h-auto"
+                        style={{ maxHeight: "calc(100vh - 100px)" }}
+                    />
+                </div>
+            </div>
+        </div>
     );
 }

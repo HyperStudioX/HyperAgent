@@ -1,248 +1,45 @@
 """Unified query router for both chat and research modes."""
 
 import asyncio
-import base64
 import json
 import uuid
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents import agent_supervisor
+from app.api.query_helpers import (
+    CHAT_SYSTEM_PROMPT,
+    _sse_data,
+    get_conversation_history,
+    get_default_model,
+    get_file_context,
+    get_image_attachments,
+    trim_duplicate_user_message,
+)
+from app.api.research_stream import (
+    close_shared_redis,
+    research_stream_from_worker,
+)
 from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
-from app.db.models import Conversation, ConversationMessage
-from app.db.models import File as FileModel
 from app.guardrails.scanners.input_scanner import input_scanner
 from app.models.schemas import (
-    LLMProvider,
     QueryMode,
-    ResearchStatus,
-    ResearchStep,
-    ResearchStepType,
-    Source,
     UnifiedQueryRequest,
     UnifiedQueryResponse,
 )
 from app.repository import deep_research_repository
-from app.services.file_storage import file_storage_service
 from app.sandbox import cleanup_sandboxes_for_task
 from app.workers.task_queue import task_queue
 
 logger = get_logger(__name__)
 
-# Shared Redis client for research stream subscriptions.
-# Avoids creating a new connection per SSE stream.
-_redis_pool = None
-
-
-def _get_shared_redis():
-    """Get or create a shared Redis client for pub/sub streaming."""
-    global _redis_pool
-    if _redis_pool is None:
-        from redis.asyncio import Redis
-
-        from app.config import settings
-
-        _redis_pool = Redis.from_url(settings.redis_url, decode_responses=True)
-    return _redis_pool
-
 router = APIRouter(prefix="/query")
-
-
-def get_default_model(provider: LLMProvider) -> str:
-    """Get default model for a provider."""
-    defaults = {
-        LLMProvider.ANTHROPIC: "claude-sonnet-4-20250514",
-        LLMProvider.OPENAI: "gpt-4o",
-        LLMProvider.GEMINI: "gemini-2.5-flash",
-    }
-    return defaults.get(provider, "claude-sonnet-4-20250514")
-
-
-CHAT_SYSTEM_PROMPT = """You are HyperAgent, a helpful AI assistant. You are designed to help users with various tasks including coding, research, analysis, and general questions.
-
-You have access to a web search tool that you can use to find current information when needed. Use it when:
-- The user asks about recent events or news
-- You need to verify facts or find up-to-date information
-- The question requires knowledge beyond your training data
-
-When you decide to search, refine the query to improve quality:
-- Include specific entities, versions, dates, and locations
-- Add the most likely authoritative source (e.g. official docs/site:example.com)
-- Use short, focused queries rather than a single broad query
-- Avoid vague terms; include exact product or feature names
-
-Be concise, accurate, and helpful. When providing code, use proper formatting with markdown code blocks and specify the language.
-
-If you're unsure about something, say so rather than making things up."""
-
-MAX_CHAT_HISTORY_MESSAGES = 20
-
-
-async def get_conversation_history(
-    db: AsyncSession,
-    conversation_id: str | None,
-    user_id: str,
-    limit: int = MAX_CHAT_HISTORY_MESSAGES,
-) -> list[dict]:
-    """Fetch recent conversation history for short-term memory."""
-    if not conversation_id:
-        return []
-
-    result = await db.execute(
-        select(Conversation.id).where(
-            Conversation.id == conversation_id,
-            Conversation.user_id == user_id,
-        )
-    )
-    if not result.scalar_one_or_none():
-        return []
-
-    message_result = await db.execute(
-        select(ConversationMessage)
-        .where(ConversationMessage.conversation_id == conversation_id)
-        .order_by(ConversationMessage.created_at.desc())
-        .limit(limit)
-    )
-    messages = list(reversed(message_result.scalars().all()))
-    history = [
-        {
-            "role": message.role,
-            "content": message.content,
-            "metadata": message.message_metadata,
-        }
-        for message in messages
-        if message.role in ("user", "assistant")
-    ]
-    return history
-
-
-def trim_duplicate_user_message(history: list[dict], query: str) -> list[dict]:
-    """Remove duplicate trailing user message when it matches the current query."""
-    if not history:
-        return history
-    last = history[-1]
-    if last.get("role") == "user" and last.get("content", "").strip() == query.strip():
-        return history[:-1]
-    return history
-
-
-async def get_file_context(
-    db: AsyncSession,
-    attachment_ids: list[str],
-    user_id: str,
-) -> str:
-    """Get extracted text from attached files for LLM context."""
-    if not attachment_ids:
-        return ""
-
-    result = await db.execute(
-        select(FileModel).where(
-            FileModel.id.in_(attachment_ids),
-            FileModel.user_id == user_id,
-        )
-    )
-    files = result.scalars().all()
-
-    context_parts = []
-    for file in files:
-        if file.extracted_text:
-            context_parts.append(
-                f"[Attached file: {file.original_filename}]\n{file.extracted_text}\n"
-            )
-        else:
-            context_parts.append(
-                f"[Attached file: {file.original_filename} - binary content not extracted]\n"
-            )
-
-    if context_parts:
-        return "\n---\n".join(context_parts)
-    return ""
-
-
-# Image MIME types that can be processed by vision tools
-IMAGE_MIME_TYPES: set[str] = {"image/png", "image/jpeg", "image/gif", "image/webp"}
-
-
-def _sse_data(payload: dict[str, Any]) -> str:
-    """Format a payload as an SSE data line.
-
-    Args:
-        payload: Dictionary to serialize as JSON
-
-    Returns:
-        SSE formatted data string
-    """
-    return f"data: {json.dumps(payload)}\n\n"
-
-
-async def get_image_attachments(
-    db: AsyncSession,
-    attachment_ids: list[str],
-    user_id: str,
-) -> list[dict]:
-    """Get image attachments as base64 for vision tool usage.
-
-    Uses asyncio.gather for parallel downloads to improve performance.
-
-    Returns:
-        List of dicts with {id, filename, base64_data, mime_type}
-    """
-    if not attachment_ids:
-        return []
-
-    result = await db.execute(
-        select(FileModel).where(
-            FileModel.id.in_(attachment_ids),
-            FileModel.user_id == user_id,
-        )
-    )
-    files = result.scalars().all()
-
-    # Filter to only image files
-    image_files = [f for f in files if f.content_type in IMAGE_MIME_TYPES]
-
-    if not image_files:
-        return []
-
-    async def process_image(file: FileModel) -> dict | None:
-        """Process a single image file and return attachment dict or None on error."""
-        try:
-            file_data = await file_storage_service.download_file(file.storage_key)
-            base64_data = base64.b64encode(file_data.read()).decode("utf-8")
-
-            logger.info(
-                "image_attachment_loaded",
-                file_id=file.id,
-                filename=file.original_filename,
-                mime_type=file.content_type,
-            )
-
-            return {
-                "id": file.id,
-                "filename": file.original_filename,
-                "base64_data": base64_data,
-                "mime_type": file.content_type,
-            }
-        except Exception as e:
-            logger.error(
-                "image_attachment_load_failed",
-                file_id=file.id,
-                error=str(e),
-            )
-            return None
-
-    # Download all images in parallel
-    results = await asyncio.gather(*[process_image(f) for f in image_files])
-
-    # Filter out None results (failed downloads)
-    return [r for r in results if r is not None]
 
 
 @router.post("/", response_model=UnifiedQueryResponse)
@@ -354,19 +151,37 @@ async def query(
 @router.post("/stream")
 async def stream_query(
     request: UnifiedQueryRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Stream response for chat, research, and other agent modes."""
     if request.mode in (QueryMode.CHAT, QueryMode.APP, QueryMode.DATA, QueryMode.IMAGE):
-        history = [m.model_dump() for m in request.history]
-        if not history and request.conversation_id:
-            history = await get_conversation_history(
+        # Phase 1: All DB work in a scoped session (released before streaming)
+        from app.db.base import async_session_maker
+
+        async with async_session_maker() as db:
+            history = [m.model_dump() for m in request.history]
+            if not history and request.conversation_id:
+                history = await get_conversation_history(
+                    db,
+                    request.conversation_id,
+                    current_user.id,
+                )
+                history = trim_duplicate_user_message(history, request.message)
+
+            # Get file context if attachments provided
+            file_context = await get_file_context(
                 db,
-                request.conversation_id,
+                request.attachment_ids,
                 current_user.id,
             )
-            history = trim_duplicate_user_message(history, request.message)
+
+            # Get image attachments as base64 for vision tool usage
+            image_attachments = await get_image_attachments(
+                db,
+                request.attachment_ids,
+                current_user.id,
+            )
+        # DB session released here - pool slot freed
 
         # Debug logging for conversation context
         logger.info(
@@ -375,20 +190,6 @@ async def stream_query(
             history_from_request=len(request.history),
             history_total=len(history),
             has_history=bool(history),
-        )
-
-        # Get file context if attachments provided
-        file_context = await get_file_context(
-            db,
-            request.attachment_ids,
-            current_user.id,
-        )
-
-        # Get image attachments as base64 for vision tool usage
-        image_attachments = await get_image_attachments(
-            db,
-            request.attachment_ids,
-            current_user.id,
         )
 
         # Enhance system prompt with file context
@@ -426,9 +227,55 @@ async def stream_query(
                 },
             )
 
-        # Note: The DB session (from Depends(get_db)) is held for the entire
-        # SSE stream lifecycle. Ideally, release it before entering the
-        # long-running generator to free the connection pool slot.
+        # Phase 2: SSE streaming (no DB dependency)
+
+        # Declarative field mappings per event type.
+        # Each entry maps event_type -> list of (output_key, event_key, default).
+        # This replaces the ~180-line if/elif chain with a compact table.
+        _EVENT_FIELD_MAP: dict[str, list[tuple[str, str, Any]]] = {
+            "token": [("data", "content", "")],
+            "tool_call": [("tool", "tool", ""), ("args", "args", {}), ("id", "id", None)],
+            "tool_result": [("tool", "tool", ""), ("content", "content", ""), ("id", "id", None)],
+            "routing": [
+                ("agent", "agent", ""), ("reason", "reason", ""),
+                ("confidence", "confidence", None), ("low_confidence", "low_confidence", False),
+            ],
+            "handoff": [("source", "source", ""), ("target", "target", ""), ("task", "task", "")],
+            "source": [("title", "title", ""), ("url", "url", ""), ("snippet", "snippet", "")],
+            "code_result": [("output", "output", ""), ("exit_code", "exit_code", None), ("error", "error", None)],
+            "browser_action": [
+                ("action", "action", ""), ("description", "description", ""),
+                ("target", "target", None), ("status", "status", "running"),
+            ],
+            "terminal_command": [("command", "command", ""), ("cwd", "cwd", "/home/user"), ("timestamp", "timestamp", None)],
+            "terminal_output": [("content", "content", ""), ("stream", "stream", "stdout"), ("timestamp", "timestamp", None)],
+            "terminal_error": [("content", "content", ""), ("exit_code", "exit_code", None), ("timestamp", "timestamp", None)],
+            "terminal_complete": [("exit_code", "exit_code", 0), ("timestamp", "timestamp", None)],
+            "workspace_update": [
+                ("operation", "operation", "create"), ("path", "path", ""), ("name", "name", ""),
+                ("is_directory", "is_directory", False), ("size", "size", None),
+                ("sandbox_type", "sandbox_type", "app"), ("sandbox_id", "sandbox_id", ""),
+                ("timestamp", "timestamp", None),
+            ],
+            "skill_output": [("skill_id", "skill_id", ""), ("output", "output", {})],
+            "error": [("data", "error", "Unknown error")],
+        }
+        # Event types that are passed through as-is (no field mapping needed)
+        _PASSTHROUGH_EVENTS = {"stage", "complete"}
+
+        def _build_sse_payload(event_type: str, event: dict) -> dict[str, Any] | None:
+            """Build SSE payload from event using declarative field map."""
+            if event_type in _PASSTHROUGH_EVENTS:
+                if event_type == "complete":
+                    return {"type": "complete", "data": ""}
+                return event
+            fields = _EVENT_FIELD_MAP.get(event_type)
+            if fields is None:
+                return None
+            payload: dict[str, Any] = {"type": event_type}
+            for out_key, evt_key, default in fields:
+                payload[out_key] = event.get(evt_key, default)
+            return payload
 
         # Stream agent response using supervisor
         async def agent_generator() -> AsyncGenerator[str, None]:
@@ -448,62 +295,8 @@ async def stream_query(
                 ):
                     event_type = event["type"]
 
-                    if event_type == "token":
-                        yield _sse_data({"type": "token", "data": event["content"]})
-
-                    elif event_type == "stage":
-                        yield _sse_data(event)
-
-                    elif event_type == "tool_call":
-                        yield _sse_data({
-                            "type": "tool_call",
-                            "tool": event.get("tool", ""),
-                            "args": event.get("args", {}),
-                            "id": event.get("id"),
-                        })
-
-                    elif event_type == "tool_result":
-                        yield _sse_data({
-                            "type": "tool_result",
-                            "tool": event.get("tool", ""),
-                            "content": event.get("content", ""),
-                            "id": event.get("id"),
-                        })
-
-                    elif event_type == "routing":
-                        yield _sse_data({
-                            "type": "routing",
-                            "agent": event.get("agent", ""),
-                            "reason": event.get("reason", ""),
-                            "confidence": event.get("confidence"),
-                            "low_confidence": event.get("low_confidence", False),
-                        })
-
-                    elif event_type == "handoff":
-                        yield _sse_data({
-                            "type": "handoff",
-                            "source": event.get("source", ""),
-                            "target": event.get("target", ""),
-                            "task": event.get("task", ""),
-                        })
-
-                    elif event_type == "source":
-                        yield _sse_data({
-                            "type": "source",
-                            "title": event.get("title", ""),
-                            "url": event.get("url", ""),
-                            "snippet": event.get("snippet", ""),
-                        })
-
-                    elif event_type == "code_result":
-                        yield _sse_data({
-                            "type": "code_result",
-                            "output": event.get("output", ""),
-                            "exit_code": event.get("exit_code"),
-                            "error": event.get("error"),
-                        })
-
-                    elif event_type == "browser_stream":
+                    # Special handlers for events with conditional logic or logging
+                    if event_type == "browser_stream":
                         logger.info(
                             "streaming_browser_stream_event",
                             sandbox_id=event.get("sandbox_id", "")[:8],
@@ -513,66 +306,6 @@ async def stream_query(
                             "stream_url": event.get("stream_url", ""),
                             "sandbox_id": event.get("sandbox_id", ""),
                             "auth_key": event.get("auth_key"),
-                        })
-
-                    elif event_type == "browser_action":
-                        yield _sse_data({
-                            "type": "browser_action",
-                            "action": event.get("action", ""),
-                            "description": event.get("description", ""),
-                            "target": event.get("target"),
-                            "status": event.get("status", "running"),
-                        })
-
-                    elif event_type == "terminal_command":
-                        yield _sse_data({
-                            "type": "terminal_command",
-                            "command": event.get("command", ""),
-                            "cwd": event.get("cwd", "/home/user"),
-                            "timestamp": event.get("timestamp"),
-                        })
-
-                    elif event_type == "terminal_output":
-                        yield _sse_data({
-                            "type": "terminal_output",
-                            "content": event.get("content", ""),
-                            "stream": event.get("stream", "stdout"),
-                            "timestamp": event.get("timestamp"),
-                        })
-
-                    elif event_type == "terminal_error":
-                        yield _sse_data({
-                            "type": "terminal_error",
-                            "content": event.get("content", ""),
-                            "exit_code": event.get("exit_code"),
-                            "timestamp": event.get("timestamp"),
-                        })
-
-                    elif event_type == "terminal_complete":
-                        yield _sse_data({
-                            "type": "terminal_complete",
-                            "exit_code": event.get("exit_code", 0),
-                            "timestamp": event.get("timestamp"),
-                        })
-
-                    elif event_type == "workspace_update":
-                        yield _sse_data({
-                            "type": "workspace_update",
-                            "operation": event.get("operation", "create"),
-                            "path": event.get("path", ""),
-                            "name": event.get("name", ""),
-                            "is_directory": event.get("is_directory", False),
-                            "size": event.get("size"),
-                            "sandbox_type": event.get("sandbox_type", "app"),
-                            "sandbox_id": event.get("sandbox_id", ""),
-                            "timestamp": event.get("timestamp"),
-                        })
-
-                    elif event_type == "skill_output":
-                        yield _sse_data({
-                            "type": "skill_output",
-                            "skill_id": event.get("skill_id", ""),
-                            "output": event.get("output", {}),
                         })
 
                     elif event_type == "image":
@@ -623,14 +356,11 @@ async def stream_query(
                             "timestamp": event.get("timestamp"),
                         })
 
-                    elif event_type == "complete":
-                        yield _sse_data({"type": "complete", "data": ""})
-
-                    elif event_type == "error":
-                        yield _sse_data({
-                            "type": "error",
-                            "data": event.get("error", "Unknown error"),
-                        })
+                    else:
+                        # Use declarative mapping for all other event types
+                        sse_payload = _build_sse_payload(event_type, event)
+                        if sse_payload is not None:
+                            yield _sse_data(sse_payload)
 
             except asyncio.CancelledError:
                 # SSE connection was closed by client
@@ -675,19 +405,23 @@ async def stream_query(
         # Use frontend-provided task_id if available, otherwise generate new one
         task_id = request.task_id or str(uuid.uuid4())
 
-        # Create task in database
-        await deep_research_repository.create_task(
-            db=db,
-            task_id=task_id,
-            query=request.message,
-            depth=request.depth.value,
-            scenario=request.scenario.value,
-            user_id=current_user.id,
-        )
+        # All DB work in a scoped session
+        from app.db.base import async_session_maker
 
-        # Update status to queued before enqueueing
-        await deep_research_repository.update_task_status(db, task_id, "queued")
-        await db.commit()
+        async with async_session_maker() as db:
+            # Create task in database
+            await deep_research_repository.create_task(
+                db=db,
+                task_id=task_id,
+                query=request.message,
+                depth=request.depth.value,
+                scenario=request.scenario.value,
+                user_id=current_user.id,
+            )
+
+            # Update status to queued before enqueueing
+            await deep_research_repository.update_task_status(db, task_id, "queued")
+            await db.commit()
 
         # Enqueue to worker for background processing
         job_id = await task_queue.enqueue_research_task(
@@ -712,162 +446,7 @@ async def stream_query(
             scenario=request.scenario.value if request.scenario else None,
         )
 
-        async def research_stream_from_worker() -> AsyncGenerator[dict, None]:
-            """Stream research progress from worker via Redis pub/sub."""
-            # Send initial event with task_id for backward compatibility
-            yield {
-                "event": "message",
-                "data": json.dumps({"type": "task_started", "task_id": task_id}),
-            }
-
-            # Subscribe to worker progress channel using shared Redis connection
-            redis = _get_shared_redis()
-            pubsub = redis.pubsub()
-            channel = f"hyperagent:progress:{task_id}"
-
-            try:
-                await pubsub.subscribe(channel)
-
-                async for message in pubsub.listen():
-                    if message["type"] == "message":
-                        event_data = json.loads(message["data"])
-                        event_type = event_data.get("type")
-                        data = event_data.get("data", {})
-
-                        # Transform worker events to match frontend expected format
-                        if event_type == "step":
-                            # Map step events to stage format for frontend compatibility
-                            step_type = data.get("step_type", "")
-                            try:
-                                step_type_enum = ResearchStepType(step_type)
-                            except ValueError:
-                                # Unknown step type - pass through as-is
-                                logger.warning("unknown_step_type", step_type=step_type)
-                                stage_data = {
-                                    "type": "stage",
-                                    "name": step_type,
-                                    "description": data.get("description", step_type),
-                                    "status": data.get("status", "running"),
-                                    "id": data.get("step_id", str(uuid.uuid4())),
-                                }
-                                yield {
-                                    "event": "message",
-                                    "data": json.dumps(stage_data),
-                                }
-                                continue
-
-                            step = ResearchStep(
-                                id=data.get("step_id", str(uuid.uuid4())),
-                                type=step_type_enum,
-                                description=data["description"],
-                                status=ResearchStatus(data["status"]),
-                            )
-                            stage_data = step.model_dump()
-                            stage_data["name"] = stage_data.pop("type")
-                            stage_data["type"] = "stage"
-                            yield {
-                                "event": "message",
-                                "data": json.dumps(stage_data),
-                            }
-
-                        elif event_type == "source":
-                            source = Source(
-                                id=data.get("source_id", str(uuid.uuid4())),
-                                title=data["title"],
-                                url=data["url"],
-                                snippet=data.get("snippet"),
-                            )
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({"type": "source", "data": source.model_dump()}),
-                            }
-
-                        elif event_type == "token":
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({"type": "token", "data": data.get("content", "")}),
-                            }
-
-                        elif event_type == "token_batch":
-                            # Token batch is just multiple tokens at once
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({"type": "token", "data": data.get("content", "")}),
-                            }
-
-                        elif event_type == "tool_call":
-                            # Forward tool call events
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({
-                                    "type": "tool_call",
-                                    "tool": data.get("tool", ""),
-                                    "args": data.get("args", {}),
-                                    "id": data.get("id"),
-                                }),
-                            }
-
-                        elif event_type == "tool_result":
-                            # Forward tool result events
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({
-                                    "type": "tool_result",
-                                    "tool": data.get("tool", ""),
-                                    "output": data.get("output", ""),
-                                    "id": data.get("id"),
-                                }),
-                            }
-
-                        elif event_type == "progress":
-                            # Forward progress percentage events
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({
-                                    "type": "progress",
-                                    "percentage": data.get("percentage", 0),
-                                    "message": data.get("message", ""),
-                                }),
-                            }
-
-                        elif event_type == "complete":
-                            logger.info("research_stream_completed", task_id=task_id)
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({"type": "complete", "data": ""}),
-                            }
-                            break
-
-                        elif event_type == "error":
-                            logger.error(
-                                "research_stream_error",
-                                task_id=task_id,
-                                error=data.get("error", "Unknown error"),
-                            )
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({"type": "error", "data": data.get("error", "Unknown error")}),
-                            }
-                            break
-
-            except Exception as e:
-                logger.error("research_stream_subscription_error", task_id=task_id, error=str(e))
-                yield {
-                    "event": "message",
-                    "data": json.dumps({"type": "error", "data": str(e)}),
-                }
-            finally:
-                await pubsub.unsubscribe(channel)
-                # Note: redis client is shared (module-level pool), do not close it here
-
-        return EventSourceResponse(research_stream_from_worker())
-
-
-async def get_db_session() -> AsyncSession:
-    """Get a new database session for use in generators."""
-    from app.db.base import async_session_maker
-
-    return async_session_maker()
+        return EventSourceResponse(research_stream_from_worker(task_id))
 
 
 @router.get("/status/{task_id}")

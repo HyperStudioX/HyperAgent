@@ -6,6 +6,7 @@ protocol so this module works with any provider (E2B, BoxLite, etc.).
 """
 
 import base64
+import mimetypes
 import shlex
 from typing import Any
 
@@ -41,6 +42,8 @@ async def read_file(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
             text_content = base64.b64encode(content).decode("utf-8")
             is_binary = True
 
+        content_type, _ = mimetypes.guess_type(path)
+
         logger.info("sandbox_file_read", path=path, size=len(content), is_binary=is_binary)
 
         return {
@@ -50,6 +53,7 @@ async def read_file(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
             "content": text_content,
             "is_binary": is_binary,
             "size": len(content),
+            "content_type": content_type,
         }
 
     except Exception as e:
@@ -134,6 +138,7 @@ async def list_directory(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
         Dict with success status and directory entries
     """
     try:
+        # Use stat to get proper epoch timestamps alongside ls -la for permissions/size
         result = await sandbox.run_command(f"ls -la {shlex.quote(path)}", timeout=30)
 
         if result.exit_code != 0:
@@ -161,6 +166,30 @@ async def list_directory(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
                     "is_directory": parts[0].startswith("d"),
                 }
                 entries.append(entry)
+
+        # Get modification timestamps using stat for all entries
+        if entries:
+            names = [shlex.quote(e["name"]) for e in entries]
+            names_str = " ".join(names)
+            quoted_path = shlex.quote(path)
+            stat_cmd = (
+                f"cd {quoted_path} && "
+                f"stat -c '%Y %n' {names_str} 2>/dev/null || "
+                f"stat -f '%m %N' {names_str} 2>/dev/null"
+            )
+            stat_result = await sandbox.run_command(stat_cmd, timeout=30)
+            if stat_result.exit_code == 0 and stat_result.stdout:
+                # Build a name -> epoch map
+                mtime_map: dict[str, int] = {}
+                for stat_line in stat_result.stdout.strip().split("\n"):
+                    stat_parts = stat_line.split(None, 1)
+                    if len(stat_parts) == 2 and stat_parts[0].isdigit():
+                        # stat_parts[1] may include full path, extract basename
+                        name = stat_parts[1].rsplit("/", 1)[-1]
+                        mtime_map[name] = int(stat_parts[0])
+                for entry in entries:
+                    if entry["name"] in mtime_map:
+                        entry["modified_at"] = mtime_map[entry["name"]]
 
         logger.info("sandbox_directory_listed", path=path, count=len(entries))
 

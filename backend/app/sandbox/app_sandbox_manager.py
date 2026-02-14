@@ -274,6 +274,10 @@ class AppSandboxManager:
                 template=template,
                 timeout=session_timeout,
             )
+            # Mark as healthy since we just created it — avoids a redundant
+            # health-check in the very next get_session() call which can
+            # fail if the container is still settling after scaffolding.
+            session.last_health_check = time.monotonic()
             self._sessions[session_key] = session
             self._total_created += 1
 
@@ -350,6 +354,10 @@ class AppSandboxManager:
                 template=template,
                 sandbox_id=session.sandbox_id,
             )
+
+            # Refresh health-check timestamp — scaffold ran commands
+            # successfully, so the sandbox is known to be alive.
+            session.last_health_check = time.monotonic()
 
             return {
                 "success": True,

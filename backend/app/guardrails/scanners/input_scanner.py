@@ -1,5 +1,7 @@
 """Input scanner for prompt injection and jailbreak detection."""
 
+import threading
+
 from app.config import settings
 from app.core.logging import get_logger
 from app.guardrails.base import ScanResult, ViolationType
@@ -7,47 +9,52 @@ from app.guardrails.utils import truncate_for_logging
 
 logger = get_logger(__name__)
 
-# Lazy initialization flag
+# Lazy initialization flag (thread-safe with double-check locking)
 _scanners_initialized = False
 _prompt_injection_scanner = None
+_init_lock = threading.Lock()
 
 
 def _initialize_scanners():
-    """Lazily initialize llm-guard scanners."""
+    """Lazily initialize llm-guard scanners (thread-safe)."""
     global _scanners_initialized, _prompt_injection_scanner
 
     if _scanners_initialized:
         return
 
-    try:
-        from llm_guard.input_scanners import PromptInjection
+    with _init_lock:
+        if _scanners_initialized:
+            return
 
-        _prompt_injection_scanner = PromptInjection(threshold=0.8)
-        _scanners_initialized = True
-        logger.info("input_scanners_initialized")
-    except ImportError as e:
-        logger.warning(
-            "llm_guard_not_available",
-            error=str(e),
-            detail="llm-guard not available, falling back to pattern-only jailbreak detection",
-        )
-        _scanners_initialized = True  # Mark as initialized to avoid retrying
-    except SystemExit as e:
-        # llm-guard may call sys.exit when spacy models aren't available
-        logger.warning("llm_guard_model_download_required", error=str(e))
-        _scanners_initialized = True
-    except Exception as e:
-        # Known issue: llm-guard 0.3.x has compatibility issues with Pydantic v2
-        # Fall back to pattern-based detection only
-        error_msg = str(e)
-        if "REGEX" in error_msg or "type" in error_msg:
+        try:
+            from llm_guard.input_scanners import PromptInjection
+
+            _prompt_injection_scanner = PromptInjection(threshold=0.8)
+            _scanners_initialized = True
+            logger.info("input_scanners_initialized")
+        except ImportError as e:
             logger.warning(
-                "llm_guard_pydantic_incompatibility",
-                detail="llm-guard has Pydantic v2 compatibility issues, using pattern-based detection only"
+                "llm_guard_not_available",
+                error=str(e),
+                detail="llm-guard not available, falling back to pattern-only jailbreak detection",
             )
-        else:
-            logger.error("input_scanners_init_failed", error=error_msg)
-        _scanners_initialized = True
+            _scanners_initialized = True  # Mark as initialized to avoid retrying
+        except SystemExit as e:
+            # llm-guard may call sys.exit when spacy models aren't available
+            logger.warning("llm_guard_model_download_required", error=str(e))
+            _scanners_initialized = True
+        except Exception as e:
+            # Known issue: llm-guard 0.3.x has compatibility issues with Pydantic v2
+            # Fall back to pattern-based detection only
+            error_msg = str(e)
+            if "REGEX" in error_msg or "type" in error_msg:
+                logger.warning(
+                    "llm_guard_pydantic_incompatibility",
+                    detail="llm-guard has Pydantic v2 compatibility issues, using pattern-based detection only"
+                )
+            else:
+                logger.error("input_scanners_init_failed", error=error_msg)
+            _scanners_initialized = True
 
 
 class InputScanner:

@@ -5,7 +5,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import conversations, files, health, hitl, query, sandbox, sandbox_proxy, skills, tasks
+from app.api import (
+    conversations, files, health, hitl, projects,
+    query, sandbox, sandbox_proxy, skills, tasks,
+)
 from app.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.base import close_db, init_db
@@ -103,11 +106,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("database_close_failed", error=str(e))
 
-    # Close rate limiter Redis connection
-    for middleware in app.user_middleware:
-        if hasattr(middleware, "cls") and middleware.cls == RateLimitMiddleware:
-            # Note: The middleware instance is created by Starlette, not accessible here
-            pass
+    # Close shared Redis connection pool
+    try:
+        from app.core.redis import close_redis_pool
+
+        await close_redis_pool()
+    except Exception as e:
+        logger.error("redis_pool_close_failed", error=str(e))
+
+    # Close vision HTTP client
+    try:
+        from app.agents.tools.vision import close_http_client
+
+        await close_http_client()
+    except Exception as e:
+        logger.error("vision_http_client_close_failed", error=str(e))
 
     logger.info("application_stopped")
 
@@ -145,6 +158,7 @@ app.include_router(health.router, prefix=settings.api_prefix, tags=["health"])
 app.include_router(query.router, prefix=settings.api_prefix, tags=["query"])
 app.include_router(tasks.router, prefix=settings.api_prefix, tags=["tasks"])
 app.include_router(conversations.router, prefix=settings.api_prefix, tags=["conversations"])
+app.include_router(projects.router, prefix=settings.api_prefix, tags=["projects"])
 app.include_router(files.router, prefix=settings.api_prefix, tags=["files"])
 app.include_router(skills.router, prefix=settings.api_prefix, tags=["skills"])
 app.include_router(hitl.router, prefix=settings.api_prefix, tags=["hitl"])

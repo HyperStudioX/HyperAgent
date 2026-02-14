@@ -1,17 +1,11 @@
 """Router for conversation management."""
 
-import uuid
-from typing import Sequence
-
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
-from app.db.models import Conversation, ConversationMessage, File, MessageAttachment
 from app.models.schemas import (
     ConversationListResponse,
     ConversationMessageResponse,
@@ -21,6 +15,7 @@ from app.models.schemas import (
     UpdateConversationRequest,
     UpdateMessageRequest,
 )
+from app.repository import conversation_repository
 
 logger = get_logger(__name__)
 
@@ -34,13 +29,7 @@ async def list_conversations(
 ):
     """List all conversations for the current user."""
     try:
-        result = await db.execute(
-            select(Conversation)
-            .where(Conversation.user_id == current_user.id)
-            .order_by(Conversation.updated_at.desc())
-        )
-        conversations: Sequence[Conversation] = result.scalars().all()
-
+        conversations = await conversation_repository.list_for_user(db, current_user.id)
         return [
             ConversationListResponse(**conv.to_dict(include_messages=False))
             for conv in conversations
@@ -58,17 +47,9 @@ async def create_conversation(
 ):
     """Create a new conversation."""
     try:
-        conversation = Conversation(
-            id=str(uuid.uuid4()),
-            title=request.title,
-            type=request.type.value,
-            user_id=current_user.id,
+        conversation = await conversation_repository.create(
+            db, title=request.title, conv_type=request.type.value, user_id=current_user.id
         )
-        db.add(conversation)
-        await db.commit()
-        await db.refresh(conversation)
-
-        # New conversations have no messages, return with empty list
         conv_dict = conversation.to_dict(include_messages=False)
         conv_dict["messages"] = []
         return ConversationResponse(**conv_dict)
@@ -86,23 +67,11 @@ async def get_conversation(
 ):
     """Get a specific conversation with all messages."""
     try:
-        result = await db.execute(
-            select(Conversation)
-            .options(
-                selectinload(Conversation.messages).selectinload(
-                    ConversationMessage.attachments
-                ).selectinload(MessageAttachment.file)
-            )
-            .where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == current_user.id,
-            )
+        conversation = await conversation_repository.get_with_messages(
+            db, conversation_id, current_user.id
         )
-        conversation = result.scalar_one_or_none()
-
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
-
         return ConversationResponse(**conversation.to_dict(include_messages=True))
     except HTTPException:
         raise
@@ -125,41 +94,20 @@ async def update_conversation(
 ):
     """Update a conversation."""
     try:
-        result = await db.execute(
-            select(Conversation)
-            .options(
-                selectinload(Conversation.messages).selectinload(
-                    ConversationMessage.attachments
-                ).selectinload(MessageAttachment.file)
-            )
-            .where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == current_user.id,
-            )
-        )
-        conversation = result.scalar_one_or_none()
-
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-
         if request.title is not None:
-            conversation.title = request.title
-
-        await db.commit()
-
-        # Re-query to get updated conversation with messages
-        result = await db.execute(
-            select(Conversation)
-            .options(
-                selectinload(Conversation.messages).selectinload(
-                    ConversationMessage.attachments
-                ).selectinload(MessageAttachment.file)
+            updated = await conversation_repository.update_title(
+                db, conversation_id, current_user.id, request.title
             )
-            .where(Conversation.id == conversation_id)
-        )
-        updated_conversation = result.scalar_one()
-
-        return ConversationResponse(**updated_conversation.to_dict(include_messages=True))
+            if not updated:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            return ConversationResponse(**updated.to_dict(include_messages=True))
+        else:
+            conversation = await conversation_repository.get_with_messages(
+                db, conversation_id, current_user.id
+            )
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            return ConversationResponse(**conversation.to_dict(include_messages=True))
     except HTTPException:
         raise
     except Exception as e:
@@ -181,50 +129,29 @@ async def generate_conversation_title(
 ):
     """Generate a meaningful title for the conversation using LLM."""
     try:
-        # Get the conversation and its first user message
-        result = await db.execute(
-            select(Conversation)
-            .options(selectinload(Conversation.messages))
-            .where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == current_user.id,
-            )
+        conversation = await conversation_repository.get_with_messages(
+            db, conversation_id, current_user.id
         )
-        conversation = result.scalar_one_or_none()
-
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-        # Find the first user message
         first_user_message = next(
             (m for m in conversation.messages if m.role == "user"), None
         )
-
         if not first_user_message:
             return ConversationResponse(**conversation.to_dict(include_messages=True))
 
-        # Generate title using LLM
         from app.ai.llm import llm_service
 
         new_title = await llm_service.generate_title(first_user_message.content)
-
         if new_title:
-            conversation.title = new_title
-            await db.commit()
-
-        # Re-query to get updated conversation with messages and attachments
-        result = await db.execute(
-            select(Conversation)
-            .options(
-                selectinload(Conversation.messages).selectinload(
-                    ConversationMessage.attachments
-                ).selectinload(MessageAttachment.file)
+            updated = await conversation_repository.update_title(
+                db, conversation_id, current_user.id, new_title
             )
-            .where(Conversation.id == conversation_id)
-        )
-        updated_conversation = result.scalar_one()
+            if updated:
+                return ConversationResponse(**updated.to_dict(include_messages=True))
 
-        return ConversationResponse(**updated_conversation.to_dict(include_messages=True))
+        return ConversationResponse(**conversation.to_dict(include_messages=True))
     except HTTPException:
         raise
     except Exception as e:
@@ -246,20 +173,9 @@ async def delete_conversation(
 ):
     """Delete a conversation."""
     try:
-        result = await db.execute(
-            select(Conversation).where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == current_user.id,
-            )
-        )
-        conversation = result.scalar_one_or_none()
-
-        if not conversation:
+        deleted = await conversation_repository.delete(db, conversation_id, current_user.id)
+        if not deleted:
             raise HTTPException(status_code=404, detail="Conversation not found")
-
-        await db.delete(conversation)
-        await db.commit()
-
         return {"status": "deleted", "conversation_id": conversation_id}
     except HTTPException:
         raise
@@ -283,73 +199,20 @@ async def create_message(
 ):
     """Add a message to a conversation."""
     try:
-        # Verify conversation exists and belongs to user
-        result = await db.execute(
-            select(Conversation).where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == current_user.id,
-            )
-        )
-        conversation = result.scalar_one_or_none()
-
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-
-        # Create message
-        message = ConversationMessage(
-            id=str(uuid.uuid4()),
+        message = await conversation_repository.create_message(
+            db,
             conversation_id=conversation_id,
+            user_id=current_user.id,
             role=request.role.value,
             content=request.content,
-            message_metadata=request.metadata,
+            metadata=request.metadata,
+            attachment_ids=request.attachment_ids,
         )
-        db.add(message)
-        await db.flush()  # Flush to get the message ID before creating attachments
-
-        # Handle attachments if provided
-        if request.attachment_ids:
-            # Verify files exist and belong to user
-            result = await db.execute(
-                select(File).where(
-                    File.id.in_(request.attachment_ids),
-                    File.user_id == current_user.id,
-                )
-            )
-            files = result.scalars().all()
-
-            # Verify all attachment IDs are valid
-            found_file_ids = {f.id for f in files}
-            invalid_ids = set(request.attachment_ids) - found_file_ids
-            if invalid_ids:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid attachment IDs: {', '.join(invalid_ids)}",
-                )
-
-            # Create MessageAttachment records
-            for file in files:
-                attachment = MessageAttachment(
-                    id=str(uuid.uuid4()),
-                    message_id=message.id,
-                    file_id=file.id,
-                )
-                db.add(attachment)
-
-        await db.commit()
-
-        # Reload message with attachments and their file information
-        result = await db.execute(
-            select(ConversationMessage)
-            .options(
-                selectinload(ConversationMessage.attachments).selectinload(
-                    MessageAttachment.file
-                )
-            )
-            .where(ConversationMessage.id == message.id)
-        )
-        message = result.scalar_one()
-
+        if not message:
+            raise HTTPException(status_code=404, detail="Conversation not found")
         return ConversationMessageResponse(**message.to_dict())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -373,34 +236,11 @@ async def update_message(
 ):
     """Update a message in a conversation."""
     try:
-        # Verify conversation belongs to user
-        result = await db.execute(
-            select(Conversation).where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == current_user.id,
-            )
+        message = await conversation_repository.update_message(
+            db, conversation_id, message_id, current_user.id, request.content
         )
-        conversation = result.scalar_one_or_none()
-
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-
-        # Get and update message
-        result = await db.execute(
-            select(ConversationMessage).where(
-                ConversationMessage.id == message_id,
-                ConversationMessage.conversation_id == conversation_id,
-            )
-        )
-        message = result.scalar_one_or_none()
-
         if not message:
-            raise HTTPException(status_code=404, detail="Message not found")
-
-        message.content = request.content
-        await db.commit()
-        await db.refresh(message)
-
+            raise HTTPException(status_code=404, detail="Conversation or message not found")
         return ConversationMessageResponse(**message.to_dict())
     except HTTPException:
         raise
@@ -425,33 +265,11 @@ async def delete_message(
 ):
     """Delete a message from a conversation."""
     try:
-        # Verify conversation belongs to user
-        result = await db.execute(
-            select(Conversation).where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == current_user.id,
-            )
+        deleted = await conversation_repository.delete_message(
+            db, conversation_id, message_id, current_user.id
         )
-        conversation = result.scalar_one_or_none()
-
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-
-        # Get and delete message
-        result = await db.execute(
-            select(ConversationMessage).where(
-                ConversationMessage.id == message_id,
-                ConversationMessage.conversation_id == conversation_id,
-            )
-        )
-        message = result.scalar_one_or_none()
-
-        if not message:
-            raise HTTPException(status_code=404, detail="Message not found")
-
-        await db.delete(message)
-        await db.commit()
-
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Conversation or message not found")
         return {"status": "deleted", "message_id": message_id}
     except HTTPException:
         raise

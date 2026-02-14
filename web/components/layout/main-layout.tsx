@@ -9,7 +9,7 @@ import { useSidebarStore } from "@/lib/stores/sidebar-store";
 import { useComputerStore } from "@/lib/stores/computer-store";
 import { cn } from "@/lib/utils";
 
-import { FilePreviewSidebar } from "@/components/chat/file-preview-sidebar";
+import { FilePreviewSidebar } from "@/components/artifacts/artifacts-preview-panel";
 import { VirtualComputerPanel, ComputerToggleButton } from "@/components/computer";
 
 interface MainLayoutProps {

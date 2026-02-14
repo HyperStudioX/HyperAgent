@@ -217,6 +217,14 @@ function extractAppPreviews(events: (TimestampedEvent | AgentEvent)[]): AppPrevi
                 }
             }
         }
+
+        // browser_stream events from app sandbox (persisted after streaming)
+        if (event.type === "browser_stream") {
+            const streamUrl = (event as unknown as Record<string, unknown>).stream_url as string | undefined;
+            if (streamUrl && typeof streamUrl === "string") {
+                previews.push({ url: streamUrl });
+            }
+        }
     }
 
     // Deduplicate by URL

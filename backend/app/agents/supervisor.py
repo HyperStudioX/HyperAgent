@@ -161,23 +161,7 @@ async def chat_node(state: SupervisorState) -> ChatOutput | ErrorOutput:
             "events": result.get("events", []),
         }
 
-        # Check for handoff in result
-        handoff = result.get("pending_handoff")
-        if handoff:
-            if _can_handoff(state, handoff.get("target_agent", "")):
-                output["pending_handoff"] = handoff
-                output["handoff_count"] = state.get("handoff_count", 0) + 1
-                _update_handoff_history(output, state, handoff)
-            else:
-                logger.warning(
-                    "chat_handoff_blocked",
-                    target=handoff.get("target_agent", ""),
-                )
-                if not output.get("response"):
-                    output["response"] = (
-                        "I couldn't hand off that request, so I'm continuing here. "
-                        "Please share more details or rephrase."
-                    )
+        _process_handoff(output, state, result.get("pending_handoff"), "chat")
 
         return output
 
@@ -264,23 +248,7 @@ async def research_post_node(state: SupervisorState) -> ResearchPostOutput | Err
             ]
         output["shared_memory"] = shared_memory
 
-        # Validate and propagate handoff
-        handoff = state.get("pending_handoff")
-        if handoff:
-            if _can_handoff(state, handoff.get("target_agent", "")):
-                output["pending_handoff"] = handoff
-                output["handoff_count"] = state.get("handoff_count", 0) + 1
-                _update_handoff_history(output, state, handoff)
-            else:
-                logger.warning(
-                    "research_handoff_blocked",
-                    target=handoff.get("target_agent", ""),
-                )
-                if not state.get("response"):
-                    output["response"] = (
-                        "I couldn't hand off that request, so I'm continuing here. "
-                        "Please share more details or rephrase."
-                    )
+        _process_handoff(output, state, state.get("pending_handoff"), "research")
 
         logger.info(
             "research_post_completed",
@@ -343,23 +311,7 @@ async def data_node(state: SupervisorState) -> DataOutput | ErrorOutput:
             shared_memory["data_images"] = result.get("images", [])
         output["shared_memory"] = shared_memory
 
-        # Check for handoff in result
-        handoff = result.get("pending_handoff")
-        if handoff:
-            if _can_handoff(state, handoff.get("target_agent", "")):
-                output["pending_handoff"] = handoff
-                output["handoff_count"] = state.get("handoff_count", 0) + 1
-                _update_handoff_history(output, state, handoff)
-            else:
-                logger.warning(
-                    "data_handoff_blocked",
-                    target=handoff.get("target_agent", ""),
-                )
-                if not output.get("response"):
-                    output["response"] = (
-                        "I couldn't hand off that request, so I'm continuing here. "
-                        "Please share more details or rephrase."
-                    )
+        _process_handoff(output, state, result.get("pending_handoff"), "data")
 
         return output
 
@@ -475,6 +427,43 @@ def _can_handoff(state: SupervisorState, target_agent: str) -> bool:
         handoff_count=state.get("handoff_count", 0),
         handoff_history=state.get("handoff_history"),
     )
+
+
+def _process_handoff(
+    output: dict,
+    state: SupervisorState,
+    handoff: dict | None,
+    agent_name: str,
+) -> None:
+    """Validate and apply handoff to output dict, or set fallback response.
+
+    Args:
+        output: Output dict to update in-place
+        state: Current supervisor state
+        handoff: Handoff info dict from agent result, or None
+        agent_name: Name of the current agent (for logging)
+    """
+    if not handoff:
+        return
+
+    if _can_handoff(state, handoff.get("target_agent", "")):
+        output["pending_handoff"] = handoff
+        output["handoff_count"] = state.get("handoff_count", 0) + 1
+        output["handoff_history"] = update_handoff_history(
+            history=list(state.get("handoff_history") or []),
+            source_agent=state.get("active_agent") or "chat",
+            handoff=handoff,
+        )
+    else:
+        logger.warning(
+            f"{agent_name}_handoff_blocked",
+            target=handoff.get("target_agent", ""),
+        )
+        if not output.get("response"):
+            output["response"] = (
+                "I couldn't hand off that request, so I'm continuing here. "
+                "Please share more details or rephrase."
+            )
 
 
 def _update_handoff_history(

@@ -222,9 +222,9 @@ export const Sidebar = memo(function Sidebar({ className, isOpen = true, onClose
                     // Sidebar uses secondary background per Design Style Guide
                     "bg-secondary",
                     // Desktop: fixed width sidebar
-                    "md:w-72 md:border-r md:relative",
+                    "md:w-60 md:border-r md:relative",
                     // Mobile: full-screen overlay
-                    "fixed inset-y-0 left-0 z-50 w-[280px] border-r",
+                    "fixed inset-y-0 left-0 z-50 w-[240px] border-r",
                     // Safe area support
                     "pt-safe pb-safe",
                     // Performance & Accessibility
