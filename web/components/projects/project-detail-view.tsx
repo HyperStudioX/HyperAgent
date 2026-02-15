@@ -13,22 +13,12 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { COLOR_MAP } from "@/lib/utils/project-colors";
 import { useProjectStore } from "@/lib/stores/project-store";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PROJECT_COLORS, type ProjectColor } from "@/lib/types/projects";
-
-const COLOR_MAP: Record<string, string> = {
-  blue: "bg-blue-500",
-  green: "bg-green-500",
-  purple: "bg-purple-500",
-  amber: "bg-amber-500",
-  rose: "bg-rose-500",
-  emerald: "bg-emerald-500",
-  orange: "bg-orange-500",
-  indigo: "bg-indigo-500",
-};
 
 interface ProjectDetailViewProps {
   projectId: string;

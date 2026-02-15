@@ -189,11 +189,11 @@ HyperAgent uses a **simplified hybrid architecture** combining agents and skills
 **Skills System:**
 The Chat agent has access to composable skills:
 - `image_generation` - AI image generation (Gemini/DALL-E)
-- `simple_writing` - Document/email/article writing
 - `code_generation` - Generate code snippets
 - `code_review` - Review code for bugs/style/security
 - `web_research` - Focused web research with summarization
 - `data_visualization` - Generate visualization code
+- `slide_generation` - Create PPTX presentations
 
 Skills are LangGraph subgraphs that agents invoke as tools using `invoke_skill` and `list_skills`.
 

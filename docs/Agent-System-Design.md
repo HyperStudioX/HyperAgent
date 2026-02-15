@@ -46,11 +46,11 @@ The Chat agent with skills handles 80%+ of requests. Specialized agents are used
 │      Skills System           │
 ├──────────────────────────────┤
 │ • image_generation           │
-│ • simple_writing             │
 │ • code_generation            │
 │ • code_review                │
 │ • web_research               │
 │ • data_visualization         │
+│ • slide_generation           │
 └──────────────────────────────┘
 ```
 
@@ -61,24 +61,25 @@ The Chat agent with skills handles 80%+ of requests. Specialized agents are used
 **Handles 80%+ of all requests:**
 - General conversation and Q&A
 - Image generation (via `image_generation` skill)
-- Content writing (via `simple_writing` skill)
 - Code generation (via `code_generation` skill)
 - Code review (via `code_review` skill)
+- Presentation generation (via `slide_generation` skill / `generate_slides` tool)
 - Code execution (via `execute_code` tool)
 - Quick web search (via `web_search` tool)
 - Simple research (via `web_research` skill)
 
 **Available Skills:**
 - `image_generation` - AI image generation
-- `simple_writing` - Document/email/article writing
 - `code_generation` - Generate code snippets
 - `code_review` - Review code for bugs/style/security
 - `web_research` - Focused web research with summarization
 - `data_visualization` - Generate visualization code
+- `slide_generation` - Create PPTX presentations with research and outlines
 
 **Available Tools:**
 - `web_search` - Search the web
 - `execute_code` - Run code in sandbox
+- `generate_slides` - Generate PPTX slide decks
 - `analyze_image` - Computer vision analysis
 - `browser_*` - Browser automation tools
 - `invoke_skill` - Invoke any skill
@@ -154,9 +155,9 @@ Everything else → CHAT Agent (uses skills)
 | User Request | Skill Used | Why Chat |
 |-------------|------------|----------|
 | "Generate an image of a sunset" | `image_generation` | Simple image request |
-| "Write an email to my team" | `simple_writing` | Simple writing task |
 | "Create a Python function to sort" | `code_generation` | Simple code generation |
 | "Review this code for bugs" | `code_review` | Code review |
+| "Create a presentation on AI trends" | `slide_generation` / `generate_slides` | Slide deck generation |
 | "What are the latest AI trends?" | `web_search` tool | Quick search |
 | "Write and run Python code" | `code_generation` + `execute_code` | Chat has both |
 | "Quick research on topic X" | `web_research` | Simple research |
@@ -194,7 +195,7 @@ Everything else → CHAT Agent (uses skills)
 
 ### 2. **Skills are Composable**
 - Chat can combine multiple skills
-- Example: `web_research` + `simple_writing` = quick report
+- Example: `web_research` + `slide_generation` = researched presentation
 - Example: `code_generation` + `execute_code` = tested code
 
 ### 3. **Scalability**
@@ -210,7 +211,7 @@ Everything else → CHAT Agent (uses skills)
 ### 5. **Flexibility**
 - Any agent can invoke any skill
 - Research agent can use `image_generation`
-- Data agent can use `simple_writing` for reports
+- Data agent can use `slide_generation` for presentations
 
 ## Context Compression
 
@@ -504,7 +505,7 @@ Test cases cover:
 The following agent types remain in the enum but are deprecated:
 
 - **IMAGE** → Routed to Chat + `image_generation` skill
-- **WRITING** → Routed to Chat + `simple_writing` skill
+- **WRITING** → Routed to Chat (writing handled directly by LLM)
 - **CODE** → Routed to Chat + `code_generation`/`code_review` skills
 
 The routing logic automatically redirects these to Chat agent.
@@ -512,7 +513,7 @@ The routing logic automatically redirects these to Chat agent.
 ## Implementation Status
 
 ✅ **Completed:**
-- 6 builtin skills implemented
+- 8 builtin skills implemented
 - Skills system integrated into tool registry
 - Skills API endpoints created
 - Chat agent has access to all skills

@@ -29,6 +29,7 @@ The key relationship: **Agents use Tools → Skills are invoked via Tools → Sk
         │  │ - execute_code                  │  │
         │  │ - browser_navigate              │  │
         │  │ - generate_image                │  │
+        │  │ - generate_slides               │  │
         │  │ - analyze_image                 │  │
         │  │ - ask_user (HITL)               │  │
         │  │ - handoff_to_* (agent routing)  │  │
@@ -51,8 +52,8 @@ The key relationship: **Agents use Tools → Skills are invoked via Tools → Sk
         │  │ - app_builder                  │  │
         │  │ - image_generation             │  │
         │  │ - data_visualization           │  │
-        │  │ - simple_writing               │  │
         │  │ - task_planning                │  │
+        │  │ - slide_generation             │  │
         │  └─────────────────────────────────┘  │
         └───────────────────────────────────────┘
                             │
@@ -87,6 +88,7 @@ The key relationship: **Agents use Tools → Skills are invoked via Tools → Sk
 class ToolCategory(str, Enum):
     SEARCH = "search"        # web_search
     IMAGE = "image"          # generate_image, analyze_image
+    SLIDES = "slides"        # generate_slides
     BROWSER = "browser"      # browser_navigate, browser_click, etc.
     CODE_EXEC = "code_exec"  # execute_code
     DATA = "data"            # sandbox_file
@@ -97,7 +99,7 @@ class ToolCategory(str, Enum):
 ```
 
 **Agent Tool Access**:
-- **Chat Agent**: SEARCH, IMAGE, BROWSER, CODE_EXEC, APP_BUILDER, SKILL, HANDOFF, HITL
+- **Chat Agent**: SEARCH, IMAGE, SLIDES, BROWSER, CODE_EXEC, APP_BUILDER, SKILL, HANDOFF, HITL
 - **Research Agent**: SEARCH, IMAGE, BROWSER, SKILL, HANDOFF, HITL
 - **Data Agent**: SEARCH, IMAGE, CODE_EXEC, DATA, SKILL, HANDOFF, HITL
 

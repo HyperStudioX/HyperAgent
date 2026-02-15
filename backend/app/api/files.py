@@ -230,8 +230,9 @@ async def download_generated_image(
         ".jpeg": "image/jpeg",
         ".gif": "image/gif",
         ".webp": "image/webp",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     }
-    content_type = content_type_map.get(ext, "image/png")
+    content_type = content_type_map.get(ext, "application/octet-stream")
 
     # Download file from storage
     try:
@@ -243,7 +244,7 @@ async def download_generated_image(
             file_data,
             media_type=content_type,
             headers={
-                "Content-Disposition": f'inline; filename="generated-image{ext}"',
+                "Content-Disposition": f'{"attachment" if ext == ".pptx" else "inline"}; filename="generated{ext}"',
                 "Cache-Control": "public, max-age=31536000",  # Cache for 1 year (content-addressed)
             }
         )

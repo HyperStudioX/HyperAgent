@@ -48,6 +48,7 @@ from app.agents.tools.handoff import (
     update_handoff_history,
 )
 from app.agents.tools.image_generation import generate_image
+from app.agents.tools.slide_generation import generate_slides
 from app.agents.tools.react_tool import (
     ReActLoopConfig,
     ReActLoopResult,
@@ -97,6 +98,7 @@ __all__ = [
     "web_search",
     "parse_search_results",
     "generate_image",
+    "generate_slides",
     "analyze_image",
     # Browser tools (E2B Desktop sandbox)
     "browser_navigate",

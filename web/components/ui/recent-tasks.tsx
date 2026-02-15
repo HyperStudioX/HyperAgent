@@ -20,6 +20,7 @@ import {
   ImageIcon,
   AppWindow,
   PenLine,
+  Presentation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationType } from "@/lib/types";
@@ -40,6 +41,7 @@ const CONVERSATION_TYPE_ICONS: Record<ConversationType, React.ReactNode> = {
   app: <AppWindow className="w-4 h-4" />,
   image: <ImageIcon className="w-4 h-4" />,
   writing: <PenLine className="w-4 h-4" />,
+  slide: <Presentation className="w-4 h-4" />,
 };
 
 const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
@@ -50,6 +52,7 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   app: <AppWindow className="w-3.5 h-3.5" />,
   image: <ImageIcon className="w-3.5 h-3.5" />,
   writing: <PenLine className="w-3.5 h-3.5" />,
+  slide: <Presentation className="w-3.5 h-3.5" />,
   task: <Search className="w-3.5 h-3.5" />,
 };
 
@@ -203,6 +206,7 @@ export function RecentTasks({
     app: t("app") || "App",
     image: t("image") || "Image",
     writing: t("writing") || "Writing",
+    slide: t("slide") || "Slides",
     task: t("task") || "Task",
   };
 

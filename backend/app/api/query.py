@@ -91,7 +91,7 @@ async def query(
                 provider=request.provider,
             )
 
-        elif request.mode in (QueryMode.APP, QueryMode.DATA, QueryMode.IMAGE):
+        elif request.mode in (QueryMode.APP, QueryMode.DATA, QueryMode.IMAGE, QueryMode.SLIDE):
             # Use agent supervisor for specialized modes
             result = await agent_supervisor.invoke(
                 query=request.message,
@@ -115,7 +115,9 @@ async def query(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("chat_error", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="An internal error occurred while processing your message.")
+        raise HTTPException(
+            status_code=500, detail="An internal error occurred while processing your message."
+        )
 
     else:
         # Handle research mode
@@ -154,7 +156,14 @@ async def stream_query(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Stream response for chat, research, and other agent modes."""
-    if request.mode in (QueryMode.CHAT, QueryMode.APP, QueryMode.DATA, QueryMode.IMAGE):
+    _CHAT_MODES = (
+        QueryMode.CHAT,
+        QueryMode.APP,
+        QueryMode.DATA,
+        QueryMode.IMAGE,
+        QueryMode.SLIDE,
+    )
+    if request.mode in _CHAT_MODES:
         # Phase 1: All DB work in a scoped session (released before streaming)
         from app.db.base import async_session_maker
 
@@ -237,24 +246,48 @@ async def stream_query(
             "tool_call": [("tool", "tool", ""), ("args", "args", {}), ("id", "id", None)],
             "tool_result": [("tool", "tool", ""), ("content", "content", ""), ("id", "id", None)],
             "routing": [
-                ("agent", "agent", ""), ("reason", "reason", ""),
-                ("confidence", "confidence", None), ("low_confidence", "low_confidence", False),
+                ("agent", "agent", ""),
+                ("reason", "reason", ""),
+                ("confidence", "confidence", None),
+                ("low_confidence", "low_confidence", False),
             ],
             "handoff": [("source", "source", ""), ("target", "target", ""), ("task", "task", "")],
             "source": [("title", "title", ""), ("url", "url", ""), ("snippet", "snippet", "")],
-            "code_result": [("output", "output", ""), ("exit_code", "exit_code", None), ("error", "error", None)],
-            "browser_action": [
-                ("action", "action", ""), ("description", "description", ""),
-                ("target", "target", None), ("status", "status", "running"),
+            "code_result": [
+                ("output", "output", ""),
+                ("exit_code", "exit_code", None),
+                ("error", "error", None),
             ],
-            "terminal_command": [("command", "command", ""), ("cwd", "cwd", "/home/user"), ("timestamp", "timestamp", None)],
-            "terminal_output": [("content", "content", ""), ("stream", "stream", "stdout"), ("timestamp", "timestamp", None)],
-            "terminal_error": [("content", "content", ""), ("exit_code", "exit_code", None), ("timestamp", "timestamp", None)],
+            "browser_action": [
+                ("action", "action", ""),
+                ("description", "description", ""),
+                ("target", "target", None),
+                ("status", "status", "running"),
+            ],
+            "terminal_command": [
+                ("command", "command", ""),
+                ("cwd", "cwd", "/home/user"),
+                ("timestamp", "timestamp", None),
+            ],
+            "terminal_output": [
+                ("content", "content", ""),
+                ("stream", "stream", "stdout"),
+                ("timestamp", "timestamp", None),
+            ],
+            "terminal_error": [
+                ("content", "content", ""),
+                ("exit_code", "exit_code", None),
+                ("timestamp", "timestamp", None),
+            ],
             "terminal_complete": [("exit_code", "exit_code", 0), ("timestamp", "timestamp", None)],
             "workspace_update": [
-                ("operation", "operation", "create"), ("path", "path", ""), ("name", "name", ""),
-                ("is_directory", "is_directory", False), ("size", "size", None),
-                ("sandbox_type", "sandbox_type", "app"), ("sandbox_id", "sandbox_id", ""),
+                ("operation", "operation", "create"),
+                ("path", "path", ""),
+                ("name", "name", ""),
+                ("is_directory", "is_directory", False),
+                ("size", "size", None),
+                ("sandbox_type", "sandbox_type", "app"),
+                ("sandbox_id", "sandbox_id", ""),
                 ("timestamp", "timestamp", None),
             ],
             "skill_output": [("skill_id", "skill_id", ""), ("output", "output", {})],
@@ -301,12 +334,14 @@ async def stream_query(
                             "streaming_browser_stream_event",
                             sandbox_id=event.get("sandbox_id", "")[:8],
                         )
-                        yield _sse_data({
-                            "type": "browser_stream",
-                            "stream_url": event.get("stream_url", ""),
-                            "sandbox_id": event.get("sandbox_id", ""),
-                            "auth_key": event.get("auth_key"),
-                        })
+                        yield _sse_data(
+                            {
+                                "type": "browser_stream",
+                                "stream_url": event.get("stream_url", ""),
+                                "sandbox_id": event.get("sandbox_id", ""),
+                                "auth_key": event.get("auth_key"),
+                            }
+                        )
 
                     elif event_type == "image":
                         img_data = event.get("data")
@@ -343,18 +378,20 @@ async def stream_query(
                             interrupt_id=event.get("interrupt_id", "")[:8],
                             interrupt_type=event.get("interrupt_type"),
                         )
-                        yield _sse_data({
-                            "type": "interrupt",
-                            "interrupt_id": event.get("interrupt_id", ""),
-                            "interrupt_type": event.get("interrupt_type", "input"),
-                            "title": event.get("title", "Agent Question"),
-                            "message": event.get("message", ""),
-                            "options": event.get("options"),
-                            "tool_info": event.get("tool_info"),
-                            "default_action": event.get("default_action"),
-                            "timeout_seconds": event.get("timeout_seconds", 120),
-                            "timestamp": event.get("timestamp"),
-                        })
+                        yield _sse_data(
+                            {
+                                "type": "interrupt",
+                                "interrupt_id": event.get("interrupt_id", ""),
+                                "interrupt_type": event.get("interrupt_type", "input"),
+                                "title": event.get("title", "Agent Question"),
+                                "message": event.get("message", ""),
+                                "options": event.get("options"),
+                                "tool_info": event.get("tool_info"),
+                                "default_action": event.get("default_action"),
+                                "timeout_seconds": event.get("timeout_seconds", 120),
+                                "timestamp": event.get("timestamp"),
+                            }
+                        )
 
                     else:
                         # Use declarative mapping for all other event types

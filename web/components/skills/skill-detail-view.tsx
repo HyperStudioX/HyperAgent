@@ -10,10 +10,6 @@ import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
   Code,
-  Sparkles,
-  Search,
-  BarChart3,
-  FileText,
   Loader2,
   AlertCircle,
   CheckCircle2,
@@ -22,42 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const CATEGORY_ICONS = {
-  research: Search,
-  code: Code,
-  data: BarChart3,
-  creative: Sparkles,
-  automation: FileText,
-};
-
-const CATEGORY_ACCENT = {
-  research: {
-    bg: "bg-blue-500/8 dark:bg-blue-500/15",
-    icon: "text-blue-600 dark:text-blue-400",
-  },
-  code: {
-    bg: "bg-emerald-500/8 dark:bg-emerald-500/15",
-    icon: "text-emerald-600 dark:text-emerald-400",
-  },
-  data: {
-    bg: "bg-amber-500/8 dark:bg-amber-500/15",
-    icon: "text-amber-600 dark:text-amber-400",
-  },
-  creative: {
-    bg: "bg-purple-500/8 dark:bg-purple-500/15",
-    icon: "text-purple-600 dark:text-purple-400",
-  },
-  automation: {
-    bg: "bg-stone-500/8 dark:bg-stone-500/15",
-    icon: "text-stone-600 dark:text-stone-400",
-  },
-};
-
-const DEFAULT_ACCENT = {
-  bg: "bg-secondary",
-  icon: "text-foreground",
-};
+import { CATEGORY_ICONS, CATEGORY_ACCENT, DEFAULT_ACCENT } from "@/lib/utils/skill-categories";
 
 interface SkillDetailViewProps {
   skillId: string;

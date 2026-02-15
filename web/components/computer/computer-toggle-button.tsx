@@ -30,6 +30,9 @@ export function ComputerToggleButton({ className }: ComputerToggleButtonProps) {
     const hasActivity = terminalLines.length > 0 || browserStream !== null || activeProgress?.browserStream !== null;
     const isStreaming = activeProgress?.isStreaming;
 
+    // Only show button when panel is open, has activity, or has unread count
+    if (!isOpen && !hasActivity && unreadActivityCount === 0) return null;
+
     return (
         <Button
             variant="ghost"

@@ -99,11 +99,21 @@ class LLMService:
         )
 
     def _get_gemini(self, model: str | None = None) -> ChatGoogleGenerativeAI:
-        """Get Google Gemini client."""
+        """Get Google Gemini client (supports both API key and Vertex AI)."""
+        if settings.gemini_use_vertex_ai:
+            if not settings.gcp_project_id:
+                raise ValueError("GCP_PROJECT_ID must be set when using Vertex AI")
+            return ChatGoogleGenerativeAI(
+                model=model or settings.default_model_gemini,
+                vertexai=True,
+                project=settings.gcp_project_id,
+                location=settings.gcp_location,
+                streaming=True,
+            )
         if not settings.gemini_api_key:
             raise ValueError("Gemini API key not configured")
         return ChatGoogleGenerativeAI(
-            google_api_key=settings.gemini_api_key,
+            api_key=settings.gemini_api_key,
             model=model or settings.default_model_gemini,
             streaming=True,
         )

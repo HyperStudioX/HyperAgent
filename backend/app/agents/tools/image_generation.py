@@ -53,6 +53,12 @@ class GenerateImageInput(BaseModel):
             "'hd' produces more detailed images but takes longer."
         ),
     )
+    # Context fields (injected by agent, not provided by LLM)
+    user_id: str | None = Field(
+        default=None,
+        description="User ID for storage (internal use only)",
+        json_schema_extra={"exclude": True},
+    )
 
 
 @tool(args_schema=GenerateImageInput)

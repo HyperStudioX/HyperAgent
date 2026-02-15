@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.agents import events as agent_events
 from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
-from app.ai.llm import LLMService
+from app.ai.llm import llm_service
 from app.ai.model_tiers import ModelTier
 from app.core.logging import get_logger
 from app.sandbox.app_sandbox_manager import (
@@ -20,7 +20,6 @@ from app.sandbox.app_sandbox_manager import (
 )
 
 logger = get_logger(__name__)
-llm_service = LLMService()
 
 
 class FileSpec(BaseModel):

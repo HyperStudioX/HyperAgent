@@ -7,13 +7,13 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { Copy, Check, RotateCcw } from "lucide-react";
+import { Copy, Check, RotateCcw, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePreviewStore } from "@/lib/stores/preview-store";
-import { GeneratedMedia } from "@/components/chat/generated-media";
 import { TaskProgressPanel } from "@/components/ui/task-progress-panel";
 import { TaskPlanPanel, type TaskPlan } from "@/components/ui/task-plan-panel";
 import { InlineAppPreview } from "@/components/ui/app-preview-panel";
+import { SlideOutputPanel, type SlideOutput } from "./slide-output-panel";
 import { TypingIndicator } from "./typing-indicator";
 import { StreamingCursor } from "./streaming-cursor";
 import { MessageAttachments } from "./message-attachments";
@@ -25,38 +25,14 @@ import type {
     AgentEvent,
     Source,
 } from "@/lib/types";
+import { generatedImageToFileAttachment } from "@/lib/utils/streaming-helpers";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
-
-// Normalized image structure for consistent handling
-interface NormalizedImage {
-    index: number;
-    data?: string;
-    url?: string;
-    storageKey?: string;
-    fileId?: string;
-    mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/html";
-}
-
-// Raw image data from backend (supports both camelCase and snake_case)
-interface RawImageData {
-    index?: number;
-    data?: string;
-    base64_data?: string;
-    url?: string;
-    storage_key?: string;
-    storageKey?: string;
-    file_id?: string;
-    fileId?: string;
-    mime_type?: string;
-    mimeType?: string;
-}
 
 // Metadata that can come from message (parsed or raw)
 interface ParsedMetadata {
     model?: string;
     tokens?: number;
-    images?: RawImageData[];
-    generated_images?: RawImageData[];
+    images?: GeneratedImage[];
     agentEvents?: AgentEvent[];
 }
 
@@ -66,34 +42,6 @@ const REHYPE_PLUGINS = [rehypeKatex];
 
 // Stages that should not trigger progress panel rendering
 const HIDDEN_STAGES = new Set(["thinking", "routing"]);
-
-/**
- * Normalize images from various backend formats (camelCase/snake_case) to consistent structure
- */
-function normalizeImages(rawImages: RawImageData[] | undefined): NormalizedImage[] {
-    if (!rawImages) return [];
-
-    return rawImages.map((img, idx): NormalizedImage => ({
-        index: img.index ?? idx,
-        data: img.data ?? img.base64_data,
-        url: img.url,
-        storageKey: img.storageKey ?? img.storage_key,
-        fileId: img.fileId ?? img.file_id,
-        mimeType: (img.mimeType ?? img.mime_type ?? "image/png") as NormalizedImage["mimeType"],
-    }));
-}
-
-/**
- * Deduplicate images by index, keeping the first occurrence
- */
-function deduplicateImages(images: NormalizedImage[]): NormalizedImage[] {
-    const seen = new Set<number>();
-    return images.filter((img) => {
-        if (seen.has(img.index)) return false;
-        seen.add(img.index);
-        return true;
-    });
-}
 
 /**
  * Check if streaming events will produce visible stage groups in the progress panel
@@ -236,11 +184,24 @@ function extractAppPreviews(events: (TimestampedEvent | AgentEvent)[]): AppPrevi
     });
 }
 
+/**
+ * Extract slide generation outputs from skill_output events
+ */
+function extractSlideOutputs(events: (TimestampedEvent | AgentEvent)[]): SlideOutput[] {
+    return events
+        .filter(
+            (e) =>
+                e.type === "skill_output" &&
+                (e as AgentEvent).skill_id === "slide_generation"
+        )
+        .map((e) => (e as AgentEvent).output as SlideOutput)
+        .filter((o) => o && o.download_url);
+}
+
 interface MessageBubbleProps {
     message: Message;
     onRegenerate?: () => void;
     isStreaming?: boolean;
-    images?: GeneratedImage[];
     streamingEvents?: TimestampedEvent[];
     streamingSources?: Source[];
     agentType?: string;
@@ -250,7 +211,6 @@ export const MessageBubble = memo(function MessageBubble({
     message,
     onRegenerate,
     isStreaming = false,
-    images,
     streamingEvents,
     streamingSources,
     agentType,
@@ -275,12 +235,14 @@ export const MessageBubble = memo(function MessageBubble({
         .replace(/!\[generated-image:\d+\]/g, "");
     const hasVisibleContent = normalizedContent.trim().length > 0;
 
-    // Process images: normalize and deduplicate
-    const rawImages = images || parsedMetadata?.images || parsedMetadata?.generated_images;
-    const effectiveImages = useMemo(
-        () => deduplicateImages(normalizeImages(rawImages)),
-        [rawImages]
-    );
+    // Convert generated images from metadata to previewable attachments
+    const imageAttachments = useMemo(() => {
+        const imgs = parsedMetadata?.images;
+        if (!imgs || imgs.length === 0) return [];
+        return imgs
+            .map((img) => generatedImageToFileAttachment(img))
+            .filter((f): f is FileAttachment => f !== null);
+    }, [parsedMetadata?.images]);
 
     // Extract task plans from events
     const taskPlans = useMemo(
@@ -296,6 +258,12 @@ export const MessageBubble = memo(function MessageBubble({
         }
         return [];
     }, [streamingEvents, agentEvents]);
+
+    // Extract slide generation outputs from events
+    const slideOutputs = useMemo(
+        () => extractSlideOutputs(streamingEvents || agentEvents || []),
+        [streamingEvents, agentEvents]
+    );
 
     async function handleCopyMessage(): Promise<void> {
         await navigator.clipboard.writeText(message.content);
@@ -378,16 +346,46 @@ export const MessageBubble = memo(function MessageBubble({
                     {isStreaming && message.content && <StreamingCursor />}
                 </div>
 
-                {/* Render images after markdown content */}
-                {effectiveImages && effectiveImages.length > 0 && (
-                    <div className="mt-4 space-y-4">
-                        {effectiveImages.map((img: NormalizedImage) => (
-                            <GeneratedMedia
-                                key={`gallery-img-${img.index}`}
-                                data={img.data}
-                                url={img.url}
-                                mimeType={img.mimeType}
-                            />
+                {/* Clickable image thumbnails — open in preview sidebar */}
+                {imageAttachments.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                        {imageAttachments.map((file) => (
+                            <button
+                                key={file.id}
+                                onClick={() => openPreview(file)}
+                                className={cn(
+                                    "group/img relative rounded-xl overflow-hidden",
+                                    "border border-border/60 hover:border-primary/40",
+                                    "transition-all duration-150",
+                                    "w-48 h-48 bg-secondary/30"
+                                )}
+                            >
+                                {file.previewUrl ? (
+                                    <img
+                                        src={file.previewUrl}
+                                        alt={file.filename}
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <span className="flex items-center justify-center w-full h-full">
+                                        <ImageIcon className="w-8 h-8 text-muted-foreground/50" />
+                                    </span>
+                                )}
+                                {/* Hover overlay */}
+                                <span className={cn(
+                                    "absolute inset-0 flex items-center justify-center",
+                                    "bg-black/0 group-hover/img:bg-black/30",
+                                    "transition-colors duration-150"
+                                )}>
+                                    <span className={cn(
+                                        "text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-black/60",
+                                        "opacity-0 group-hover/img:opacity-100",
+                                        "transition-opacity duration-150"
+                                    )}>
+                                        View
+                                    </span>
+                                </span>
+                            </button>
                         ))}
                     </div>
                 )}
@@ -401,6 +399,15 @@ export const MessageBubble = memo(function MessageBubble({
                                 plan={plan}
                                 defaultExpanded={taskPlans.length === 1}
                             />
+                        ))}
+                    </div>
+                )}
+
+                {/* Show slide generation outputs */}
+                {slideOutputs.length > 0 && (
+                    <div className="mt-4 space-y-4">
+                        {slideOutputs.map((output, index) => (
+                            <SlideOutputPanel key={`slide-${index}`} output={output} />
                         ))}
                     </div>
                 )}
@@ -441,9 +448,18 @@ export const MessageBubble = memo(function MessageBubble({
 }, (prevProps, nextProps) => {
     // During streaming, throttle re-renders for small content changes
     if (nextProps.isStreaming || prevProps.isStreaming) {
+        // Always re-render when streaming state changes
+        if (prevProps.isStreaming !== nextProps.isStreaming) return false;
+        // Always re-render when streamingEvents changes (e.g. skill_output arrives)
+        if (prevProps.streamingEvents !== nextProps.streamingEvents) {
+            const prevEvtLen = prevProps.streamingEvents?.length ?? 0;
+            const nextEvtLen = nextProps.streamingEvents?.length ?? 0;
+            if (prevEvtLen !== nextEvtLen) return false;
+        }
+        // Throttle small content-only changes
         const prevLen = prevProps.message.content?.length ?? 0;
         const nextLen = nextProps.message.content?.length ?? 0;
-        if (Math.abs(nextLen - prevLen) < 20 && prevProps.isStreaming === nextProps.isStreaming) {
+        if (Math.abs(nextLen - prevLen) < 20) {
             return true; // Skip re-render for small content changes
         }
         return false;
@@ -454,7 +470,6 @@ export const MessageBubble = memo(function MessageBubble({
         prevProps.message.content === nextProps.message.content &&
         prevProps.message.role === nextProps.message.role &&
         prevProps.isStreaming === nextProps.isStreaming &&
-        prevProps.images === nextProps.images &&
         prevProps.streamingEvents === nextProps.streamingEvents &&
         prevProps.streamingSources === nextProps.streamingSources
     );

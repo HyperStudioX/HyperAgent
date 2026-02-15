@@ -4,7 +4,7 @@
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS, shadcn/ui |
+| Frontend | Next.js 16, React 18, TypeScript, Tailwind CSS, shadcn/ui |
 | Backend | Python 3.11+, FastAPI, LangGraph |
 | Database | PostgreSQL, Redis |
 | Storage | Cloudflare R2 |
@@ -111,6 +111,7 @@ HyperAgent/
 |----------|-------------|----------|
 | `ANTHROPIC_API_KEY` | Anthropic API key | Yes* |
 | `OPENAI_API_KEY` | OpenAI API key | Yes* |
+| `GOOGLE_API_KEY` | Google Gemini API key | Yes* |
 | `DATABASE_URL` | PostgreSQL connection | No |
 | `REDIS_URL` | Redis connection | No |
 | `E2B_API_KEY` | E2B sandbox API key | No |

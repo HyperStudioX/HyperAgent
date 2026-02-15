@@ -352,6 +352,7 @@ class FileStorageService:
             "image/jpeg": ".jpg",
             "image/gif": ".gif",
             "image/webp": ".webp",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
         }
         ext = ext_map.get(content_type, ".png")
 

@@ -9,12 +9,11 @@ from app.agents.skills.skill_base import (
     SkillParameter,
     SkillState,
 )
-from app.ai.llm import LLMService
+from app.ai.llm import llm_service
 from app.ai.model_tiers import ModelTier
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-llm_service = LLMService()
 
 
 class PlanStep(BaseModel):

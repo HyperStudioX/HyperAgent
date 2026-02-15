@@ -34,6 +34,7 @@
         "app": "应用",
         "image": "图片",
         "writing": "写作",
+        "slide": "演示文稿",
         "noResults": "没有找到项目",
         "chatDescription": "快速提问与对话",
         "skills": "技能",
@@ -70,6 +71,7 @@
         "dataPlaceholder": "描述您需要的数据分析...",
         "appPlaceholder": "描述您想要构建的应用...",
         "imagePlaceholder": "描述您想要创建的图片...",
+        "slidePlaceholder": "描述您想要创建的演示文稿...",
         "selectMode": "选择模式",
         "deepResearch": "深度研究"
     },
@@ -93,6 +95,10 @@
         "image": {
             "name": "图片生成",
             "description": "生成图片和艺术作品"
+        },
+        "slide": {
+            "name": "演示文稿",
+            "description": "生成演示文稿幻灯片"
         }
     },
     "research": {
@@ -243,6 +249,8 @@
                 "skill_data_visualization": "数据可视化",
                 "skill_task_planning": "任务规划",
                 "skill_app_builder": "应用构建器",
+                "generate_slides": "幻灯片生成",
+                "skill_slide_generation": "幻灯片生成",
                 "invoke_skill": "调用技能",
                 "list_skills": "技能列表",
                 "ask_user": "用户输入",
@@ -540,7 +548,16 @@
         "downloadImage": "下载图片",
         "generatedImage": "生成的图片",
         "interactiveChart": "交互式图表",
-        "close": "关闭"
+        "close": "关闭",
+        "slidePreview": "幻灯片预览",
+        "slideDeck": "演示文稿",
+        "speakerNotes": "演讲备注",
+        "slideCount": "张幻灯片",
+        "previousSlide": "上一张",
+        "nextSlide": "下一张",
+        "slideOf": "第 {current} 张，共 {total} 张",
+        "previewSlides": "预览",
+        "slideCountBadge": "{count} 张幻灯片"
     },
     "settings": {
         "modelTier": "模型等级",

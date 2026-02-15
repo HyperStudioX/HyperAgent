@@ -79,16 +79,18 @@ class Skill:
 
 ## Builtin Skills
 
-Six skills are available out of the box in `backend/app/agents/skills/builtin/`:
+Eight skills are available out of the box in `backend/app/agents/skills/builtin/`:
 
 | Skill ID | Category | Description |
 |----------|----------|-------------|
 | `web_research` | research | Focused web research with summarization |
 | `code_generation` | code | Generate code snippets with explanations |
 | `code_review` | code | Code quality analysis (bugs, style, security) |
-| `simple_writing` | creative | Document, email, and article writing |
 | `image_generation` | creative | AI image generation |
 | `data_visualization` | data | Generate visualization code |
+| `slide_generation` | creative | Create PPTX presentations with research and outlines |
+| `app_builder` | automation | Build web applications in sandboxes |
+| `task_planning` | automation | Analyze complex tasks and create structured execution plans |
 
 ### Example: Web Research Skill
 
@@ -375,10 +377,10 @@ Available skills include:
 - web_research: Focused web research with source summarization
 - code_generation: Generate code snippets for specific tasks
 - code_review: Review code for bugs, style issues, and security vulnerabilities
-- simple_writing: Write documents, emails, articles, and other content
 - image_generation: Generate AI images from text descriptions
 - data_visualization: Create data visualizations and charts
 - task_planning: Analyze complex tasks and create structured execution plans
+- slide_generation: Create professional PPTX presentations with research and structured outlines
 
 When to use skills:
 - Use list_skills first to discover available skills and their parameters
@@ -487,7 +489,7 @@ The LLM considers multiple factors when deciding:
 - `invoke_skill("web_research", {"topic": "AI trends"})` - Research with analysis
 - `invoke_skill("code_review", {"code": "..."})` - Code review with structured feedback
 - `invoke_skill("app_builder", {"description": "todo app"})` - Multi-step app building
-- `invoke_skill("simple_writing", {"topic": "...", "type": "article"})` - Structured writing
+- `invoke_skill("slide_generation", {"topic": "AI trends"})` - Presentation generation
 
 ### Mode-Based Guidance
 
@@ -500,11 +502,14 @@ if mode == "image":
     enhanced_query = f"Generate an image based on this description: {query}\n\nUse the image_generation skill to create the image."
 elif mode == "app":
     enhanced_query = f"Build a web application based on this description: {query}\n\nUse the app_builder skill to create the application."
+elif mode == "slide":
+    enhanced_query = f"Create a presentation slide deck based on this description: {query}\n\nUse the slide_generation skill to create the presentation."
 ```
 
 **Modes provide explicit guidance**:
 - `mode="image"` → Guides agent to use `image_generation` skill
 - `mode="app"` → Guides agent to use `app_builder` skill
+- `mode="slide"` → Guides agent to use `slide_generation` skill
 
 ### Key Insights
 
@@ -534,6 +539,7 @@ Skills are integrated as tools via `backend/app/agents/tools/registry.py`:
 class ToolCategory(str, Enum):
     SEARCH = "search"
     IMAGE = "image"
+    SLIDES = "slides"         # Slide/PPTX generation
     BROWSER = "browser"
     CODE_EXEC = "code_exec"
     DATA = "data"
@@ -551,6 +557,7 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
     "chat": [
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
+        ToolCategory.SLIDES,       # Chat can generate slides
         ToolCategory.BROWSER,
         ToolCategory.CODE_EXEC,
         ToolCategory.SKILL,        # Chat can invoke skills

@@ -18,11 +18,13 @@ import {
     Layers,
     AppWindow,
     ImageIcon,
+    Presentation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { useComputerStore } from "@/lib/stores/computer-store";
+import { usePreviewStore } from "@/lib/stores/preview-store";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { FileUploadButton } from "@/components/chat/file-upload-button";
 import { VoiceInputButton } from "@/components/chat/voice-input-button";
@@ -42,6 +44,7 @@ import type {
     InterruptEvent,
     InterruptResponse,
 } from "@/lib/types";
+import type { SlideOutput } from "@/components/chat/slide-output-panel";
 import { AskUserInput } from "@/components/hitl/ask-user-input";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
 import {
@@ -54,16 +57,18 @@ import {
     parseImageFromEvent,
     filterEventsForSaving,
     isSearchTool,
+    generatedImageToFileAttachment,
 } from "@/lib/utils/streaming-helpers";
 
 // Larger icons for better visual presence
-const AGENT_KEYS = ["research", "data", "app", "image"] as const;
+const AGENT_KEYS = ["research", "data", "app", "image", "slide"] as const;
 type VisibleAgent = (typeof AGENT_KEYS)[number];
 const AGENT_ICONS: Record<VisibleAgent, React.ReactNode> = {
     research: <Search className="w-5 h-5" />,
     data: <BarChart3 className="w-5 h-5" />,
     app: <AppWindow className="w-5 h-5" />,
     image: <ImageIcon className="w-5 h-5" />,
+    slide: <Presentation className="w-5 h-5" />,
 };
 
 const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
@@ -86,7 +91,6 @@ interface MessageListProps {
     messages: Message[];
     streamingContent: string;
     isLoading: boolean;
-    streamingImages: GeneratedImage[];
     streamingEvents: TimestampedEvent[];
     streamingSources: Source[];
     streamingAgentType?: string;
@@ -102,7 +106,6 @@ const MessageList = memo(function MessageList({
     messages,
     streamingContent,
     isLoading,
-    streamingImages,
     streamingEvents,
     streamingSources,
     streamingAgentType,
@@ -139,7 +142,6 @@ const MessageList = memo(function MessageList({
                             createdAt: streamingStartTime,
                         }}
                         isStreaming={true}
-                        images={streamingImages}
                         streamingEvents={streamingEvents}
                         streamingSources={streamingSources}
                         agentType={streamingAgentType}
@@ -207,7 +209,6 @@ export function ChatInterface() {
     const [submenuPosition, setSubmenuPosition] = useState<{ x: 'left' | 'right'; y: 'top' | 'bottom' }>({ x: 'right', y: 'bottom' });
     const submenuRef = useRef<HTMLDivElement>(null);
     const [streamingContent, setStreamingContent] = useState("");
-    const [streamingImages, setStreamingImages] = useState<GeneratedImage[]>([]);
     const [streamingEvents, setStreamingEvents] = useState<TimestampedEvent[]>([]);
     const [streamingSources, setStreamingSources] = useState<Source[]>([]);
     const [streamingAgentType, setStreamingAgentType] = useState<string | undefined>(undefined);
@@ -411,6 +412,10 @@ export function ChatInterface() {
         getWorkspaceSandboxId,
     } = useComputerStore.getState();
 
+    // Preview store - for auto-opening generated images/slides in sidebar
+    const openPreview = usePreviewStore((state) => state.openPreview);
+    const openSlidePreview = usePreviewStore((state) => state.openSlidePreview);
+
     const workspaceSandboxId = useComputerStore((state) => {
         const id = state.activeConversationId;
         return id ? state.conversationStates[id]?.workspaceSandboxId ?? null : null;
@@ -529,7 +534,6 @@ export function ChatInterface() {
         const partialContent = streamingContentRef.current;
         setStreamingContent("");
         streamingContentRef.current = "";
-        setStreamingImages([]);
         setStreamingEvents([]);
         setStreamingSources([]);
         setActiveInterrupt(null);
@@ -560,7 +564,7 @@ export function ChatInterface() {
 
         if (selectedAgent === "research" && selectedScenario) {
             handleResearch(userMessage);
-        } else if (selectedAgent === "data" || selectedAgent === "app" || selectedAgent === "image") {
+        } else if (selectedAgent === "data" || selectedAgent === "app" || selectedAgent === "image" || selectedAgent === "slide") {
             await handleAgentTask(userMessage, selectedAgent, attachmentIds, messageAttachments);
             // Clear agent selection after first message - let conversation type take over
             setSelectedAgent(null);
@@ -585,6 +589,13 @@ export function ChatInterface() {
                 attachmentIds,
                 messageAttachments
             );
+        } else if (!selectedAgent && activeConversation?.type === "slide") {
+            await handleAgentTask(
+                userMessage,
+                activeConversation.type as AgentType,
+                attachmentIds,
+                messageAttachments
+            );
         } else {
             await handleChat(userMessage, false, attachmentIds, messageAttachments);
         }
@@ -600,7 +611,6 @@ export function ChatInterface() {
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
         // Clear inline streaming state
-        setStreamingImages([]);
         setStreamingEvents([]);
         setStreamingSources([]);
         setStreamingAgentType("chat");
@@ -770,8 +780,10 @@ export function ChatInterface() {
                                     const isDuplicate = ctx.collectedImages.some(img => img.index === imageData.index);
                                     if (!isDuplicate) {
                                         ctx.collectedImages.push(imageData);
-                                        setStreamingImages(prev => [...prev, imageData]);
                                         ctx.collectedEvents.push(event);
+                                        // Auto-open generated image in preview sidebar
+                                        const previewFile = generatedImageToFileAttachment(imageData);
+                                        if (previewFile) openPreview(previewFile);
                                     }
                                 }
                             } else if (event.type === "browser_stream") {
@@ -839,6 +851,14 @@ export function ChatInterface() {
                                 const skillId = event.skill_id as string;
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
+
+                                // Auto-open slide preview in sidebar
+                                if (skillId === "slide_generation" && event.output) {
+                                    const slideData = event.output as unknown as SlideOutput;
+                                    if (slideData.download_url) {
+                                        openSlidePreview(slideData);
+                                    }
+                                }
                             } else if (event.type === "workspace_update") {
                                 // Handle workspace file updates from sandbox
                                 const workspaceEvent = {
@@ -907,7 +927,6 @@ export function ChatInterface() {
                 flushTokenBatch();
                 setStreamingContent("");
                 streamingContentRef.current = "";
-                setStreamingImages([]);
                 setStreamingEvents([]);
                 setStreamingSources([]);
                 setLoading(false);
@@ -936,7 +955,6 @@ export function ChatInterface() {
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
-            setStreamingImages([]);
             setStreamingEvents([]);
             setStreamingSources([]);
             setLoading(false);
@@ -955,7 +973,6 @@ export function ChatInterface() {
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
         // Clear inline streaming state
-        setStreamingImages([]);
         setStreamingEvents([]);
         setStreamingSources([]);
         setStreamingAgentType(agentType);
@@ -1138,8 +1155,10 @@ export function ChatInterface() {
                                     const isDuplicate = ctx.collectedImages.some(img => img.index === imageData.index);
                                     if (!isDuplicate) {
                                         ctx.collectedImages.push(imageData);
-                                        setStreamingImages(prev => [...prev, imageData]);
                                         ctx.collectedEvents.push(event);
+                                        // Auto-open generated image in preview sidebar
+                                        const previewFile = generatedImageToFileAttachment(imageData);
+                                        if (previewFile) openPreview(previewFile);
                                     }
                                 }
                             } else if (event.type === "browser_stream") {
@@ -1179,6 +1198,14 @@ export function ChatInterface() {
                                 const skillId = event.skill_id as string;
                                 addStreamingEvent(event);
                                 updateAgentStage(tChat("agent.skillCompleted", { skill: skillId }));
+
+                                // Auto-open slide preview in sidebar
+                                if (skillId === "slide_generation" && event.output) {
+                                    const slideData = event.output as unknown as SlideOutput;
+                                    if (slideData.download_url) {
+                                        openSlidePreview(slideData);
+                                    }
+                                }
                             } else if (event.type === "workspace_update") {
                                 // Handle workspace file updates from sandbox (agent task)
                                 const workspaceEvent = {
@@ -1246,7 +1273,6 @@ export function ChatInterface() {
                 flushTokenBatch();
                 setStreamingContent("");
                 streamingContentRef.current = "";
-                setStreamingImages([]);
                 setStreamingEvents([]);
                 setStreamingSources([]);
                 setLoading(false);
@@ -1275,7 +1301,6 @@ export function ChatInterface() {
             flushTokenBatch();
             setStreamingContent("");
             streamingContentRef.current = "";
-            setStreamingImages([]);
             setStreamingEvents([]);
             setStreamingSources([]);
             setLoading(false);
@@ -1315,7 +1340,7 @@ export function ChatInterface() {
 
         // Check conversation type and call the appropriate handler
         const conversationType = activeConversation?.type;
-        if (conversationType === "data" || conversationType === "image" || conversationType === "app") {
+        if (conversationType === "data" || conversationType === "image" || conversationType === "app" || conversationType === "slide") {
             // For specialized agent types, use handleAgentTask to maintain conversation type
             await handleAgentTask(userMessage, conversationType as AgentType, attachmentIds, userMessageAttachments);
         } else {
@@ -1434,6 +1459,7 @@ export function ChatInterface() {
         if (selectedAgent === "data") return t("dataPlaceholder");
         if (selectedAgent === "app") return t("appPlaceholder");
         if (selectedAgent === "image") return t("imagePlaceholder");
+        if (selectedAgent === "slide") return t("slidePlaceholder");
         return t("inputPlaceholder");
     };
 
@@ -1447,7 +1473,6 @@ export function ChatInterface() {
                             messages={messages}
                             streamingContent={streamingContent}
                             isLoading={isLoading}
-                            streamingImages={streamingImages}
                             streamingEvents={streamingEvents}
                             streamingSources={streamingSources}
                             streamingAgentType={streamingAgentType}

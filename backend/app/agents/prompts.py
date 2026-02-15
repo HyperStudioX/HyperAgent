@@ -98,6 +98,12 @@ Do not output the image prompt text to the user; the UI will render the images f
 For image generation, craft detailed prompts including style, composition, colors, and subject.
 For image analysis, be specific about what to analyze in your prompt.
 
+You have access to a slide generation tool:
+- generate_slides: Create PPTX presentations from a topic description
+
+Use generate_slides when the user asks to create presentations, slide decks, or PowerPoint files.
+The tool researches the topic, creates a structured outline, and generates a downloadable PPTX file.
+
 You have access to browser tools for visiting and interacting with websites:
 - browser_navigate: Open a URL in a real browser, optionally capture screenshot
 - browser_screenshot: Capture current screen state
@@ -147,6 +153,7 @@ Available skills include:
 - image_generation: Generate AI images from text descriptions
 - data_visualization: Create data visualizations and charts
 - task_planning: Analyze complex tasks and create structured execution plans with steps, dependencies, and success criteria
+- slide_generation: Create professional PPTX presentations with research and structured outlines
 
 When to use skills:
 - Use list_skills first to discover available skills and their parameters

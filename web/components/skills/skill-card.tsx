@@ -4,56 +4,9 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { SkillMetadata } from "@/lib/types/skills";
 import { Button } from "@/components/ui/button";
-import { Code, Sparkles, Search, BarChart3, FileText, ArrowRight } from "lucide-react";
+import { ArrowRight, Code } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const CATEGORY_ICONS = {
-  research: Search,
-  code: Code,
-  data: BarChart3,
-  creative: Sparkles,
-  automation: FileText,
-};
-
-const CATEGORY_ACCENT = {
-  research: {
-    bg: "bg-blue-500/8 dark:bg-blue-500/15",
-    icon: "text-blue-600 dark:text-blue-400",
-    border: "group-hover:border-blue-500/20",
-    tag: "bg-blue-500/8 text-blue-700 dark:text-blue-300",
-  },
-  code: {
-    bg: "bg-emerald-500/8 dark:bg-emerald-500/15",
-    icon: "text-emerald-600 dark:text-emerald-400",
-    border: "group-hover:border-emerald-500/20",
-    tag: "bg-emerald-500/8 text-emerald-700 dark:text-emerald-300",
-  },
-  data: {
-    bg: "bg-amber-500/8 dark:bg-amber-500/15",
-    icon: "text-amber-600 dark:text-amber-400",
-    border: "group-hover:border-amber-500/20",
-    tag: "bg-amber-500/8 text-amber-700 dark:text-amber-300",
-  },
-  creative: {
-    bg: "bg-purple-500/8 dark:bg-purple-500/15",
-    icon: "text-purple-600 dark:text-purple-400",
-    border: "group-hover:border-purple-500/20",
-    tag: "bg-purple-500/8 text-purple-700 dark:text-purple-300",
-  },
-  automation: {
-    bg: "bg-stone-500/8 dark:bg-stone-500/15",
-    icon: "text-stone-600 dark:text-stone-400",
-    border: "group-hover:border-stone-500/20",
-    tag: "bg-stone-500/8 text-stone-700 dark:text-stone-300",
-  },
-};
-
-const DEFAULT_ACCENT = {
-  bg: "bg-secondary",
-  icon: "text-foreground",
-  border: "group-hover:border-border",
-  tag: "bg-secondary text-muted-foreground",
-};
+import { CATEGORY_ICONS, CATEGORY_ACCENT, DEFAULT_ACCENT } from "@/lib/utils/skill-categories";
 
 interface SkillCardProps {
   skill: SkillMetadata;

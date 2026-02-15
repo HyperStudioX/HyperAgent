@@ -55,10 +55,10 @@ Available skills include:
 - web_research: Focused web research with source summarization
 - code_generation: Generate code snippets for specific tasks
 - code_review: Review code for bugs, style issues, and security vulnerabilities
-- simple_writing: Write documents, emails, articles, and other content
 - image_generation: Generate AI images from text descriptions
 - data_visualization: Create data visualizations and charts
 - task_planning: Analyze complex tasks and create structured execution plans
+- slide_generation: Create professional PPTX presentations with research and structured outlines
 
 When to use skills:
 - Use list_skills first to discover available skills and their parameters
@@ -181,7 +181,7 @@ LLM Reasoning:
 - `invoke_skill("web_research", {"topic": "AI trends"})` - Research with analysis
 - `invoke_skill("code_review", {"code": "..."})` - Code review with structured feedback
 - `invoke_skill("app_builder", {"description": "todo app"})` - Multi-step app building
-- `invoke_skill("simple_writing", {"topic": "...", "type": "article"})` - Structured writing
+- `invoke_skill("slide_generation", {"topic": "AI trends"})` - Presentation generation
 
 ## Code Flow
 
@@ -308,11 +308,14 @@ if mode == "image":
     enhanced_query = f"Generate an image based on this description: {query}\n\nUse the image_generation skill to create the image."
 elif mode == "app":
     enhanced_query = f"Build a web application based on this description: {query}\n\nUse the app_builder skill to create the application."
+elif mode == "slide":
+    enhanced_query = f"Create a presentation slide deck based on this description: {query}\n\nUse the slide_generation skill to create the presentation."
 ```
 
 **Modes provide explicit guidance**:
 - `mode="image"` → Guides agent to use `image_generation` skill
 - `mode="app"` → Guides agent to use `app_builder` skill
+- `mode="slide"` → Guides agent to use `slide_generation` skill
 
 ## Key Insights
 

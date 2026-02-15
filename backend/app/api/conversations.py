@@ -30,10 +30,20 @@ async def list_conversations(
     """List all conversations for the current user."""
     try:
         conversations = await conversation_repository.list_for_user(db, current_user.id)
-        return [
-            ConversationListResponse(**conv.to_dict(include_messages=False))
-            for conv in conversations
-        ]
+        results = []
+        for conv in conversations:
+            try:
+                results.append(
+                    ConversationListResponse(**conv.to_dict(include_messages=False))
+                )
+            except Exception:
+                logger.warning(
+                    "skipping_invalid_conversation",
+                    conversation_id=conv.id,
+                    conv_type=getattr(conv, "type", None),
+                    user_id=current_user.id,
+                )
+        return results
     except Exception as e:
         logger.error("list_conversations_error", error=str(e), user_id=current_user.id)
         raise HTTPException(status_code=500, detail="Failed to list conversations")

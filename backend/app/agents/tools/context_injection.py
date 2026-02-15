@@ -8,7 +8,7 @@ provides a single source of truth for which tools need context injection.
 # Tools that need both user_id and task_id
 _SESSION_TOOLS: set[str] = set()
 # Tools that only need user_id
-_USER_ONLY_TOOLS: set[str] = {"generate_image"}
+_USER_ONLY_TOOLS: set[str] = {"generate_image", "generate_slides"}
 
 # Lazily populated sets of tool names by category
 _browser_tool_names: set[str] | None = None

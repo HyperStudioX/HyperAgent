@@ -2,13 +2,12 @@
 
 from langgraph.graph import StateGraph, END
 
-from app.ai.llm import LLMService
+from app.ai.llm import llm_service
 from app.ai.model_tiers import ModelTier
 from app.core.logging import get_logger
 from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 
 logger = get_logger(__name__)
-llm_service = LLMService()
 
 
 class CodeGenerationSkill(Skill):

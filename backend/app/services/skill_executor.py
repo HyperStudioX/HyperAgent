@@ -150,8 +150,13 @@ class SkillExecutor:
                     f"Skill execution timed out after {skill.metadata.max_execution_time_seconds}s"
                 )
 
-            # Extract output
+            # Extract output and check for errors in final state
             output = final_state.get("output", {}) if final_state else {}
+            state_error = final_state.get("error") if final_state else None
+
+            # If the skill set an error in its state, treat as failure
+            if state_error:
+                raise Exception(state_error)
 
             # Update execution record
             end_time = datetime.utcnow()

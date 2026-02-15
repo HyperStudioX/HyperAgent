@@ -3,6 +3,7 @@
 import base64
 from typing import Optional
 
+from app.ai.gemini import get_gemini_client
 from app.config import settings
 
 
@@ -25,14 +26,14 @@ class VisionService:
         Returns:
             Analysis result as text
         """
-        import google.generativeai as genai
+        from google.genai import types
 
         # Use configured model if not specified
         if model is None:
             model = settings.vision_model
 
-        # Configure Gemini API
-        genai.configure(api_key=settings.gemini_api_key)
+        # Create client based on configuration
+        client = get_gemini_client()
 
         # Handle base64 or raw bytes
         if isinstance(image_data, bytes):
@@ -40,14 +41,14 @@ class VisionService:
         else:
             image_bytes = base64.b64decode(image_data)
 
-        # Create model
-        gemini_model = genai.GenerativeModel(model)
-
         # Analyze image
-        response = await gemini_model.generate_content_async([
-            {"mime_type": "image/png", "data": image_bytes},
-            prompt
-        ])
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                prompt,
+            ],
+        )
 
         return response.text
 

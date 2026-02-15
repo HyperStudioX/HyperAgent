@@ -34,6 +34,7 @@
         "app": "App",
         "image": "Image",
         "writing": "Writing",
+        "slide": "Slides",
         "noResults": "No items found",
         "chatDescription": "Quick questions & conversations",
         "skills": "Skills",
@@ -70,6 +71,7 @@
         "dataPlaceholder": "Describe the data analysis you need...",
         "appPlaceholder": "Describe the app you want to build...",
         "imagePlaceholder": "Describe the image you want to create...",
+        "slidePlaceholder": "Describe the presentation you want to create...",
         "selectMode": "Select Mode",
         "deepResearch": "Deep Research"
     },
@@ -93,6 +95,10 @@
         "image": {
             "name": "Image",
             "description": "Generate images & artwork"
+        },
+        "slide": {
+            "name": "Slides",
+            "description": "Generate presentation slides"
         }
     },
     "research": {
@@ -243,6 +249,8 @@
                 "skill_data_visualization": "Data Visualization",
                 "skill_task_planning": "Task Planning",
                 "skill_app_builder": "App Builder",
+                "generate_slides": "Slide Generation",
+                "skill_slide_generation": "Slide Generation",
                 "invoke_skill": "Skill Invocation",
                 "list_skills": "List Skills",
                 "ask_user": "User Input",
@@ -540,7 +548,16 @@
         "downloadImage": "Download image",
         "generatedImage": "Generated Image",
         "interactiveChart": "Interactive Chart",
-        "close": "Close"
+        "close": "Close",
+        "slidePreview": "Slide Preview",
+        "slideDeck": "Slide Deck",
+        "speakerNotes": "Speaker Notes",
+        "slideCount": "slides",
+        "previousSlide": "Previous slide",
+        "nextSlide": "Next slide",
+        "slideOf": "Slide {current} of {total}",
+        "previewSlides": "Preview",
+        "slideCountBadge": "{count} slides"
     },
     "settings": {
         "modelTier": "Model Tier",

@@ -36,6 +36,7 @@ from app.agents.tools.event_extraction import (
     extract_app_builder_events,
     extract_image_events,
     extract_skill_events,
+    extract_slide_events,
 )
 from app.agents.tools.react_tool import (
     truncate_messages_to_budget,
@@ -226,6 +227,13 @@ async def reason_node(state: ChatState) -> dict:
             enhanced_query = f"Build a web application based on this description: {query}\n\nUse the app_builder skill to create the application."
             lc_messages.append(HumanMessage(content=enhanced_query))
             logger.info("app_mode_query_enhanced", original_query=query[:100])
+        elif mode == "slide":
+            enhanced_query = (
+                f"Create a presentation slide deck based on this description: {query}\n\n"
+                "Use the generate_slides tool to create the PPTX presentation."
+            )
+            lc_messages.append(HumanMessage(content=enhanced_query))
+            logger.info("slide_mode_query_enhanced", original_query=query[:100])
         else:
             # Add current query
             lc_messages.append(HumanMessage(content=query))
@@ -617,6 +625,7 @@ async def act_node(state: ChatState) -> dict:
                 extract_app_builder_events(
                     tool_name, result_str, event_list, app_builder_tools, task_id, user_id
                 )
+                extract_slide_events(tool_name, result_str, event_list)
 
                 # Truncate tool result to avoid context overflow
                 config = _get_cached_react_config()

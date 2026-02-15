@@ -13,6 +13,7 @@ HyperAgent is a **next-generation AI platform** that combines specialized agents
 - AI image generation (Gemini/DALL-E)
 - Content writing (emails, articles, documents)
 - Code generation and review
+- Presentation/slide generation (PPTX)
 - Quick web research
 - And much more...
 
@@ -39,11 +40,11 @@ HyperAgent is a **next-generation AI platform** that combines specialized agents
 Skills are composable LangGraph subgraphs that agents invoke as tools:
 
 - **`image_generation`** - AI image generation
-- **`simple_writing`** - Document/email/article creation
 - **`code_generation`** - Generate code snippets
 - **`code_review`** - Code analysis for bugs/style/security
 - **`web_research`** - Focused research with summarization
 - **`data_visualization`** - Generate visualization code
+- **`slide_generation`** - Create presentation slides (PPTX)
 
 Any agent can invoke any skill, making the system highly composable and extensible.
 
@@ -97,6 +98,7 @@ Mock LLMs enable deterministic testing. LangSmith integration for tracking.
 - ✅ File attachments with vision support
 - ✅ Browser automation with E2B Desktop
 - ✅ Code execution in secure sandboxes
+- ✅ Presentation generation with live slide preview
 - ✅ Human-in-the-loop for high-risk actions
 - ✅ Source tracking and citations
 - ✅ Clean, minimal interface

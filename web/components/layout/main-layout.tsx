@@ -10,6 +10,7 @@ import { useComputerStore } from "@/lib/stores/computer-store";
 import { cn } from "@/lib/utils";
 
 import { FilePreviewSidebar } from "@/components/artifacts/artifacts-preview-panel";
+import { ArtifactsToggleButton } from "@/components/artifacts/artifacts-toggle-button";
 import { VirtualComputerPanel, ComputerToggleButton } from "@/components/computer";
 
 interface MainLayoutProps {
@@ -59,6 +60,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                         <span className="text-sm font-semibold text-foreground">HyperAgent</span>
                     </div>
                     <div className="flex items-center gap-1">
+                        <ArtifactsToggleButton />
                         <ComputerToggleButton />
                         <UserProfileMenu />
                     </div>
@@ -83,6 +85,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
                 {/* Desktop user profile and computer toggle - top right corner */}
                 <div className="hidden md:flex items-center gap-2 absolute right-4 top-4 z-40">
+                    <ArtifactsToggleButton />
                     <ComputerToggleButton />
                     <UserProfileMenu />
                 </div>

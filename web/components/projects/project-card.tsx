@@ -4,18 +4,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { MessageSquare, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { COLOR_MAP } from "@/lib/utils/project-colors";
 import type { Project } from "@/lib/types/projects";
-
-const COLOR_MAP: Record<string, string> = {
-  blue: "bg-blue-500",
-  green: "bg-green-500",
-  purple: "bg-purple-500",
-  amber: "bg-amber-500",
-  rose: "bg-rose-500",
-  emerald: "bg-emerald-500",
-  orange: "bg-orange-500",
-  indigo: "bg-indigo-500",
-};
 
 interface ProjectCardProps {
   project: Project;

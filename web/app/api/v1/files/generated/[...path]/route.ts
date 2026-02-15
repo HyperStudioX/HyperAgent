@@ -62,7 +62,7 @@ async function handler(
             }
 
             // Get content type from response
-            const contentType = response.headers.get("content-type") || "image/png";
+            const contentType = response.headers.get("content-type") || "application/octet-stream";
 
             // Stream the file back to client with caching headers
             return new Response(response.body, {

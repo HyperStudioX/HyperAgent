@@ -6,12 +6,13 @@ from typing import List, Optional
 
 from google import genai
 from google.genai import types
-from openai import AsyncOpenAI
 
+from app.ai.gemini import get_gemini_client
+from app.ai.openai import get_openai_client
 from app.config import settings
 from app.core.logging import get_logger
-from app.models.schemas import ImageGenerationResult
 from app.middleware.circuit_breaker import CircuitBreakerOpen, get_gemini_breaker
+from app.models.schemas import ImageGenerationResult
 
 logger = get_logger(__name__)
 
@@ -287,7 +288,7 @@ class ImageGenerationService:
         Returns:
             List of generated image results
         """
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        client = get_openai_client()
         openai_size = self._map_to_openai_size(size)
         results = []
 
@@ -399,7 +400,7 @@ class ImageGenerationService:
                 )
             else:
                 # Use Gemini/Imagen
-                client = genai.Client(api_key=settings.gemini_api_key)
+                client = get_gemini_client()
                 aspect_ratio = self._parse_aspect_ratio(size)
 
                 if self._is_gemini_model(model):

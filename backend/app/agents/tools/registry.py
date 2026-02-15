@@ -23,6 +23,7 @@ from app.agents.tools.browser_use import (
     browser_get_stream_url,
 )
 from app.agents.tools.image_generation import generate_image
+from app.agents.tools.slide_generation import generate_slides
 from app.agents.tools.vision import analyze_image
 from app.agents.tools.code_execution import execute_code
 from app.agents.tools.skill_invocation import get_skill_tools
@@ -45,6 +46,7 @@ class ToolCategory(str, Enum):
     APP_BUILDER = "app_builder"  # App building and running tools
     HANDOFF = "handoff"  # Agent-to-agent delegation
     SKILL = "skill"  # Skill invocation
+    SLIDES = "slides"  # Slide/PPTX generation
     HITL = "hitl"  # Human-in-the-loop tools (ask user for input/decisions)
 
 
@@ -53,6 +55,7 @@ class ToolCategory(str, Enum):
 TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
     ToolCategory.SEARCH: [web_search],
     ToolCategory.IMAGE: [generate_image, analyze_image],
+    ToolCategory.SLIDES: [generate_slides],
     ToolCategory.BROWSER: [
         browser_navigate,
         browser_screenshot,
@@ -79,6 +82,7 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
     AgentType.CHAT.value: [
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
+        ToolCategory.SLIDES,
         ToolCategory.BROWSER,
         ToolCategory.CODE_EXEC,  # For execute_code tool
         ToolCategory.APP_BUILDER,  # For building and running apps

@@ -206,3 +206,39 @@ def extract_app_builder_events(
             )
     except Exception as e:
         logger.warning("app_builder_event_extraction_failed", error=str(e))
+
+
+def extract_slide_events(
+    tool_name: str,
+    result_str: str,
+    event_list: list[dict],
+) -> None:
+    """Extract slide generation events from generate_slides tool results.
+
+    Converts successful generate_slides results into skill_output events
+    that the frontend's SlideOutputPanel can render.
+
+    Args:
+        tool_name: Name of the tool
+        result_str: JSON result string from the tool
+        event_list: Event list to append to (mutated in-place)
+    """
+    if tool_name != "generate_slides" or not result_str:
+        return
+
+    try:
+        parsed = json.loads(result_str)
+        if parsed.get("success") and parsed.get("download_url"):
+            event_list.append(events.skill_output(
+                skill_id="slide_generation",
+                output={
+                    "download_url": parsed["download_url"],
+                    "storage_key": parsed.get("storage_key", ""),
+                    "title": parsed.get("title", ""),
+                    "slide_count": parsed.get("slide_count", 0),
+                    "sources": parsed.get("sources", []),
+                    "slide_outline": parsed.get("slide_outline", []),
+                },
+            ))
+    except Exception as e:
+        logger.warning("slide_event_extraction_failed", error=str(e))

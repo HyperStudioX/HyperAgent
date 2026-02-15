@@ -68,6 +68,7 @@ BROWSER_ACTION_DESCRIPTIONS: dict[str, tuple[str, str]] = {
 # Content length limits for tool results
 TOOL_CONTENT_LIMITS: dict[str, int] = {
     "invoke_skill": 5000,  # Extra space for skill output with preview URLs
+    "generate_slides": 3000,  # Slide output with download URL and sources
     "app_start_server": 3000,  # Extra space for terminal events
     "app_get_preview_url": 2000,
     "create_app_project": 3000,  # Extra space for terminal events
@@ -90,6 +91,7 @@ class StreamProcessor:
         self.emitted_stage_keys: set[str] = set()
         self.emitted_image_indices: set[int] = set()
         self.emitted_interrupt_ids: set[str] = set()  # Track emitted HITL interrupts
+        self.emitted_skill_output_keys: set[str] = set()  # Track emitted skill_output events
         self.pending_tool_calls: dict[str, dict] = {}
         self.pending_tool_calls_by_tool: dict[str, list[str]] = {}
         self.node_path: list[str] = []
@@ -267,6 +269,19 @@ class StreamProcessor:
                 return False
             self.emitted_image_indices.add(image_index)
             logger.debug("yielding_image_event", index=image_index, node_name=node_name)
+
+        # Skill output deduplication
+        if event_type == "skill_output":
+            skill_id = e.get("skill_id", "")
+            output = e.get("output") or {}
+            # Key by skill_id + download_url (or preview_url) for uniqueness
+            dedup_value = ""
+            if isinstance(output, dict):
+                dedup_value = output.get("download_url") or output.get("preview_url") or ""
+            skill_key = f"{skill_id}:{dedup_value}"
+            if skill_key in self.emitted_skill_output_keys:
+                return False
+            self.emitted_skill_output_keys.add(skill_key)
 
         # Interrupt deduplication (HITL events)
         if event_type == "interrupt":
@@ -454,10 +469,24 @@ class StreamProcessor:
         except Exception as e:
             logger.warning("browser_stream_emit_failed", error=str(e))
 
+    @staticmethod
+    def _extract_tool_output_str(output: Any) -> str:
+        """Extract string content from tool output (handles both str and ToolMessage)."""
+        if isinstance(output, str):
+            return output
+        # LangGraph returns ToolMessage objects from on_tool_end
+        content = getattr(output, "content", None)
+        if isinstance(content, str):
+            return content
+        if output:
+            return str(output)
+        return ""
+
     async def _handle_tool_end(self, event: dict) -> AsyncGenerator[dict[str, Any], None]:
         run_id = event.get("run_id", "")
         tool_name = event.get("name", "")
-        output = (event.get("data") or {}).get("output", "")
+        raw_output = (event.get("data") or {}).get("output", "")
+        output = self._extract_tool_output_str(raw_output)
 
         # Browser action completion
         if tool_name in BROWSER_TOOLS:
@@ -470,7 +499,7 @@ class StreamProcessor:
             )
 
         # Extract events from skill invocation output (for streaming to frontend)
-        if tool_name == "invoke_skill" and isinstance(output, str):
+        if tool_name == "invoke_skill" and output:
             try:
                 import json
 
@@ -498,20 +527,62 @@ class StreamProcessor:
 
                     # Emit skill_output event for frontend to extract preview URLs etc.
                     if parsed.get("success") and parsed.get("output"):
-                        skill_output_event = {
-                            "type": "skill_output",
-                            "skill_id": parsed.get("skill_id"),
-                            "output": parsed.get("output"),
-                        }
+                        skill_id = parsed.get("skill_id", "")
                         output_dict = parsed.get("output", {})
                         preview_url = output_dict.get("preview_url") if isinstance(output_dict, dict) else None
-                        logger.info(
-                            "emitting_skill_output",
-                            skill_id=parsed.get("skill_id"),
-                            has_preview_url="preview_url" in str(output_dict),
-                            preview_url=preview_url,
-                        )
-                        yield skill_output_event
+                        download_url = output_dict.get("download_url") if isinstance(output_dict, dict) else None
+                        dedup_value = download_url or preview_url or ""
+                        skill_key = f"{skill_id}:{dedup_value}"
+                        if skill_key not in self.emitted_skill_output_keys:
+                            self.emitted_skill_output_keys.add(skill_key)
+                            skill_output_event = {
+                                "type": "skill_output",
+                                "skill_id": skill_id,
+                                "output": output_dict,
+                            }
+                            logger.info(
+                                "emitting_skill_output",
+                                skill_id=skill_id,
+                                has_preview_url="preview_url" in str(output_dict),
+                                preview_url=preview_url,
+                            )
+                            yield skill_output_event
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Extract slide generation output and emit as skill_output event
+        if tool_name == "generate_slides" and output:
+            try:
+                import json
+
+                parsed = json.loads(output)
+                if (
+                    isinstance(parsed, dict)
+                    and parsed.get("success")
+                    and parsed.get("download_url")
+                ):
+                    slide_event = {
+                        "type": "skill_output",
+                        "skill_id": "slide_generation",
+                        "output": {
+                            "download_url": parsed["download_url"],
+                            "storage_key": parsed.get("storage_key", ""),
+                            "title": parsed.get("title", ""),
+                            "slide_count": parsed.get("slide_count", 0),
+                            "sources": parsed.get("sources", []),
+                            "slide_outline": parsed.get("slide_outline", []),
+                        },
+                    }
+                    # Track for deduplication against chain_end forwarded events
+                    self.emitted_skill_output_keys.add(
+                        f"slide_generation:{parsed['download_url']}"
+                    )
+                    yield slide_event
+                    logger.info(
+                        "emitting_slide_output",
+                        title=parsed.get("title", ""),
+                        download_url=parsed["download_url"][:80],
+                    )
             except (json.JSONDecodeError, ValueError):
                 pass
 
@@ -522,7 +593,7 @@ class StreamProcessor:
             "app_run_command",
             "app_install_packages",
         }
-        if tool_name in app_builder_tools and isinstance(output, str):
+        if tool_name in app_builder_tools and output:
             try:
                 import json
 
@@ -563,7 +634,7 @@ class StreamProcessor:
 
         # Emit tool result with appropriate content length limit
         max_content_length = TOOL_CONTENT_LIMITS.get(tool_name, DEFAULT_CONTENT_LIMIT)
-        content = str(output)[:max_content_length] if output else ""
+        content = output[:max_content_length] if output else ""
         yield agent_events.tool_result(
             tool=tool_name,
             content=content,

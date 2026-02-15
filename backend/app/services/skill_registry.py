@@ -186,6 +186,7 @@ class SkillRegistry:
                 CodeReviewSkill,
                 DataVisualizationSkill,
                 ImageGenerationSkill,
+                SlideGenerationSkill,
                 TaskPlanningSkill,
                 WebResearchSkill,
             )
@@ -199,6 +200,7 @@ class SkillRegistry:
                 CodeGenerationSkill,
                 TaskPlanningSkill,
                 AppBuilderSkill,
+                SlideGenerationSkill,
             ]:
                 skill = skill_class()
                 self._loaded_skills[skill.metadata.id] = skill

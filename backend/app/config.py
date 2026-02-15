@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     gemini_api_key: str = ""
 
+    # GCP / Vertex AI (use Vertex AI instead of Google AI Studio for Gemini)
+    gemini_use_vertex_ai: bool = False
+    gcp_project_id: str = ""
+    gcp_location: str = "us-central1"
+
     # Models
     default_model_anthropic: str = "claude-sonnet-4-20250514"
     default_model_openai: str = "gpt-4o"
@@ -144,7 +149,6 @@ class Settings(BaseSettings):
     hitl_enabled: bool = True  # Enable HITL by default
     hitl_approval_timeout: int = 120  # 2 minutes for tool approvals
     hitl_decision_timeout: int = 300  # 5 minutes for decision interrupts
-    hitl_input_timeout: int = 300  # 5 minutes for input interrupts
     hitl_default_risk_threshold: str = "high"  # high, medium, or all
 
     # Logging

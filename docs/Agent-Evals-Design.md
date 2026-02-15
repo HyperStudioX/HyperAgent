@@ -55,8 +55,9 @@ Tests whether the supervisor correctly routes queries to the appropriate agent (
 **Test Categories:**
 - General conversation → Chat Agent
 - Image generation → Chat Agent (uses `image_generation` skill)
+- Slide/presentation generation → Chat Agent (uses `slide_generation` skill / `generate_slides` tool)
 - Code tasks → Chat Agent (uses `code_generation`/`code_review` skills)
-- Writing tasks → Chat Agent (uses `simple_writing` skill)
+- Writing tasks → Chat Agent (handled directly by LLM)
 - Browser automation → Chat Agent (uses browser tools)
 - Comprehensive research → Research Agent
 - Data analytics → Data Agent
