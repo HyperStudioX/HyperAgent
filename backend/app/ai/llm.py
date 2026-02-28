@@ -1,6 +1,7 @@
-from typing import Any
+from typing import Any, Sequence
 
 from langchain_anthropic import ChatAnthropic
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -207,6 +208,7 @@ class LLMService:
         tier: ModelTier,
         provider: str | None = None,
         model_override: str | None = None,
+        callbacks: Sequence[BaseCallbackHandler] | None = None,
     ) -> BaseChatModel:
         """Get LLM for a specific tier, with optional model override.
 
@@ -214,13 +216,17 @@ class LLMService:
             tier: The model tier to use
             provider: The LLM provider (if None, auto-selects based on tier configuration)
             model_override: Optional model override (bypasses tier selection)
+            callbacks: Optional callback handlers (e.g. UsageTracker)
 
         Returns:
             LLM instance configured for the specified tier
         """
         p, m = resolve_model(tier, provider, model_override)
         logger.info("llm_invocation", tier=tier.value, provider=p, model=m)
-        return self.get_llm(p, m)
+        llm = self.get_llm(p, m)
+        if callbacks:
+            return llm.with_config(callbacks=list(callbacks))
+        return llm
 
     def choose_llm_for_task(
         self,
@@ -228,6 +234,7 @@ class LLMService:
         provider: str | None = None,
         tier_override: ModelTier | None = None,
         model_override: str | None = None,
+        callbacks: Sequence[BaseCallbackHandler] | None = None,
     ) -> BaseChatModel:
         """Choose LLM based on task type with auto-routing.
 
@@ -238,13 +245,17 @@ class LLMService:
             provider: The LLM provider (if None, auto-selects based on tier configuration)
             tier_override: Optional tier override (bypasses auto-routing)
             model_override: Optional model override (bypasses tier and auto-routing)
+            callbacks: Optional callback handlers (e.g. UsageTracker)
 
         Returns:
             LLM instance configured for the task
         """
         tier, p, m = resolve_model_for_task(task_type, provider, tier_override, model_override)
         logger.info("llm_invocation", task_type=task_type, tier=tier.value, provider=p, model=m)
-        return self.get_llm(p, m)
+        llm = self.get_llm(p, m)
+        if callbacks:
+            return llm.with_config(callbacks=list(callbacks))
+        return llm
 
     async def generate_title(
         self,

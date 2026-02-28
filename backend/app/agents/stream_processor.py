@@ -382,6 +382,15 @@ class StreamProcessor:
                     tool_id=tool_id,
                 )
 
+        # Reasoning content extraction (from thinking-mode providers like DeepSeek, Kimi, Qwen)
+        if chunk and hasattr(chunk, "additional_kwargs"):
+            reasoning_content = chunk.additional_kwargs.get("reasoning_content")
+            if reasoning_content and isinstance(reasoning_content, str) and reasoning_content.strip():
+                yield agent_events.reasoning(
+                    thinking=reasoning_content,
+                    context="llm_thinking",
+                )
+
         # Streaming content tokens
         if self.path_has_streamable_node(node_path_str):
             chunk = (event.get("data") or {}).get("chunk")

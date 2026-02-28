@@ -16,7 +16,9 @@ from langchain_core.tools import BaseTool
 
 from app.agents.tools.context_injection import inject_tool_context
 from app.agents.tools.react_tool import (
+    ErrorCategory,
     ReActLoopConfig,
+    classify_error,
     execute_tool_with_retry,
     truncate_tool_result,
 )
@@ -55,6 +57,7 @@ class ToolExecutionResult:
     events: list[dict] = field(default_factory=list)
     is_error: bool = False
     pending_interrupt: dict | None = None
+    error_category: ErrorCategory | None = None
 
 
 class ToolExecutionHooks:
@@ -154,6 +157,7 @@ async def execute_tool(
             ),
             events=all_events,
             is_error=True,
+            error_category=ErrorCategory.RESOURCE,
         )
 
     # 5. Execute tool
@@ -207,6 +211,7 @@ async def execute_tool(
             "tool_execution_failed", tool=ctx.tool_name, error=str(e)
         )
         error_msg = f"Error executing {ctx.tool_name}: {e}"
+        error_category = classify_error(str(e), ctx.tool_name)
         result_events = hooks.on_tool_result(
             ctx.tool_name, error_msg, ctx.tool_call_id
         )
@@ -219,6 +224,7 @@ async def execute_tool(
             ),
             events=all_events,
             is_error=True,
+            error_category=error_category,
         )
 
 

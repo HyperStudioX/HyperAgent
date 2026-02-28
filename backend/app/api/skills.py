@@ -218,6 +218,16 @@ def _validate_skill_tool_metadata(
 # === Endpoints ===
 
 
+@router.get("/load-stats")
+async def get_skill_load_stats():
+    """Get skill progressive loading statistics.
+
+    Returns a summary of how many skills are at each loading level
+    (metadata, instructions, resources).
+    """
+    return skill_registry.get_load_stats()
+
+
 @router.get("/", response_model=SkillListResponse)
 async def list_skills(
     category: str | None = None,

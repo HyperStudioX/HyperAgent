@@ -503,6 +503,12 @@
                 "maxSize": "File exceeds maximum size of {size}MB"
             }
         },
+        "tokenUsage": "Token usage",
+        "totalCost": "Total cost",
+        "inputTokens": "Input tokens",
+        "outputTokens": "Output tokens",
+        "cachedTokens": "Cached tokens",
+        "byTier": "By tier",
         "voice": {
             "startRecording": "Start voice input",
             "stopRecording": "Stop recording",
@@ -797,6 +803,13 @@
             "hours": "{count}h",
             "days": "{count}d"
         },
+        "splitView": "Split view",
+        "sendCommand": "Send command",
+        "typeCommand": "Type a command...",
+        "editFile": "Edit file",
+        "saveFile": "Save",
+        "cancelEdit": "Cancel",
+        "editing": "Editing",
         "resizeHandle": "Resize panel",
         "browserIframeTitle": "Agent browser view",
         "workspace": {

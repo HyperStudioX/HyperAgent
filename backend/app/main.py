@@ -1,5 +1,6 @@
 """HyperAgent API application."""
 
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,6 +11,8 @@ from app.api import (
     files,
     health,
     hitl,
+    mcp,
+    memory,
     projects,
     providers,
     query,
@@ -17,6 +20,7 @@ from app.api import (
     sandbox_proxy,
     skills,
     tasks,
+    usage,
 )
 from app.config import settings
 from app.core.logging import get_logger, setup_logging
@@ -92,6 +96,17 @@ async def lifespan(app: FastAPI):
             detail="Safety guardrails are disabled. This is not recommended for production.",
         )
 
+    # Initialize MCP if enabled
+    if settings.mcp_enabled:
+        from app.mcp.registry import initialize_mcp
+
+        try:
+            server_configs = json.loads(settings.mcp_servers) if settings.mcp_servers else []
+            await initialize_mcp(server_configs)
+            logger.info("mcp_ready")
+        except Exception as e:
+            logger.warning("mcp_initialization_failed", error=str(e))
+
     if not settings.auth_enabled:
         logger.warning(
             "auth_disabled_warning",
@@ -102,6 +117,14 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("application_shutting_down")
+
+    # Shutdown MCP
+    try:
+        from app.mcp.registry import shutdown_mcp
+
+        await shutdown_mcp()
+    except Exception:
+        pass
 
     # Close task queue
     try:
@@ -180,3 +203,6 @@ app.include_router(providers.router, prefix=settings.api_prefix, tags=["provider
 app.include_router(hitl.router, prefix=settings.api_prefix, tags=["hitl"])
 app.include_router(sandbox.router, prefix=settings.api_prefix, tags=["sandbox"])
 app.include_router(sandbox_proxy.router, prefix=settings.api_prefix, tags=["sandbox-proxy"])
+app.include_router(usage.router, prefix=settings.api_prefix, tags=["usage"])
+app.include_router(memory.router, prefix=settings.api_prefix, tags=["memory"])
+app.include_router(mcp.router, prefix=settings.api_prefix, tags=["mcp"])

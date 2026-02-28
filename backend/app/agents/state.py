@@ -12,6 +12,11 @@ from app.models.schemas import ModelTier, ResearchDepth, ResearchScenario
 from app.services.search import SearchResult
 
 
+def _override_reducer(a, b):
+    """Override reducer: always takes the latest value (not accumulated)."""
+    return b
+
+
 class AgentType(str, Enum):
     """Available agent types.
 
@@ -110,6 +115,22 @@ class TaskState(SupervisorState, total=False):
     # The agent then tracks progress through the plan step-by-step.
     execution_plan: list[dict]  # Parsed plan steps [{step_number, action, tool_or_skill, ...}]
     current_step_index: int  # 0-indexed pointer into execution_plan
+
+    # Self-correction / verification loop
+    # consecutive_errors uses an override reducer (lambda a, b: b) so it is
+    # always replaced by the latest value rather than accumulated.
+    consecutive_errors: Annotated[int, _override_reducer]  # Consecutive tool errors (override reducer)
+    completed_step_results: Annotated[list[dict], operator.add]  # Accumulated step results
+    plan_revision_count: Annotated[int, _override_reducer]  # Number of plan revisions
+
+    # Todo-list as attention manipulation (Context Engineering)
+    # The active_todo is rewritten into the prompt after every tool call to keep
+    # the global plan in the model's recent attention window across many iterations.
+    active_todo: str | None  # Current plan/todo state for attention manipulation
+
+    # Enhanced verification
+    verification_results: list[dict]  # Detailed per-step verification outcomes
+    verified_steps: list[int]  # Step numbers that have been verified
 
 
 class ResearchState(SupervisorState, total=False):

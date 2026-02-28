@@ -63,8 +63,20 @@ class EventType(str, Enum):
     INTERRUPT = "interrupt"
     INTERRUPT_RESPONSE = "interrupt_response"
 
+    # Verification events (self-correction loop)
+    VERIFICATION = "verification"
+
     # Workspace events (file updates in sandboxes)
     WORKSPACE_UPDATE = "workspace_update"
+
+    # Usage tracking events
+    USAGE = "usage"
+
+    # Reasoning transparency events
+    REASONING = "reasoning"
+
+    # Parallel execution events
+    PARALLEL_TASK = "parallel_task"
 
 
 class InterruptType(str, Enum):
@@ -336,6 +348,54 @@ class WorkspaceUpdateEvent(BaseModel):
         ..., description="Type of sandbox (execution or app)"
     )
     sandbox_id: str = Field(..., description="Sandbox identifier")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class VerificationEvent(BaseModel):
+    """Event containing verification result for planned execution."""
+
+    type: Literal["verification"] = "verification"
+    status: str = Field(..., description="Verification status: passed or failed")
+    message: str = Field(..., description="Verification result message")
+    step: int | None = Field(default=None, description="Step number if applicable")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class ReasoningEvent(BaseModel):
+    """Agent reasoning/decision explanation."""
+
+    type: Literal["reasoning"] = "reasoning"
+    thinking: str = Field(..., description="The agent's reasoning or decision explanation")
+    confidence: float | None = Field(default=None, description="Confidence level 0.0-1.0")
+    context: str | None = Field(
+        default=None,
+        description="Context: routing, tool_selection, error_recovery, verification",
+    )
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class ParallelTaskEvent(BaseModel):
+    """Event tracking individual parallel sub-task progress."""
+
+    type: Literal["parallel_task"] = "parallel_task"
+    task_id: str = Field(..., description="Sub-task identifier")
+    query: str | None = Field(default=None, description="Sub-task query")
+    focus_area: str = Field(..., description="Focus area label")
+    status: str = Field(..., description="pending, running, completed, failed")
+    duration_ms: int | None = Field(default=None, description="Duration in ms")
+    timestamp: int = Field(default_factory=_timestamp)
+
+
+class UsageEvent(BaseModel):
+    """Event containing token usage and cost information for an LLM call."""
+
+    type: Literal["usage"] = "usage"
+    input_tokens: int = Field(..., description="Number of input/prompt tokens")
+    output_tokens: int = Field(..., description="Number of output/completion tokens")
+    cached_tokens: int = Field(default=0, description="Number of cached input tokens")
+    cost_usd: float = Field(..., description="Estimated cost in USD")
+    model: str = Field(..., description="Model name used")
+    tier: str = Field(..., description="Model tier (max, pro, flash)")
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
@@ -848,4 +908,107 @@ def workspace_update(
         sandbox_id=sandbox_id,
         is_directory=is_directory,
         size=size,
+    ).model_dump()
+
+
+def verification(
+    status: str,
+    message: str,
+    step: int | None = None,
+) -> dict[str, Any]:
+    """Create a verification event dictionary.
+
+    Args:
+        status: Verification status (passed or failed)
+        message: Verification result message
+        step: Step number if applicable
+
+    Returns:
+        Verification event dictionary
+    """
+    return VerificationEvent(
+        status=status,
+        message=message,
+        step=step,
+    ).model_dump()
+
+
+def usage(
+    input_tokens: int,
+    output_tokens: int,
+    cached_tokens: int,
+    cost_usd: float,
+    model: str,
+    tier: str,
+) -> dict[str, Any]:
+    """Create a usage event dictionary.
+
+    Args:
+        input_tokens: Number of input/prompt tokens
+        output_tokens: Number of output/completion tokens
+        cached_tokens: Number of cached input tokens
+        cost_usd: Estimated cost in USD
+        model: Model name used
+        tier: Model tier (max, pro, flash)
+
+    Returns:
+        Usage event dictionary
+    """
+    return UsageEvent(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_tokens=cached_tokens,
+        cost_usd=cost_usd,
+        model=model,
+        tier=tier,
+    ).model_dump()
+
+
+def reasoning(
+    thinking: str,
+    confidence: float | None = None,
+    context: str | None = None,
+) -> dict[str, Any]:
+    """Create a reasoning event dictionary.
+
+    Args:
+        thinking: The agent's reasoning or decision explanation
+        confidence: Confidence level (0.0 to 1.0)
+        context: Context category (routing, tool_selection, error_recovery, verification)
+
+    Returns:
+        Reasoning event dictionary
+    """
+    return ReasoningEvent(
+        thinking=thinking,
+        confidence=confidence,
+        context=context,
+    ).model_dump()
+
+
+def parallel_task(
+    task_id: str,
+    focus_area: str,
+    status: str,
+    query: str | None = None,
+    duration_ms: int | None = None,
+) -> dict[str, Any]:
+    """Create a parallel task event dictionary.
+
+    Args:
+        task_id: Sub-task identifier
+        focus_area: Focus area label
+        status: Task status (pending, running, completed, failed)
+        query: Optional sub-task query
+        duration_ms: Optional duration in milliseconds
+
+    Returns:
+        Parallel task event dictionary
+    """
+    return ParallelTaskEvent(
+        task_id=task_id,
+        focus_area=focus_area,
+        status=status,
+        query=query,
+        duration_ms=duration_ms,
     ).model_dump()

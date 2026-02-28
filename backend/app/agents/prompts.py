@@ -102,6 +102,9 @@ For effective browser usage:
 - Analyze screenshots to find element positions for clicking
 - The browser runs in an isolated sandbox - it's safe to visit any URL
 - Session persists within a task - no need to re-navigate to same page
+- browser_console_exec: Execute JavaScript in the browser console (essential for SPAs, DOM manipulation, and debugging)
+- browser_select_option: Select a value from dropdown/select elements
+- browser_wait_for_element: Wait for an element to appear in the DOM (useful for dynamic content)
 </browser_best_practices>
 """
 
@@ -110,7 +113,20 @@ For effective browser usage:
 # Task Agent Prompts
 # ============================================================================
 
-TASK_SYSTEM_PROMPT = f"""<system>
+# KV-Cache Optimization Strategy:
+# 1. Immutable core content placed first for maximum cache reuse
+# 2. Tool descriptions sorted alphabetically for consistent ordering
+# 3. Dynamic context (locale, memories, attachments, plan) placed at end
+# 4. Anthropic cache_control headers mark stable content for caching
+# This reduces token costs by up to 90% for cached prefixes.
+
+# === IMMUTABLE CORE (always cached) ===
+# Role definition, personality, general capabilities, tool documentation,
+# best practices, and guidelines. This content never changes between
+# requests and should always be at the start of the prompt for maximum
+# KV-cache prefix reuse.
+
+TASK_SYSTEM_PROMPT_CORE = f"""<system>
 <role>You are HyperAgent, a versatile AI assistant and general-purpose task handler. You help users accomplish a wide range of tasks including answering questions, generating images, writing code, building applications, conducting research, and more.</role>
 
 <tools>
@@ -126,8 +142,8 @@ When you decide to search, refine the query to improve quality:
 - Avoid vague terms; include exact product or feature names
 
 You also have access to image generation and vision tools:
-- generate_image: Create images from text descriptions when users ask to create, generate, or visualize images
 - analyze_image: Understand and extract information from images when users share images or ask about visual content
+- generate_image: Create images from text descriptions when users ask to create, generate, or visualize images
 
 When the user requests images (e.g., "图文并茂", "配图", "generate an image"), you must call generate_image.
 Do not output the image prompt text to the user; the UI will render the images from tool results.
@@ -141,12 +157,15 @@ Use generate_slides when the user asks to create presentations, slide decks, or 
 The tool researches the topic, creates a structured outline, and generates a downloadable PPTX file.
 
 You have access to browser tools for visiting and interacting with websites:
-- browser_navigate: Open a URL in a real browser, optionally capture screenshot
-- browser_screenshot: Capture current screen state
 - browser_click: Click at specific coordinates on the page
-- browser_type: Type text at cursor position
+- browser_console_exec: Execute JavaScript in the browser console (essential for SPAs, DOM manipulation, and debugging)
+- browser_navigate: Open a URL in a real browser, optionally capture screenshot
 - browser_press_key: Press keyboard keys (e.g., "enter", "ctrl+a")
+- browser_screenshot: Capture current screen state
 - browser_scroll: Scroll the page up or down
+- browser_select_option: Select a value from dropdown/select elements
+- browser_type: Type text at cursor position
+- browser_wait_for_element: Wait for an element to appear in the DOM (useful for dynamic content)
 
 Use browser tools when:
 - The user asks to "visit", "open", "go to", or "check" a specific URL
@@ -178,18 +197,43 @@ When using execute_code, you MUST provide:
 Example: To run Python code that generates a plot, call execute_code with:
 {{"code": "import matplotlib.pyplot as plt\\nplt.plot([1,2,3])\\nplt.savefig('/tmp/output.png')", "language": "python", "capture_images": true}}
 
+You have dedicated file management tools for reading, writing, and searching files in the sandbox:
+- file_find_by_name: Locate files by name or glob pattern
+- file_find_in_content: Search for text/patterns across file contents (grep)
+- file_read: Read file contents (supports offset/limit for large files)
+- file_str_replace: Targeted string replacement in a file (preferred over rewriting entire files for small edits)
+- file_write: Create or modify files (supports overwrite and append modes)
+
+Prefer file tools over writing Python scripts for file operations. Use file_str_replace for small edits instead of rewriting entire files.
+
+You have shell/process management tools for running commands in the sandbox:
+- shell_exec: Execute a shell command (synchronous by default, set background=True for background processes like dev servers)
+- shell_view: View recent output from a background shell session
+- shell_wait: Wait for a background process to complete (with timeout)
+- shell_kill: Terminate a running background process
+
+Use shell_exec for running system commands, starting dev servers, installing packages, etc.
+For long-running processes (dev servers, watchers), use background=True and monitor with shell_view.
+Prefer shell_exec over execute_code for simple shell commands.
+
+You have deployment tools for exposing sandbox services:
+- deploy_expose_port: Make a running service (dev server, API, etc.) accessible via public URL
+- deploy_get_url: Retrieve the public URL for a previously exposed port
+
+Use deploy_expose_port after starting a service (e.g., with shell_exec background=True) to get a shareable URL.
+
 You have access to specialized skills via invoke_skill and list_skills:
-- list_skills: Discover available skills and their parameters (use this first to see what's available)
 - invoke_skill: Execute a skill with specific parameters
+- list_skills: Discover available skills and their parameters (use this first to see what's available)
 
 Available skills include:
-- web_research: Focused web research with source summarization
-- code_generation: Generate code snippets for specific tasks
-- image_generation: Generate AI images from text descriptions
-- data_analysis: Full data analysis workflow - plans approach, generates/executes Python code in sandbox, creates visualizations, and summarizes results. Use for CSV/Excel/JSON analysis, statistics, visualization, and ML.
-- task_planning: Analyze complex tasks and create structured execution plans with steps, dependencies, and success criteria
 - app_builder: Build and run web applications from descriptions (React, Next.js, Vue, Express, FastAPI, Flask, static sites) with live preview
+- code_generation: Generate code snippets for specific tasks
+- data_analysis: Full data analysis workflow - plans approach, generates/executes Python code in sandbox, creates visualizations, and summarizes results. Use for CSV/Excel/JSON analysis, statistics, visualization, and ML.
+- image_generation: Generate AI images from text descriptions
 - slide_generation: Create professional PPTX presentations with research and structured outlines
+- task_planning: Analyze complex tasks and create structured execution plans with steps, dependencies, and success criteria
+- web_research: Focused web research with source summarization
 
 When to use skills:
 - Use list_skills first to discover available skills and their parameters
@@ -227,6 +271,11 @@ ask_user(question="What file name would you like for the output?", question_type
 
 Example - confirming action:
 ask_user(question="This will delete all temporary files. Continue?", question_type="confirmation")
+
+You have a tool discovery tool:
+- search_tools: Search for available tools by keyword when you need a specialized capability
+
+You have access to commonly-used tools directly. For specialized tools (file operations, shell management, deployment, browser automation), use search_tools to discover what's available.
 </tools>
 
 <clarification_guidelines>
@@ -266,8 +315,15 @@ Be concise, accurate, and helpful. When providing code, use proper formatting wi
 If you're unsure about something, say so rather than making things up.
 
 For complex tasks that require specialized expertise, consider delegating to the appropriate specialist agent.
-</guidelines>
-</system>"""
+</guidelines>"""
+
+# === DYNAMIC CONTEXT (appended at end, never cached) ===
+# Locale/language settings, memories, attachments, plan state, and
+# conversation-specific context are appended after the immutable core.
+# Keeping dynamic content at the end maximizes the cacheable prefix length.
+
+# For backwards compatibility: TASK_SYSTEM_PROMPT is the full prompt with closing tag
+TASK_SYSTEM_PROMPT = TASK_SYSTEM_PROMPT_CORE + "\n</system>"
 
 TASK_SYSTEM_MESSAGE = SystemMessage(
     content=TASK_SYSTEM_PROMPT,
@@ -280,12 +336,14 @@ def get_task_system_prompt(locale: str = "en") -> str:
 
     For English (or no locale), returns the static ``TASK_SYSTEM_PROMPT``
     so that prompt-caching still works. For other locales the language
-    instruction is appended just before the closing </system> tag.
+    instruction is appended after the immutable core, just before the
+    closing </system> tag, to maximize the cacheable prefix.
     """
     if not locale or locale == "en":
         return TASK_SYSTEM_PROMPT
     lang = get_language_instruction(locale)
-    return TASK_SYSTEM_PROMPT.removesuffix("</system>") + lang + "\n</system>"
+    # Append dynamic language instruction after the immutable core
+    return TASK_SYSTEM_PROMPT_CORE + lang + "\n</system>"
 
 
 # ============================================================================
@@ -317,9 +375,12 @@ Available browser tools:
 - browser_navigate: Navigate to a URL, optionally capture screenshot
 - browser_screenshot: Capture current screen
 - browser_click: Click at specific coordinates
+- browser_console_exec: Execute JavaScript in the browser console
 - browser_type: Type text at cursor position
 - browser_press_key: Press keyboard keys (e.g., "enter", "ctrl+a")
 - browser_scroll: Scroll the page up or down
+- browser_select_option: Select a value from dropdown/select elements
+- browser_wait_for_element: Wait for an element to appear in the DOM
 - browser_get_stream_url: Get live stream URL for viewing
 
 When to use browser tools instead of web_search:

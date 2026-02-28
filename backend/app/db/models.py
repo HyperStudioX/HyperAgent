@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, JSON, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -601,4 +601,51 @@ class SkillExecution(Base):
             "agent_type": self.agent_type,
             "task_id": self.task_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Memory(Base):
+    """Persistent cross-session memory entry."""
+
+    __tablename__ = "memories"
+    __table_args__ = (
+        Index("idx_memories_user_id", "user_id"),
+        Index("idx_memories_type", "user_id", "memory_type"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    memory_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True, server_default="{}")
+    source_conversation_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_accessed: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    access_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=func.text("0"))
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        import json as _json
+
+        metadata = {}
+        if self.metadata_json:
+            try:
+                metadata = _json.loads(self.metadata_json)
+            except (_json.JSONDecodeError, TypeError):
+                pass
+
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "type": self.memory_type,
+            "content": self.content,
+            "metadata": metadata,
+            "source_conversation_id": self.source_conversation_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
+            "access_count": self.access_count,
         }

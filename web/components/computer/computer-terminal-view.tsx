@@ -26,6 +26,7 @@ interface ComputerTerminalViewProps {
     currentCommand?: string | null;
     currentCwd?: string;
     onClear?: () => void;
+    onSendCommand?: (command: string) => void;
     className?: string;
 }
 
@@ -152,11 +153,16 @@ export function ComputerTerminalView({
     currentCommand,
     currentCwd = "/home/ubuntu",
     onClear,
+    onSendCommand,
     className,
 }: ComputerTerminalViewProps) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const [wordWrap, setWordWrap] = useState(true);
+    const [inputValue, setInputValue] = useState("");
+    const [commandHistory, setCommandHistory] = useState<string[]>([]);
+    const [historyIndex, setHistoryIndex] = useState(-1);
     const t = useTranslations("computer");
 
     // Auto-scroll to bottom when new lines are added (only when live)
@@ -165,6 +171,37 @@ export function ComputerTerminalView({
             bottomRef.current.scrollIntoView({ behavior: "smooth" });
         }
     }, [lines.length, isLive]);
+
+    // Handle keyboard input for the terminal input
+    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter" && inputValue.trim() && onSendCommand) {
+            e.preventDefault();
+            onSendCommand(inputValue.trim());
+            setCommandHistory((prev) => {
+                const next = [inputValue.trim(), ...prev];
+                return next.slice(0, 50);
+            });
+            setInputValue("");
+            setHistoryIndex(-1);
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            if (commandHistory.length > 0) {
+                const nextIndex = Math.min(historyIndex + 1, commandHistory.length - 1);
+                setHistoryIndex(nextIndex);
+                setInputValue(commandHistory[nextIndex]);
+            }
+        } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (historyIndex > 0) {
+                const nextIndex = historyIndex - 1;
+                setHistoryIndex(nextIndex);
+                setInputValue(commandHistory[nextIndex]);
+            } else {
+                setHistoryIndex(-1);
+                setInputValue("");
+            }
+        }
+    }, [inputValue, onSendCommand, commandHistory, historyIndex]);
 
     // Lines are already filtered by the parent panel based on timeline position
     const visibleLines = !isLive
@@ -290,6 +327,24 @@ export function ComputerTerminalView({
                     <div ref={bottomRef} />
                 </div>
             </ScrollArea>
+
+            {/* Terminal input */}
+            {isLive && onSendCommand && (
+                <div className="flex items-center border-t border-border/50 bg-terminal-bg px-3 py-1.5 shrink-0">
+                    <span className="text-terminal-prompt text-xs mr-2 flex-shrink-0 font-mono">
+                        ubuntu@sandbox:{displayCwd}$
+                    </span>
+                    <input
+                        ref={inputRef}
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        className="flex-1 bg-transparent text-terminal-fg text-xs outline-none caret-terminal-fg font-mono placeholder:text-terminal-output/30"
+                        placeholder={t("typeCommand")}
+                        autoFocus
+                    />
+                </div>
+            )}
         </div>
     );
 }

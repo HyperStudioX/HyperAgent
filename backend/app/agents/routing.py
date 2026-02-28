@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.agents import events
+from app.agents.parallel import is_parallelizable_query
 from app.agents.state import AgentType, SupervisorState
 from app.ai.llm import llm_service
 from app.ai.model_tiers import ModelTier
@@ -295,11 +297,22 @@ async def route_query(state: SupervisorState) -> dict:
                 "If the response doesn't match your intent, try rephrasing your query."
             )
 
+        # Check if this research query would benefit from parallel execution
+        if result.agent == AgentType.RESEARCH and is_parallelizable_query(query):
+            routing_event["parallel_eligible"] = True
+
+        # Emit reasoning event alongside routing decision
+        reasoning_event = events.reasoning(
+            thinking=f"Routing to {result.agent.value}: {result.reason}",
+            confidence=result.confidence,
+            context="routing",
+        )
+
         return {
             "selected_agent": result.agent.value,
             "routing_reason": result.reason,
             "routing_confidence": result.confidence,
-            "events": [routing_event],
+            "events": [routing_event, reasoning_event],
         }
     except Exception as e:
         logger.error("routing_failed", error=str(e), query=query[:50])

@@ -678,8 +678,8 @@ class TestShouldContinueWithPlan:
 
         assert result == "act"
 
-    def test_finalizes_when_no_tool_calls(self, sample_plan_steps):
-        """should_continue should finalize when LLM produces no tool calls."""
+    def test_routes_to_verify_when_plan_complete_no_tool_calls(self, sample_plan_steps):
+        """should_continue should route to 'verify' when plan complete and no tool calls."""
         state: TaskState = {
             "lc_messages": [
                 AIMessage(content="All done! Here is the summary."),
@@ -689,7 +689,7 @@ class TestShouldContinueWithPlan:
         }
 
         result = should_continue(state)
-        assert result == "finalize"
+        assert result == "verify"
 
     def test_finalizes_on_error_with_plan(self, sample_plan_steps):
         """should_continue should finalize on error even with active plan."""

@@ -11,6 +11,7 @@ import asyncio
 import json
 import random
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, TypeVar
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -30,6 +31,114 @@ TRANSIENT_ERRORS = (
     TimeoutError,
     asyncio.TimeoutError,
 )
+
+
+class ErrorCategory(str, Enum):
+    """Categories of tool errors for recovery strategy selection."""
+
+    TRANSIENT = "transient"  # Network/timeout - auto-retry
+    INPUT = "input"  # Bad arguments - modify and retry
+    PERMISSION = "permission"  # Access denied - inform user
+    RESOURCE = "resource"  # Not found - try alternative
+    FATAL = "fatal"  # Unrecoverable - stop
+    UNKNOWN = "unknown"  # Uncategorized
+
+
+def classify_error(error_msg: str, tool_name: str = "") -> ErrorCategory:
+    """Classify a tool error for recovery strategy selection.
+
+    Args:
+        error_msg: The error message string
+        tool_name: Name of the tool that failed
+
+    Returns:
+        ErrorCategory indicating the type of error
+    """
+    if not error_msg:
+        return ErrorCategory.UNKNOWN
+
+    error_lower = error_msg.lower()
+
+    # Transient errors (retry-worthy)
+    transient_patterns = [
+        "timeout",
+        "timed out",
+        "connection",
+        "network",
+        "temporarily unavailable",
+        "rate limit",
+        "429",
+        "503",
+        "econnrefused",
+        "econnreset",
+        "socket",
+    ]
+    if any(p in error_lower for p in transient_patterns):
+        return ErrorCategory.TRANSIENT
+
+    # Input errors (fix args and retry)
+    input_patterns = [
+        "invalid",
+        "missing required",
+        "validation error",
+        "bad request",
+        "400",
+        "type error",
+        "typeerror",
+        "syntax error",
+        "syntaxerror",
+        "json",
+        "parse error",
+        "expected",
+        "must be",
+        "cannot be empty",
+    ]
+    if any(p in error_lower for p in input_patterns):
+        return ErrorCategory.INPUT
+
+    # Permission errors (inform user)
+    permission_patterns = [
+        "permission denied",
+        "access denied",
+        "forbidden",
+        "403",
+        "unauthorized",
+        "401",
+        "not allowed",
+        "authentication",
+    ]
+    if any(p in error_lower for p in permission_patterns):
+        return ErrorCategory.PERMISSION
+
+    # Resource errors (try alternative)
+    resource_patterns = [
+        "not found",
+        "404",
+        "no such file",
+        "does not exist",
+        "filenotfounderror",
+        "modulenotfounderror",
+        "no module named",
+        "command not found",
+        "no results",
+    ]
+    if any(p in error_lower for p in resource_patterns):
+        return ErrorCategory.RESOURCE
+
+    # Fatal errors (stop)
+    fatal_patterns = [
+        "out of memory",
+        "oom",
+        "disk full",
+        "quota exceeded",
+        "segmentation fault",
+        "killed",
+        "fatal",
+    ]
+    if any(p in error_lower for p in fatal_patterns):
+        return ErrorCategory.FATAL
+
+    return ErrorCategory.UNKNOWN
 
 
 class ToolExecutionError(Exception):

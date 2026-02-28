@@ -503,6 +503,12 @@
                 "maxSize": "文件大小超过最大值 {size}MB"
             }
         },
+        "tokenUsage": "Token 用量",
+        "totalCost": "总费用",
+        "inputTokens": "输入 Token",
+        "outputTokens": "输出 Token",
+        "cachedTokens": "缓存 Token",
+        "byTier": "按层级",
         "voice": {
             "startRecording": "开始语音输入",
             "stopRecording": "停止录音",
@@ -797,6 +803,13 @@
             "hours": "{count}小时",
             "days": "{count}天"
         },
+        "splitView": "分屏视图",
+        "sendCommand": "发送命令",
+        "typeCommand": "输入命令...",
+        "editFile": "编辑文件",
+        "saveFile": "保存",
+        "cancelEdit": "取消",
+        "editing": "编辑中",
         "resizeHandle": "调整面板大小",
         "browserIframeTitle": "智能体浏览器视图",
         "workspace": {

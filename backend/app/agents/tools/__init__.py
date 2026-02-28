@@ -2,6 +2,7 @@
 
 from app.agents.tools.browser_use import (
     browser_click,
+    browser_get_accessibility_tree,
     browser_get_stream_url,
     browser_navigate,
     browser_press_key,
@@ -10,6 +11,15 @@ from app.agents.tools.browser_use import (
     browser_type,
 )
 from app.agents.tools.code_execution import execute_code, execute_code_with_context
+from app.agents.tools.database import execute_sql
+from app.agents.tools.deployment import deploy_to_production
+from app.agents.tools.file_tools import (
+    file_find_by_name,
+    file_find_in_content,
+    file_read,
+    file_str_replace,
+    file_write,
+)
 from app.agents.tools.handoff import (
     AGENT_DESCRIPTIONS,
     # Constants
@@ -35,7 +45,9 @@ from app.agents.tools.handoff import (
     truncate_shared_memory,
     update_handoff_history,
 )
+from app.agents.tools.http_client import http_request
 from app.agents.tools.image_generation import generate_image
+from app.agents.tools.notification import send_notification
 from app.agents.tools.react_tool import (
     ReActLoopConfig,
     ReActLoopResult,
@@ -117,11 +129,18 @@ __all__ = [
     "browser_press_key",
     "browser_scroll",
     "browser_get_stream_url",
+    "browser_get_accessibility_tree",
     # Code execution and sandbox tools
     "execute_code",
     "execute_code_with_context",
     "sandbox_file",
     "sandbox_file_with_context",
+    # File management tools
+    "file_read",
+    "file_write",
+    "file_str_replace",
+    "file_find_by_name",
+    "file_find_in_content",
     # Execution sandbox management
     "ExecutionSandboxSession",
     "ExecutionSandboxManager",
@@ -177,6 +196,14 @@ __all__ = [
     "extract_search_sources",
     "is_tool_error_response",
     "get_error_message",
+    # HTTP client
+    "http_request",
+    # Database
+    "execute_sql",
+    # Notifications
+    "send_notification",
+    # Production deployment
+    "deploy_to_production",
     # Execution utilities
     "ToolExecutionError",
     "execute_with_retry",

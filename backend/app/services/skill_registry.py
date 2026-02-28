@@ -1,5 +1,6 @@
 """Skill registry service for managing and loading skills."""
 
+from enum import IntEnum
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -18,6 +19,19 @@ from app.db.models import SkillDefinition
 from app.skills.validator import skill_code_validator
 
 logger = get_logger(__name__)
+
+
+class SkillLoadLevel(IntEnum):
+    """Progressive skill loading levels.
+
+    Level 1: Metadata only (~100 tokens) -- loaded at startup for all skills
+    Level 2: Full instructions (<5k tokens) -- loaded when skill is triggered
+    Level 3: Resources/scripts -- fetched on-demand during execution
+    """
+
+    METADATA = 1
+    INSTRUCTIONS = 2
+    RESOURCES = 3
 
 
 def _safe_import(
@@ -200,14 +214,25 @@ def _create_safe_namespace() -> dict[str, Any]:
 
 
 class SkillRegistry:
-    """Central registry for managing and loading skills."""
+    """Central registry for managing and loading skills.
+
+    Supports progressive loading with three levels:
+      - Level 1 (METADATA): Only metadata loaded at startup (~100 tokens per skill).
+      - Level 2 (INSTRUCTIONS): Full skill class instantiated and graph compiled.
+      - Level 3 (RESOURCES): External resources fetched on-demand (placeholder).
+    """
 
     def __init__(self):
         self._loaded_skills: dict[str, Skill] = {}
         self._builtin_skills: dict[str, type[Skill]] = {}
+        self._skill_metadata_cache: dict[str, SkillMetadata] = {}
+        self._skill_load_levels: dict[str, SkillLoadLevel] = {}
 
     async def initialize(self, db: AsyncSession):
-        """Initialize registry with builtin skills and load from database.
+        """Initialize registry with builtin skill metadata (Level 1) and load from database.
+
+        Builtin skills are registered at Level 1 (metadata only) to minimise
+        startup cost.  Full instantiation is deferred to first use.
 
         Args:
             db: Database session for loading skill definitions
@@ -215,10 +240,20 @@ class SkillRegistry:
         logger.info("skill_registry_initializing")
         await self._register_builtin_skills()
         await self._load_from_database(db)
-        logger.info("skill_registry_initialized", skill_count=len(self._loaded_skills))
+        logger.info(
+            "skill_registry_initialized",
+            metadata_count=len(self._skill_metadata_cache),
+            loaded_count=len(self._loaded_skills),
+        )
 
     async def _register_builtin_skills(self):
-        """Auto-discover and register builtin skills."""
+        """Auto-discover and register builtin skills at Level 1 (metadata only).
+
+        Skill classes are imported and instantiated *temporarily* to extract
+        their metadata, then the instance is discarded.  The class reference
+        is kept in ``_builtin_skills`` so that ``_load_skill_full`` can
+        re-instantiate on demand (Level 2).
+        """
         try:
             # Import builtin skills
             from app.agents.skills.builtin import (
@@ -231,7 +266,7 @@ class SkillRegistry:
                 WebResearchSkill,
             )
 
-            # Register each skill
+            # Register each skill at Level 1 (metadata only)
             for skill_class in [
                 WebResearchSkill,
                 DataAnalysisSkill,
@@ -242,13 +277,17 @@ class SkillRegistry:
                 SlideGenerationSkill,
             ]:
                 skill = skill_class()
-                self._loaded_skills[skill.metadata.id] = skill
-                self._builtin_skills[skill.metadata.id] = skill_class
+                metadata = skill.metadata
+                self._builtin_skills[metadata.id] = skill_class
+                self._skill_metadata_cache[metadata.id] = metadata
+                self._skill_load_levels[metadata.id] = SkillLoadLevel.METADATA
                 logger.info(
                     "builtin_skill_registered",
-                    skill_id=skill.metadata.id,
-                    skill_name=skill.metadata.name,
+                    skill_id=metadata.id,
+                    skill_name=metadata.name,
+                    load_level="metadata",
                 )
+                # Do NOT store the full skill instance -- defer to Level 2
         except ImportError as e:
             logger.warning("builtin_skills_import_failed", error=str(e))
 
@@ -365,6 +404,9 @@ class SkillRegistry:
         # Instantiate and register
         skill = skill_class()
         self._loaded_skills[skill.metadata.id] = skill
+        # Dynamic skills are fully loaded (Level 2) and also cached in metadata
+        self._skill_metadata_cache[skill.metadata.id] = skill.metadata
+        self._skill_load_levels[skill.metadata.id] = SkillLoadLevel.INSTRUCTIONS
 
         logger.info(
             "dynamic_skill_loaded",
@@ -372,8 +414,74 @@ class SkillRegistry:
             skill_name=skill.metadata.name,
         )
 
+    # ------------------------------------------------------------------
+    # Progressive loading helpers
+    # ------------------------------------------------------------------
+
+    def _load_skill_full(self, skill_id: str) -> Skill | None:
+        """Load a skill to Level 2 (full instructions + graph compilation).
+
+        For builtin skills this re-instantiates the skill class.  For dynamic
+        skills this is a no-op (they are already fully loaded during
+        ``_load_dynamic_skill``).
+
+        Returns:
+            The loaded Skill instance, or None if the skill cannot be loaded.
+        """
+        if skill_id in self._builtin_skills:
+            try:
+                skill_class = self._builtin_skills[skill_id]
+                skill = skill_class()
+                return skill
+            except Exception as e:
+                logger.error("skill_full_load_failed", skill_id=skill_id, error=str(e))
+        return None
+
+    async def ensure_loaded(
+        self,
+        skill_id: str,
+        level: SkillLoadLevel = SkillLoadLevel.INSTRUCTIONS,
+    ) -> Skill | None:
+        """Ensure a skill is loaded to the requested level.
+
+        Level 1 (METADATA): Already loaded at startup -- no-op.
+        Level 2 (INSTRUCTIONS): Load full skill class and compile graph.
+        Level 3 (RESOURCES): Load any external resources/data (placeholder).
+
+        Returns:
+            The loaded Skill or None if not found.
+        """
+        current_level = self._skill_load_levels.get(skill_id, SkillLoadLevel.METADATA)
+
+        if current_level >= level:
+            return self._loaded_skills.get(skill_id)
+
+        if skill_id not in self._skill_metadata_cache:
+            return None
+
+        # Level 2: Load full skill
+        if level >= SkillLoadLevel.INSTRUCTIONS and current_level < SkillLoadLevel.INSTRUCTIONS:
+            skill = self._load_skill_full(skill_id)
+            if skill:
+                self._loaded_skills[skill_id] = skill
+                self._skill_load_levels[skill_id] = SkillLoadLevel.INSTRUCTIONS
+                logger.info("skill_loaded_level2", skill_id=skill_id)
+
+        # Level 3: Resources (currently no-op, placeholder for future)
+        if level >= SkillLoadLevel.RESOURCES:
+            self._skill_load_levels[skill_id] = SkillLoadLevel.RESOURCES
+
+        return self._loaded_skills.get(skill_id)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def unload_skill(self, skill_id: str) -> bool:
         """Remove a skill from the in-memory registry.
+
+        Removes the full skill instance (Level 2) and demotes to Level 1
+        if metadata is still cached.
 
         Args:
             skill_id: Unique identifier for the skill
@@ -383,11 +491,19 @@ class SkillRegistry:
         """
         if skill_id in self._loaded_skills:
             del self._loaded_skills[skill_id]
+            # Demote back to Level 1 if metadata still exists
+            if skill_id in self._skill_metadata_cache:
+                self._skill_load_levels[skill_id] = SkillLoadLevel.METADATA
+            else:
+                self._skill_load_levels.pop(skill_id, None)
             return True
         return False
 
     def get_skill(self, skill_id: str) -> Optional[Skill]:
-        """Get a loaded skill by ID.
+        """Get a skill, auto-loading to Level 2 if needed.
+
+        If the skill is only at Level 1 (metadata cached), it will be
+        promoted to Level 2 (full instantiation) automatically.
 
         Args:
             skill_id: Unique identifier for the skill
@@ -395,14 +511,29 @@ class SkillRegistry:
         Returns:
             Skill instance if found, None otherwise
         """
-        return self._loaded_skills.get(skill_id)
+        if skill_id in self._loaded_skills:
+            return self._loaded_skills[skill_id]
+
+        # Auto-promote from Level 1 to Level 2
+        if skill_id in self._skill_metadata_cache:
+            skill = self._load_skill_full(skill_id)
+            if skill:
+                self._loaded_skills[skill_id] = skill
+                self._skill_load_levels[skill_id] = SkillLoadLevel.INSTRUCTIONS
+                logger.info("skill_auto_promoted_to_level2", skill_id=skill_id)
+                return skill
+
+        return None
 
     def list_skills(
         self,
         category: Optional[str] = None,
         enabled_only: bool = True,
     ) -> list[SkillMetadata]:
-        """List available skills with optional filtering.
+        """List available skills using Level 1 metadata (no full loading required).
+
+        This uses the metadata cache so that listing skills does not trigger
+        full skill instantiation.
 
         Args:
             category: Filter by category (e.g., "research", "code", "data")
@@ -411,19 +542,33 @@ class SkillRegistry:
         Returns:
             List of skill metadata
         """
-        skills = []
-        for skill in self._loaded_skills.values():
-            # Filter by category if specified
-            if category and skill.metadata.category != category:
+        results: list[SkillMetadata] = []
+        for skill_id, metadata in self._skill_metadata_cache.items():
+            if enabled_only and not metadata.enabled:
                 continue
-
-            # Filter by enabled status
-            if enabled_only and not skill.metadata.enabled:
+            if category and metadata.category != category:
                 continue
+            results.append(metadata)
+        return results
 
-            skills.append(skill.metadata)
+    def get_load_stats(self) -> dict:
+        """Get statistics about skill loading levels.
 
-        return skills
+        Returns:
+            Dictionary with total_skills, loaded_full count, and
+            a breakdown by level name.
+        """
+        levels: dict[str, int] = {}
+        for skill_id in self._skill_metadata_cache:
+            level = self._skill_load_levels.get(skill_id, SkillLoadLevel.METADATA)
+            level_name = level.name.lower()
+            levels[level_name] = levels.get(level_name, 0) + 1
+
+        return {
+            "total_skills": len(self._skill_metadata_cache),
+            "loaded_full": len(self._loaded_skills),
+            "by_level": levels,
+        }
 
     async def register_skill(
         self,
@@ -455,8 +600,10 @@ class SkillRegistry:
         db.add(skill_def)
         await db.commit()
 
-        # Add to loaded skills
+        # Add to loaded skills and metadata cache
         self._loaded_skills[skill.metadata.id] = skill
+        self._skill_metadata_cache[skill.metadata.id] = skill.metadata
+        self._skill_load_levels[skill.metadata.id] = SkillLoadLevel.INSTRUCTIONS
 
         logger.info(
             "skill_registered",

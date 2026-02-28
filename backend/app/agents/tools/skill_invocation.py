@@ -65,7 +65,7 @@ async def invoke_skill(
         params=params,
     )
 
-    # Get skill from registry
+    # Get skill from registry (auto-promotes to Level 2 if needed)
     skill = skill_registry.get_skill(skill_id)
     if not skill:
         available = [s.id for s in skill_registry.list_skills()]

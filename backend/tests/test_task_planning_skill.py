@@ -375,6 +375,177 @@ class TestTaskPlanningSkillExecution:
         assert len(output["steps"]) == 3
 
 
+class TestTaskPlanningRevisionMode:
+    """Tests for plan revision mode."""
+
+    @pytest.fixture
+    def skill(self):
+        return TaskPlanningSkill()
+
+    @pytest.fixture
+    def mock_revised_plan(self):
+        """Create a mock revised TaskPlan response."""
+        return TaskPlan(
+            task_summary="Revised: Build a web scraper (alternative approach)",
+            complexity_assessment="moderate",
+            steps=[
+                PlanStep(
+                    step_number=2,
+                    action="Use requests library instead of urllib",
+                    tool_or_skill="execute_code",
+                    depends_on=[],
+                    estimated_complexity="medium",
+                ),
+                PlanStep(
+                    step_number=3,
+                    action="Parse with lxml as fallback",
+                    tool_or_skill="execute_code",
+                    depends_on=[2],
+                    estimated_complexity="medium",
+                ),
+            ],
+            success_criteria=["Scraper works with alternative approach"],
+            potential_challenges=["May need to handle encoding issues"],
+            clarifying_questions=[],
+        )
+
+    def test_revision_parameters_exist(self, skill):
+        """Skill should have revision_mode, completed_steps, failed_steps parameters."""
+        param_names = [p.name for p in skill.metadata.parameters]
+        assert "revision_mode" in param_names
+        assert "completed_steps" in param_names
+        assert "failed_steps" in param_names
+
+    def test_revision_parameters_optional(self, skill):
+        """Revision parameters should all be optional."""
+        for param in skill.metadata.parameters:
+            if param.name in ("revision_mode", "completed_steps", "failed_steps"):
+                assert param.required is False
+
+    @pytest.mark.asyncio
+    async def test_revision_mode_execution(self, skill, mock_revised_plan):
+        """Test skill execution in revision mode with completed/failed steps."""
+        params = {
+            "task_description": "Build a web scraper",
+            "revision_mode": True,
+            "completed_steps": [
+                {"step_number": 1, "action": "Search for libraries", "result_summary": "Found BeautifulSoup"},
+            ],
+            "failed_steps": [
+                {"step_number": 2, "action": "Write scraping code with urllib", "error": "SSL certificate error"},
+            ],
+        }
+        context = SkillContext(
+            skill_id="task_planning",
+            user_id="test_user",
+            task_id="test_task",
+        )
+
+        mock_llm = MagicMock()
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke = AsyncMock(return_value=mock_revised_plan)
+        mock_llm.with_structured_output = MagicMock(return_value=mock_structured_llm)
+
+        with patch("app.agents.skills.builtin.task_planning_skill.llm_service") as mock_service:
+            mock_service.get_llm_for_tier = MagicMock(return_value=mock_llm)
+            output = await skill.execute(params, context)
+
+        # Verify revision output
+        assert output["is_revision"] is True
+        assert len(output["steps"]) == 2
+        assert output["task_summary"] == "Revised: Build a web scraper (alternative approach)"
+
+        # Verify the revision prompt was built correctly
+        prompt = mock_structured_llm.ainvoke.call_args[0][0]
+        assert "Revise the plan" in prompt
+        assert "Search for libraries" in prompt
+        assert "SSL certificate error" in prompt
+        assert "do not repeat the same approach" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_revision_mode_false_uses_normal_prompt(self, skill):
+        """When revision_mode is False, should use normal planning prompt."""
+        params = {
+            "task_description": "Build a todo app",
+            "revision_mode": False,
+        }
+        context = SkillContext(
+            skill_id="task_planning",
+            user_id="test_user",
+            task_id="test_task",
+        )
+
+        mock_plan = TaskPlan(
+            task_summary="Build a todo app",
+            complexity_assessment="simple",
+            steps=[PlanStep(step_number=1, action="Create app")],
+            success_criteria=["App works"],
+        )
+
+        mock_llm = MagicMock()
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke = AsyncMock(return_value=mock_plan)
+        mock_llm.with_structured_output = MagicMock(return_value=mock_structured_llm)
+
+        with patch("app.agents.skills.builtin.task_planning_skill.llm_service") as mock_service:
+            mock_service.get_llm_for_tier = MagicMock(return_value=mock_llm)
+            output = await skill.execute(params, context)
+
+        assert "is_revision" not in output
+        prompt = mock_structured_llm.ainvoke.call_args[0][0]
+        assert "Revise the plan" not in prompt
+
+    def test_build_revision_prompt_includes_completed_steps(self, skill):
+        """_build_revision_prompt should include completed step details."""
+        prompt = TaskPlanningSkill._build_revision_prompt(
+            task_description="Build a scraper",
+            completed_steps=[
+                {"step_number": 1, "action": "Search libs", "result_summary": "Found BS4"},
+            ],
+            failed_steps=[],
+            context_section="",
+            tools_section="",
+            max_steps=10,
+        )
+        assert "Steps already completed successfully" in prompt
+        assert "Step 1: Search libs" in prompt
+        assert "Found BS4" in prompt
+
+    def test_build_revision_prompt_includes_failed_steps(self, skill):
+        """_build_revision_prompt should include failed step details."""
+        prompt = TaskPlanningSkill._build_revision_prompt(
+            task_description="Build a scraper",
+            completed_steps=[],
+            failed_steps=[
+                {"step_number": 2, "action": "Write code", "error": "Import error"},
+            ],
+            context_section="",
+            tools_section="",
+            max_steps=10,
+        )
+        assert "Steps that failed" in prompt
+        assert "Step 2: Write code" in prompt
+        assert "FAILED: Import error" in prompt
+
+    def test_build_revision_prompt_includes_both(self, skill):
+        """_build_revision_prompt should include both completed and failed steps."""
+        prompt = TaskPlanningSkill._build_revision_prompt(
+            task_description="Build a scraper",
+            completed_steps=[
+                {"step_number": 1, "action": "Research", "result_summary": "Done"},
+            ],
+            failed_steps=[
+                {"step_number": 2, "action": "Code", "error": "Failed"},
+            ],
+            context_section="",
+            tools_section="",
+            max_steps=5,
+        )
+        assert "Steps already completed successfully" in prompt
+        assert "Steps that failed" in prompt
+        assert "Maximum 5 new steps" in prompt
+
+
 class TestSkillRegistration:
     """Tests for skill registration in the registry."""
 

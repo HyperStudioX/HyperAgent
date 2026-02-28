@@ -27,6 +27,8 @@ from app.agents.tools import (
     get_tools_for_agent,
 )
 from app.agents.tools.react_tool import (
+    ErrorCategory,
+    classify_error,
     deduplicate_tool_messages,
     truncate_messages_to_budget,
 )
@@ -59,7 +61,9 @@ def _get_cached_task_tools() -> list:
     if _cached_task_tools is None:
         with _cache_lock:
             if _cached_task_tools is None:
-                _cached_task_tools = get_tools_for_agent("task", include_handoffs=True)
+                tools = get_tools_for_agent("task", include_handoffs=True)
+                # Sort alphabetically for consistent KV-cache hits across requests
+                _cached_task_tools = sorted(tools, key=lambda t: t.name)
     return _cached_task_tools
 
 
@@ -121,6 +125,19 @@ def _extract_task_plan_from_messages(
     return None
 
 
+def _build_todo_md(steps: list[dict], completed_up_to: int = 0) -> str:
+    """Build a todo.md content from plan steps with completion status."""
+    lines = ["# Task Plan\n"]
+    for i, step in enumerate(steps):
+        checkbox = "[x]" if i < completed_up_to else "[ ]"
+        action = step.get("action", "Unknown step")
+        tool_hint = step.get("tool_or_skill", "")
+        lines.append(f"- {checkbox} Step {step.get('step_number', i + 1)}: {action}")
+        if tool_hint:
+            lines.append(f"  - Tool: {tool_hint}")
+    return "\n".join(lines) + "\n"
+
+
 async def reason_node(state: TaskState) -> dict:
     """ReAct reason node: LLM reasons about what to do next.
 
@@ -154,6 +171,16 @@ async def reason_node(state: TaskState) -> dict:
                 additional_kwargs={"cache_control": {"type": "ephemeral"}},
             )
         lc_messages = [sys_msg]
+
+        # Inject persistent user memories if available (async DB-backed)
+        user_id = state.get("user_id")
+        if user_id:
+            from app.services.memory_service import get_memory_store
+
+            memory_text = await get_memory_store().format_memories_for_prompt_async(user_id)
+            if memory_text:
+                lc_messages.append(SystemMessage(content=memory_text))
+                logger.info("user_memories_injected", user_id=user_id)
 
         # Add history if present
         history = state.get("messages", [])
@@ -311,11 +338,14 @@ async def reason_node(state: TaskState) -> dict:
     all_tools = _get_cached_task_tools()
     llm_with_tools = llm.bind_tools(all_tools) if all_tools else llm
 
-    # Planned execution mode: inject current step context as a temporary message
-    # This focuses the LLM on one step at a time instead of the full plan
+    # === Context Engineering: Todo-list as Attention Manipulation ===
+    # Inject the active todo/plan into messages after every tool call to keep
+    # the global plan in the model's recent attention window. This prevents
+    # the plan from getting "lost in the middle" across many tool iterations.
     messages_for_llm = lc_messages
     execution_plan = state.get("execution_plan", [])
     current_step_index = state.get("current_step_index", 0)
+    active_todo = state.get("active_todo")
 
     if execution_plan and current_step_index < len(execution_plan):
         current_step = execution_plan[current_step_index]
@@ -323,8 +353,16 @@ async def reason_node(state: TaskState) -> dict:
         total_steps = len(execution_plan)
         tool_hint = current_step.get("tool_or_skill") or "any appropriate tool"
 
+        # Build full todo with progress for attention manipulation
+        todo_lines = []
+        for i, step in enumerate(execution_plan):
+            status = "DONE" if i < current_step_index else (">>> CURRENT" if i == current_step_index else "pending")
+            todo_lines.append(f"  {status}: Step {step.get('step_number', i+1)}: {step.get('action', '?')}")
+        todo_block = "\n".join(todo_lines)
+
         step_guidance = SystemMessage(content=(
             f"[Plan Execution — Step {step_number} of {total_steps}]\n"
+            f"Progress:\n{todo_block}\n\n"
             f"Current step: {current_step['action']}\n"
             f"Recommended tool: {tool_hint}\n"
             f"Focus on completing this specific step. "
@@ -348,6 +386,14 @@ async def reason_node(state: TaskState) -> dict:
         ))
         messages_for_llm = list(lc_messages) + [completion_hint]
         logger.info("planned_execution_all_steps_completed")
+    elif active_todo:
+        # Non-planned execution but has an active todo from previous iterations
+        # This keeps the working context fresh across many tool calls
+        todo_reminder = SystemMessage(content=(
+            f"[Active Task Context]\n{active_todo}"
+        ))
+        messages_for_llm = list(lc_messages) + [todo_reminder]
+        logger.debug("active_todo_injected")
 
     try:
         # Get AI response (may include tool calls)
@@ -512,6 +558,120 @@ async def act_node(state: TaskState) -> dict:
         result["pending_interrupt"] = pending_interrupt
         result["tool_iterations"] = state.get("tool_iterations", 0)
 
+    # --- Self-correction: consecutive error tracking ---
+    if tool_messages and not pending_interrupt:
+        _ERROR_INDICATORS = ("Error:", "Failed:", "Error executing", "Traceback", "Exception:")
+        has_errors = any(
+            any(indicator in (msg.content or "") for indicator in _ERROR_INDICATORS)
+            for msg in tool_messages
+            if isinstance(msg, ToolMessage)
+        )
+        prev_consecutive = state.get("consecutive_errors", 0)
+        if has_errors:
+            # Classify the first error for category-specific recovery
+            first_error = next(
+                (msg.content for msg in tool_messages
+                 if isinstance(msg, ToolMessage) and any(ind in (msg.content or "") for ind in _ERROR_INDICATORS)),
+                "",
+            )
+            error_cat = classify_error(first_error or "")
+
+            new_consecutive = prev_consecutive + 1
+            result["consecutive_errors"] = new_consecutive
+            if new_consecutive >= 3:
+                # After 3 consecutive failures: comprehensive recovery
+                recovery_msg = (
+                    "CRITICAL: You have failed 3 consecutive tool calls. "
+                    "You MUST change your approach:\n"
+                    f"- Error category: {error_cat.value}\n"
+                    f"- Last error: {first_error[:300] if first_error else 'unknown'}\n\n"
+                    "Recovery strategies (pick one):\n"
+                    "1. Use a completely different tool or method\n"
+                    "2. Simplify the task — break it into smaller sub-steps\n"
+                    "3. Use ask_user to get clarification or help\n"
+                    "4. If you have a plan, invoke task_planning with mode='revise' "
+                    "to create a new plan that works around the failures\n"
+                    "5. Skip this step and move on if possible\n\n"
+                    "Do NOT retry the same failing approach."
+                )
+                lc_messages.append(SystemMessage(content=recovery_msg))
+                event_list.append(events.reasoning(
+                    thinking=f"3 consecutive errors ({error_cat.value}). Forcing strategy change.",
+                    confidence=0.2,
+                    context="error_recovery",
+                ))
+                logger.warning("consecutive_errors_threshold", count=new_consecutive, category=error_cat.value)
+            else:
+                _RECOVERY_HINTS = {
+                    ErrorCategory.TRANSIENT: (
+                        "This appears to be a temporary issue (network, timeout, rate limit). "
+                        "Wait a moment and retry the same call."
+                    ),
+                    ErrorCategory.INPUT: (
+                        "The tool inputs are incorrect. Carefully review the error message, "
+                        "fix the specific parameter that caused the error, and retry with corrected values. "
+                        "Common fixes: check file paths, validate JSON format, verify parameter types."
+                    ),
+                    ErrorCategory.PERMISSION: (
+                        "Access was denied. Options: (1) use ask_user to request help with permissions, "
+                        "(2) try an alternative approach that doesn't require elevated access, "
+                        "(3) check if there's a different path or resource you can use."
+                    ),
+                    ErrorCategory.RESOURCE: (
+                        "The resource was not found. Options: (1) search for the correct path/URL using "
+                        "file_find_by_name or web_search, (2) try an alternative resource, "
+                        "(3) create the missing resource if appropriate."
+                    ),
+                    ErrorCategory.FATAL: (
+                        "This is a critical error that cannot be retried. Stop this approach entirely "
+                        "and try a completely different strategy. Consider using ask_user for guidance."
+                    ),
+                }
+                hint = _RECOVERY_HINTS.get(error_cat, "The previous tool call failed. Analyze the error and try a different approach.")
+                lc_messages.append(SystemMessage(content=f"Tool error ({error_cat.value}): {hint}"))
+                event_list.append(events.reasoning(
+                    thinking=f"Tool error classified as {error_cat.value}. Recovery: {hint}",
+                    context="error_recovery",
+                ))
+                logger.info("consecutive_error_detected", count=new_consecutive, category=error_cat.value)
+        else:
+            if prev_consecutive > 0:
+                logger.info("consecutive_errors_reset", previous_count=prev_consecutive)
+            result["consecutive_errors"] = 0
+
+        # --- Plan revision on step failure ---
+        execution_plan_for_revision = state.get("execution_plan", [])
+        current_idx_for_revision = state.get("current_step_index", 0)
+        if has_errors and execution_plan_for_revision and current_idx_for_revision < len(execution_plan_for_revision):
+            prev_revisions = state.get("plan_revision_count", 0)
+            if prev_revisions < 2:  # Max 2 revisions
+                lc_messages.append(SystemMessage(content=(
+                    f"Step {current_idx_for_revision + 1} failed. You may revise the remaining plan steps. "
+                    f"Consider: (1) retrying with a different approach, (2) skipping this step, "
+                    f"or (3) modifying the remaining steps to work around the failure."
+                )))
+                result["plan_revision_count"] = prev_revisions + 1
+                logger.info(
+                    "plan_revision_prompted",
+                    step=current_idx_for_revision + 1,
+                    revision_count=prev_revisions + 1,
+                )
+
+    # --- Context Engineering: Update active_todo for attention manipulation ---
+    if tool_messages and not pending_interrupt:
+        # Build a summary of what was just done for the active todo
+        tool_names = [msg.name for msg in tool_messages if isinstance(msg, ToolMessage) and msg.name]
+        iteration_count = state.get("tool_iterations", 0) + 1
+        if tool_names:
+            active_todo_parts = [f"Iteration {iteration_count}: Used {', '.join(tool_names)}"]
+            # Include execution plan progress if available
+            exec_plan = state.get("execution_plan", [])
+            cur_idx = state.get("current_step_index", 0)
+            if exec_plan:
+                completed = min(cur_idx + 1, len(exec_plan))
+                active_todo_parts.append(f"Plan progress: {completed}/{len(exec_plan)} steps")
+            result["active_todo"] = " | ".join(active_todo_parts)
+
     # --- Planned execution mode ---
 
     # 1. Check if task_planning skill just returned a plan → parse into state
@@ -524,6 +684,19 @@ async def act_node(state: TaskState) -> dict:
                 "execution_plan_parsed",
                 step_count=len(parsed_plan),
             )
+            # Write initial todo.md to sandbox
+            try:
+                from app.agents.tools.file_tools import file_write
+
+                todo_content = _build_todo_md(parsed_plan)
+                await file_write.ainvoke({
+                    "path": "/home/user/todo.md",
+                    "content": todo_content,
+                    "user_id": state.get("user_id"),
+                    "task_id": state.get("task_id"),
+                })
+            except Exception:
+                pass  # Non-critical - don't fail if todo.md can't be written
             # Emit plan_step event for the first step
             first_step = parsed_plan[0]
             event_list.append(events.plan_step(
@@ -548,9 +721,33 @@ async def act_node(state: TaskState) -> dict:
                 status="completed",
             ))
 
+            # Record step result for verification
+            step_summary = " | ".join(
+                (msg.content or "")[:200] for msg in tool_messages if isinstance(msg, ToolMessage)
+            )
+            result["completed_step_results"] = [{
+                "step_number": completed_step.get("step_number", current_idx + 1),
+                "action": completed_step.get("action", ""),
+                "result_summary": step_summary[:500],
+            }]
+
             # Advance to next step
             next_idx = current_idx + 1
             result["current_step_index"] = next_idx
+
+            # Update todo.md with completed step
+            try:
+                from app.agents.tools.file_tools import file_write
+
+                todo_content = _build_todo_md(execution_plan, completed_up_to=next_idx)
+                await file_write.ainvoke({
+                    "path": "/home/user/todo.md",
+                    "content": todo_content,
+                    "user_id": state.get("user_id"),
+                    "task_id": state.get("task_id"),
+                })
+            except Exception:
+                pass  # Non-critical - don't fail if todo.md can't be written
 
             if next_idx < len(execution_plan):
                 # Emit running event for next step
@@ -574,6 +771,130 @@ async def act_node(state: TaskState) -> dict:
                 )
 
     return result
+
+
+async def verify_node(state: TaskState) -> dict:
+    """Verify planned execution results against the original goal.
+
+    Enhanced verification that:
+    1. Checks each step's results against expected outcomes
+    2. For code tasks: checks for errors in tool outputs
+    3. For file tasks: verifies file references in results
+    4. For app tasks: checks for build/server success indicators
+    5. On failure: provides actionable feedback for self-correction
+
+    Only runs when there is an execution_plan. Uses FLASH tier LLM
+    for cost efficiency.
+
+    Args:
+        state: Current task state with completed_step_results
+
+    Returns:
+        Dict with verification events and results
+    """
+    from app.models.schemas import ModelTier
+
+    execution_plan = state.get("execution_plan", [])
+    if not execution_plan:
+        return {"events": []}
+
+    original_query = state.get("query", "")
+    completed_results = state.get("completed_step_results", [])
+    provider = state.get("provider")
+
+    event_list = []
+    verification_results = []
+    verified_steps = []
+
+    # --- Phase 1: Automated checks on tool outputs ---
+    _ERROR_PATTERNS = ("Error:", "Failed:", "Traceback", "Exception:", "error:", "FAIL")
+    _SUCCESS_PATTERNS = ("Successfully", "Created", "Written", "Deployed", "Running on", "Build succeeded")
+
+    for step_result in completed_results:
+        step_num = step_result.get("step_number", 0)
+        result_summary = step_result.get("result_summary", "")
+        action = step_result.get("action", "")
+
+        # Auto-check: look for error indicators in tool outputs
+        has_errors = any(pat in result_summary for pat in _ERROR_PATTERNS)
+        has_success = any(pat in result_summary for pat in _SUCCESS_PATTERNS)
+
+        step_verification = {
+            "step_number": step_num,
+            "action": action,
+            "auto_check": "fail" if has_errors else ("pass" if has_success else "unknown"),
+            "has_errors": has_errors,
+        }
+
+        if has_errors:
+            event_list.append(events.verification(
+                status="warning",
+                message=f"Step {step_num} ({action}) had errors in output",
+                step=step_num,
+            ))
+        elif has_success:
+            verified_steps.append(step_num)
+
+        verification_results.append(step_verification)
+
+    # --- Phase 2: LLM-based holistic verification ---
+    if completed_results:
+        steps_summary = "\n".join(
+            f"- Step {r.get('step_number', '?')}: {r.get('action', 'N/A')} -> {r.get('result_summary', 'No result')[:200]}"
+            for r in completed_results
+        )
+    else:
+        steps_summary = "(No step results recorded)"
+
+    # Include auto-check results in the verification prompt
+    auto_check_summary = "\n".join(
+        f"  Step {v['step_number']}: auto-check={'PASS' if v['auto_check'] == 'pass' else 'FAIL' if v['auto_check'] == 'fail' else 'UNKNOWN'}"
+        for v in verification_results
+    )
+
+    verification_prompt = (
+        f"Review the completed task execution:\n\n"
+        f"Original goal: {original_query}\n\n"
+        f"Steps completed:\n{steps_summary}\n\n"
+        f"Automated checks:\n{auto_check_summary}\n\n"
+        f"Evaluate whether the execution achieved the original goal.\n"
+        f"Consider:\n"
+        f"1. Were all required steps completed successfully?\n"
+        f"2. Do the outputs match what was expected?\n"
+        f"3. Are there any missing deliverables?\n\n"
+        f"Respond with:\n"
+        f"- PASS: if the goal was achieved (brief explanation)\n"
+        f"- PARTIAL: if some goals were met but others remain (list what's missing)\n"
+        f"- FAIL: with explanation of what went wrong and suggested fixes"
+    )
+
+    try:
+        llm = llm_service.get_llm_for_tier(ModelTier.FLASH, provider=provider)
+        result = await llm.ainvoke([HumanMessage(content=verification_prompt)])
+        verification_text = extract_text_from_content(result.content)
+
+        verdict = verification_text.strip().split(":")[0].upper().strip()
+        if verdict.startswith("PASS"):
+            event_list.append(events.verification(status="passed", message=verification_text))
+            logger.info("verification_passed", query=original_query[:100])
+        elif verdict.startswith("PARTIAL"):
+            event_list.append(events.verification(status="partial", message=verification_text))
+            logger.info("verification_partial", query=original_query[:100], detail=verification_text[:200])
+        else:
+            event_list.append(events.verification(status="failed", message=verification_text))
+            logger.warning("verification_failed", query=original_query[:100], detail=verification_text[:200])
+    except Exception as e:
+        logger.error("verification_node_error", error=str(e))
+        event_list.append(events.verification(
+            status="error",
+            message=f"Verification could not be completed: {e}",
+        ))
+
+    return {
+        "events": event_list,
+        "verification_results": verification_results,
+        "verified_steps": verified_steps,
+    }
 
 
 async def finalize_node(state: TaskState) -> dict:
@@ -617,14 +938,15 @@ async def finalize_node(state: TaskState) -> dict:
     }
 
 
-def should_continue(state: TaskState) -> Literal["act", "finalize"]:
-    """Decide whether to continue ReAct loop or finalize.
+def should_continue(state: TaskState) -> Literal["act", "verify", "finalize"]:
+    """Decide whether to continue ReAct loop, verify, or finalize.
 
     Args:
         state: Current chat state
 
     Returns:
-        "act" if tools were called, "finalize" otherwise
+        "act" if tools were called, "verify" if plan completed and needs verification,
+        "finalize" otherwise
     """
     # If there was an error, stop immediately
     if state.get("has_error"):
@@ -661,10 +983,15 @@ def should_continue(state: TaskState) -> Literal["act", "finalize"]:
                         "task_max_iterations_reached",
                         iterations=iters,
                     )
+                    # Even at max iterations, verify if plan was active
+                    if execution_plan:
+                        return "verify"
                     return "finalize"
                 return "act"
             else:
-                # No tool calls, we're done
+                # No tool calls — if planned execution completed, verify first
+                if execution_plan and state.get("current_step_index", 0) >= len(execution_plan):
+                    return "verify"
                 return "finalize"
 
     return "finalize"
@@ -871,14 +1198,15 @@ def create_task_graph() -> StateGraph:
     """Create the task subagent graph with explicit ReAct pattern.
 
     Graph structure:
-    [reason] -> [act?] -> [wait_interrupt?] -> [reason] -> ... -> END
+    [reason] -> [act?] -> [wait_interrupt?] -> [reason] -> ... -> [verify?] -> [finalize] -> END
 
     The ReAct loop:
     1. reason: LLM reasons and may call tools
     2. act: Execute tools if called (may set pending_interrupt for ask_user)
     3. wait_interrupt: If pending_interrupt, wait for user response
     4. Loop back to reason with tool results
-    5. End when no more tool calls
+    5. verify: If planned execution completed, verify results
+    6. End when no more tool calls
 
     Returns:
         Compiled task graph
@@ -889,17 +1217,19 @@ def create_task_graph() -> StateGraph:
     graph.add_node("reason", reason_node)
     graph.add_node("act", act_node)
     graph.add_node("wait_interrupt", wait_interrupt_node)
+    graph.add_node("verify", verify_node)
     graph.add_node("finalize", finalize_node)
 
     # Set entry point
     graph.set_entry_point("reason")
 
-    # ReAct loop: reason -> act (if tools called) -> reason -> ... -> finalize
+    # ReAct loop: reason -> act (if tools called) -> reason -> ... -> verify/finalize
     graph.add_conditional_edges(
         "reason",
         should_continue,
         {
             "act": "act",
+            "verify": "verify",
             "finalize": "finalize",
         },
     )
@@ -916,6 +1246,9 @@ def create_task_graph() -> StateGraph:
 
     # After waiting for interrupt, go back to reasoning
     graph.add_edge("wait_interrupt", "reason")
+
+    # Verify leads to finalize
+    graph.add_edge("verify", "finalize")
 
     # Finalize and end
     graph.add_edge("finalize", END)

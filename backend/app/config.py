@@ -165,6 +165,10 @@ class Settings(BaseSettings):
     # ReAct Loop Configuration
     react_max_iterations: int = 5  # Maximum number of tool-calling iterations
 
+    # MCP (Model Context Protocol) settings
+    mcp_enabled: bool = True
+    mcp_servers: str = ""  # JSON array of server configs: [{"name": "...", "transport": "stdio", "command": "npx", "args": ["@playwright/mcp@latest"]}]
+
     # Authentication
     nextauth_secret: str = ""
     google_client_id: str = ""

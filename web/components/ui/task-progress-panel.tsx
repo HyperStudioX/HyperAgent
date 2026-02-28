@@ -15,6 +15,7 @@ interface StageGroup {
     stage: ProgressEvent;
     stageIndex: number;
     tools: ProgressEvent[];
+    reasoningEvents: ProgressEvent[]; // Reasoning transparency events
     startTime?: number; // Optional for historical events
     endTime?: number;
 }
@@ -105,11 +106,36 @@ function groupEventsByStage(
                     stage: stageEvent,
                     stageIndex: i,
                     tools: [],
+                    reasoningEvents: [],
                     startTime: eventTimestamp,
                     endTime: eventEndTimestamp,
                 };
                 groups.push(currentGroup);
                 if (name) stageGroupsByName[name] = currentGroup;
+            }
+            continue;
+        }
+
+        // Handle reasoning events - attach to current group
+        if (event.type === "reasoning") {
+            if (currentGroup) {
+                currentGroup.reasoningEvents.push(event);
+            } else {
+                // Create an implicit group for orphaned reasoning events
+                currentGroup = {
+                    stage: {
+                        type: "stage",
+                        name: "processing",
+                        description: processingLabel,
+                        status: isHistorical ? "completed" : "running",
+                        timestamp: eventTimestamp,
+                    },
+                    stageIndex: -1,
+                    tools: [],
+                    reasoningEvents: [event],
+                    startTime: eventTimestamp,
+                };
+                groups.push(currentGroup);
             }
             continue;
         }
@@ -127,6 +153,7 @@ function groupEventsByStage(
                     stage: { ...event, status: effectiveStatus },
                     stageIndex: i,
                     tools: [],
+                    reasoningEvents: [],
                     startTime: eventTimestamp,
                     endTime: eventEndTimestamp,
                 };
@@ -147,6 +174,7 @@ function groupEventsByStage(
                         stage: { ...event, status: effectiveStatus },
                         stageIndex: i,
                         tools: [],
+                        reasoningEvents: [],
                         startTime: eventTimestamp,
                         endTime: eventEndTimestamp || eventTimestamp,
                     };
@@ -180,6 +208,7 @@ function groupEventsByStage(
                     },
                     stageIndex: -1,
                     tools: [toolEvent],
+                    reasoningEvents: [],
                     startTime: eventTimestamp,
                 };
                 groups.push(implicitGroup);
@@ -412,6 +441,7 @@ function StageItem({
     status,
     duration,
     tools,
+    reasoningEvents,
     tTools,
     isLast,
     isHistorical = false,
@@ -420,6 +450,7 @@ function StageItem({
     status: "pending" | "running" | "completed" | "failed";
     duration?: { start?: number; end?: number };
     tools?: ProgressEvent[];
+    reasoningEvents?: ProgressEvent[];
     tTools?: ReturnType<typeof useTranslations>;
     isLast: boolean;
     isHistorical?: boolean;
@@ -486,6 +517,23 @@ function StageItem({
                                         ) : (
                                             groupedTool.displayName
                                         )}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Reasoning events - subtle inline display */}
+                    {reasoningEvents && reasoningEvents.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                            {reasoningEvents.map((re, idx) => (
+                                <div
+                                    key={`reasoning-${idx}`}
+                                    className="flex items-start gap-2 pl-0.5"
+                                >
+                                    <span className="w-1 h-1 rounded-full bg-primary/30 flex-shrink-0 mt-1.5" />
+                                    <span className="text-xs text-muted-foreground/60 italic leading-relaxed">
+                                        {re.thinking}
                                     </span>
                                 </div>
                             ))}
@@ -733,6 +781,7 @@ export function TaskProgressPanel({
                                     status={status}
                                     duration={{ start: group.startTime, end: group.endTime }}
                                     tools={group.tools}
+                                    reasoningEvents={group.reasoningEvents}
                                     tTools={tTools}
                                     isLast={index === stageGroups.length - 1}
                                     isHistorical={isHistorical}

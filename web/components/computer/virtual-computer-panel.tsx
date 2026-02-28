@@ -13,6 +13,7 @@ import { ComputerBrowserView } from "./computer-browser-view";
 import { ComputerFileView } from "./computer-file-view";
 import { ComputerPlaybackControls } from "./computer-playback-controls";
 import { ComputerErrorBoundary } from "./computer-error-boundary";
+import { GripHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 // Module-level empty array constant for referential stability
@@ -126,6 +127,10 @@ export function VirtualComputerPanel() {
         [isLive, planItems, visibleCounts.plan]
     );
 
+    // Split view state
+    const splitView = useComputerStore((state) => state.splitView);
+    const splitSecondaryMode = useComputerStore((state) => state.splitSecondaryMode);
+
     // Actions (stable references via getState)
     const closePanel = useComputerStore.getState().closePanel;
     const setModeByUser = useComputerStore.getState().setModeByUser;
@@ -138,6 +143,9 @@ export function VirtualComputerPanel() {
     const clearTerminal = useComputerStore.getState().clearTerminal;
     const setFollowAgent = useComputerStore.getState().setFollowAgent;
     const setAutoOpen = useComputerStore.getState().setAutoOpen;
+    const toggleSplitView = useComputerStore.getState().toggleSplitView;
+    const setSplitSecondaryMode = useComputerStore.getState().setSplitSecondaryMode;
+    const addTerminalLine = useComputerStore.getState().addTerminalLine;
 
     const activeProgress = useAgentProgressStore((state) => state.activeProgress);
     const setAgentBrowserStream = useAgentProgressStore.getState().setBrowserStream;
@@ -261,6 +269,117 @@ export function VirtualComputerPanel() {
         setIsLive(true);
     }, [setIsLive]);
 
+    // Terminal command handler
+    const handleSendTerminalCommand = useCallback(async (command: string) => {
+        if (!command.trim()) return;
+
+        const cs = useComputerStore.getState();
+        const id = cs.activeConversationId;
+        if (!id) return;
+        const conv = cs.conversationStates[id];
+        if (!conv?.workspaceTaskId) return;
+
+        // Add command to terminal immediately
+        addTerminalLine({ type: "command", content: command, cwd: conv.currentCwd });
+
+        try {
+            const response = await fetch(`/api/v1/sandbox/exec`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    command,
+                    task_id: conv.workspaceTaskId,
+                    sandbox_type: conv.workspaceSandboxType || "execution",
+                }),
+            });
+            const data = await response.json();
+
+            if (data.stdout) {
+                addTerminalLine({ type: "output", content: data.stdout });
+            }
+            if (data.stderr) {
+                addTerminalLine({ type: "error", content: data.stderr });
+            }
+        } catch (error) {
+            addTerminalLine({ type: "error", content: `Error: ${error}` });
+        }
+    }, [addTerminalLine]);
+
+    // Split-view resize state
+    const [splitRatio, setSplitRatio] = useState(0.5);
+    const [isSplitResizing, setIsSplitResizing] = useState(false);
+    const splitContainerRef = useRef<HTMLDivElement>(null);
+
+    const startSplitResizing = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsSplitResizing(true);
+    }, []);
+
+    useEffect(() => {
+        if (!isSplitResizing) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!splitContainerRef.current) return;
+            const rect = splitContainerRef.current.getBoundingClientRect();
+            const ratio = (e.clientY - rect.top) / rect.height;
+            setSplitRatio(Math.min(Math.max(ratio, 0.2), 0.8));
+        };
+
+        const handleMouseUp = () => {
+            setIsSplitResizing(false);
+        };
+
+        document.addEventListener("mousemove", handleMouseMove);
+        document.addEventListener("mouseup", handleMouseUp);
+        document.body.style.cursor = "row-resize";
+        document.body.style.userSelect = "none";
+
+        return () => {
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+        };
+    }, [isSplitResizing]);
+
+    // Helper to render a view for a given mode
+    const renderViewForMode = useCallback((mode: ComputerMode) => {
+        switch (mode) {
+            case "terminal":
+                return (
+                    <ComputerTerminalView
+                        lines={visibleTerminalLines}
+                        isLive={isLive}
+                        currentCommand={currentCommand}
+                        currentCwd={currentCwd}
+                        onClear={clearTerminal}
+                        onSendCommand={handleSendTerminalCommand}
+                        className="flex-1"
+                    />
+                );
+            case "plan":
+                return (
+                    <ComputerPlanView
+                        items={visiblePlanItems}
+                        className="flex-1"
+                    />
+                );
+            case "browser":
+                return (
+                    <ComputerBrowserView
+                        stream={browserStream}
+                        className="flex-1"
+                    />
+                );
+            case "file":
+                return (
+                    <ComputerFileView className="flex-1" />
+                );
+            default:
+                return null;
+        }
+    }, [visibleTerminalLines, isLive, currentCommand, currentCwd, clearTerminal, handleSendTerminalCommand, visiblePlanItems, browserStream]);
+
     // Determine if agent is actively using the computer
     const isActive = activeProgress?.isStreaming && (
         activeMode === "browser" ? !!browserStream :
@@ -327,6 +446,8 @@ export function VirtualComputerPanel() {
                     autoOpen={autoOpen}
                     onFollowAgentChange={setFollowAgent}
                     onAutoOpenChange={setAutoOpen}
+                    splitView={splitView}
+                    onToggleSplitView={toggleSplitView}
                 />
 
                 {/* Status bar */}
@@ -345,40 +466,76 @@ export function VirtualComputerPanel() {
                         fallbackErrorMessage: t("errorBoundary.fallbackMessage"),
                     }}
                 >
-                    <div
-                        className="flex-1 overflow-hidden flex flex-col"
-                        role="tabpanel"
-                        aria-label={getModeAriaLabel(activeMode)}
-                    >
-                        {activeMode === "terminal" && (
-                            <ComputerTerminalView
-                                lines={visibleTerminalLines}
-                                isLive={isLive}
-                                currentCommand={currentCommand}
-                                currentCwd={currentCwd}
-                                onClear={clearTerminal}
-                                className="flex-1"
-                            />
-                        )}
+                    {splitView && splitSecondaryMode ? (
+                        <div
+                            ref={splitContainerRef}
+                            className="flex-1 overflow-hidden flex flex-col"
+                        >
+                            {/* Primary view (top) */}
+                            <div
+                                className="overflow-hidden flex flex-col"
+                                style={{ height: `${splitRatio * 100}%` }}
+                                role="tabpanel"
+                                aria-label={getModeAriaLabel(activeMode)}
+                            >
+                                {renderViewForMode(activeMode)}
+                            </div>
 
-                        {activeMode === "plan" && (
-                            <ComputerPlanView
-                                items={visiblePlanItems}
-                                className="flex-1"
-                            />
-                        )}
+                            {/* Split resize handle */}
+                            <div
+                                className={cn(
+                                    "h-1.5 flex items-center justify-center cursor-row-resize shrink-0",
+                                    "bg-border/30 hover:bg-primary/30 active:bg-primary/50",
+                                    "transition-colors duration-150",
+                                    isSplitResizing && "bg-primary/50"
+                                )}
+                                onMouseDown={startSplitResizing}
+                                role="separator"
+                                aria-orientation="horizontal"
+                                aria-label={t("resizeHandle")}
+                            >
+                                <GripHorizontal className="w-4 h-4 text-muted-foreground/50" />
+                            </div>
 
-                        {activeMode === "browser" && (
-                            <ComputerBrowserView
-                                stream={browserStream}
-                                className="flex-1"
-                            />
-                        )}
-
-                        {activeMode === "file" && (
-                            <ComputerFileView className="flex-1" />
-                        )}
-                    </div>
+                            {/* Secondary view (bottom) */}
+                            <div
+                                className="overflow-hidden flex flex-col"
+                                style={{ height: `${(1 - splitRatio) * 100}%` }}
+                                role="tabpanel"
+                                aria-label={getModeAriaLabel(splitSecondaryMode)}
+                            >
+                                {/* Secondary mode selector */}
+                                <div className="flex items-center gap-1 px-2 h-7 border-b border-border/30 bg-secondary/20 shrink-0">
+                                    {(["terminal", "browser", "file", "plan"] as ComputerMode[])
+                                        .filter((m) => m !== activeMode)
+                                        .map((mode) => (
+                                            <button
+                                                key={mode}
+                                                className={cn(
+                                                    "px-2 py-0.5 text-[11px] rounded font-medium transition-colors",
+                                                    mode === splitSecondaryMode
+                                                        ? "bg-secondary text-foreground"
+                                                        : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                                                )}
+                                                onClick={() => setSplitSecondaryMode(mode)}
+                                            >
+                                                {t(mode === "file" ? "files" : mode)}
+                                            </button>
+                                        ))
+                                    }
+                                </div>
+                                {renderViewForMode(splitSecondaryMode)}
+                            </div>
+                        </div>
+                    ) : (
+                        <div
+                            className="flex-1 overflow-hidden flex flex-col"
+                            role="tabpanel"
+                            aria-label={getModeAriaLabel(activeMode)}
+                        >
+                            {renderViewForMode(activeMode)}
+                        </div>
+                    )}
                 </ComputerErrorBoundary>
 
                 {/* Playback controls */}

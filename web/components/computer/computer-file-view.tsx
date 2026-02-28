@@ -19,6 +19,8 @@ import {
     FileArchive,
     FolderClosed,
     X,
+    Pencil,
+    Save,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -376,8 +378,60 @@ export function ComputerFileView({ className }: ComputerFileViewProps) {
         (f) => f.path === selectedFile && f.type === "directory"
     );
 
+    // Editing state
+    const [isEditing, setIsEditing] = useState(false);
+    const [editContent, setEditContent] = useState("");
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Reset editing state when switching files
+    useEffect(() => {
+        setIsEditing(false);
+        setEditContent("");
+    }, [selectedFile]);
+
+    const handleStartEditing = useCallback(() => {
+        if (fileContent !== null) {
+            setEditContent(fileContent);
+            setIsEditing(true);
+        }
+    }, [fileContent]);
+
+    const handleCancelEditing = useCallback(() => {
+        setIsEditing(false);
+        setEditContent("");
+    }, []);
+
+    const handleSaveFile = useCallback(async () => {
+        if (!workspaceTaskId || !selectedFile) return;
+
+        setIsSaving(true);
+        try {
+            const response = await fetch(`/api/v1/sandbox/files/write`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    path: selectedFile,
+                    content: editContent,
+                    task_id: workspaceTaskId,
+                    sandbox_type: workspaceSandboxType || "execution",
+                }),
+            });
+
+            if (response.ok) {
+                setIsEditing(false);
+                // Reload file content
+                loadFileContent(selectedFile);
+            }
+        } catch (error) {
+            console.error("Failed to save file:", error);
+        } finally {
+            setIsSaving(false);
+        }
+    }, [workspaceTaskId, selectedFile, editContent, workspaceSandboxType, loadFileContent]);
+
     const handleBackToList = useCallback(() => {
         setSelectedFile(null);
+        setIsEditing(false);
     }, [setSelectedFile]);
 
     return (
@@ -440,15 +494,82 @@ export function ComputerFileView({ className }: ComputerFileViewProps) {
                     </p>
                 </div>
             ) : isViewingContent ? (
-                // Drill-down: full-width file content view
-                <ComputerFileContent
-                    filename={selectedFileName}
-                    content={fileContent}
-                    isLoading={fileContentLoading}
-                    error={fileContentError}
-                    isBinary={fileContentIsBinary}
-                    className="flex-1"
-                />
+                // Drill-down: full-width file content view with edit support
+                isEditing ? (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        {/* Editing header */}
+                        <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-primary/5">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <Pencil className="w-3.5 h-3.5 text-primary" />
+                                <span className="text-xs font-mono text-foreground truncate max-w-[200px]">
+                                    {selectedFileName}
+                                </span>
+                                <span className="text-[10px] uppercase tracking-wider font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                    {t("editing")}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={handleCancelEditing}
+                                    disabled={isSaving}
+                                >
+                                    <X className="w-3.5 h-3.5 mr-1" />
+                                    {t("cancelEdit")}
+                                </Button>
+                                <Button
+                                    variant="default"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={handleSaveFile}
+                                    disabled={isSaving}
+                                >
+                                    {isSaving ? (
+                                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                                    ) : (
+                                        <Save className="w-3.5 h-3.5 mr-1" />
+                                    )}
+                                    {t("saveFile")}
+                                </Button>
+                            </div>
+                        </div>
+                        {/* Edit textarea */}
+                        <textarea
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                            className="flex-1 w-full p-3 bg-background text-foreground font-mono text-xs leading-relaxed outline-none resize-none border-0"
+                            spellCheck={false}
+                            autoFocus
+                        />
+                    </div>
+                ) : (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        {/* Edit button overlay for text files */}
+                        {fileContent !== null && !fileContentIsBinary && !fileContentLoading && (
+                            <div className="flex items-center justify-end px-3 py-1 border-b border-border/20 bg-secondary/10 shrink-0">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={handleStartEditing}
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1" />
+                                    {t("editFile")}
+                                </Button>
+                            </div>
+                        )}
+                        <ComputerFileContent
+                            filename={selectedFileName}
+                            content={fileContent}
+                            isLoading={fileContentLoading}
+                            error={fileContentError}
+                            isBinary={fileContentIsBinary}
+                            className="flex-1"
+                        />
+                    </div>
+                )
             ) : (
                 // Full-width file list
                 <div className="flex-1 flex flex-col overflow-hidden">

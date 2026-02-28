@@ -7,6 +7,7 @@ from typing import Any, AsyncGenerator, Literal
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
+from app.agents import events
 from app.agents.routing import route_query
 from app.agents.state import (
     AgentType,
@@ -27,6 +28,7 @@ from app.agents.tools.handoff import (
 )
 from app.core.logging import get_logger
 from app.models.schemas import ResearchDepth, ResearchScenario
+from app.services.usage_tracker import create_usage_tracker
 
 logger = get_logger(__name__)
 
@@ -538,9 +540,21 @@ class AgentSupervisor:
 
         run_id = str(uuid.uuid4())  # Unique per request, not conversation
         thread_id = effective_task_id  # Still log with conversation ID
+
+        # Create usage tracker callback for this request
+        provider = kwargs.get("provider", "anthropic")
+        tier = kwargs.get("tier", "pro")
+        usage_tracker = create_usage_tracker(
+            conversation_id=effective_task_id,
+            user_id=user_id,
+            tier=str(tier) if tier else "pro",
+            provider=str(provider) if provider else "anthropic",
+        )
+
         config = {
             "configurable": {"thread_id": run_id},  # Use unique run_id for checkpointing
             "recursion_limit": settings.langgraph_recursion_limit,
+            "callbacks": [usage_tracker],  # Wire usage tracking into all LLM calls
         }
 
         logger.info(
@@ -567,6 +581,9 @@ class AgentSupervisor:
             thread_id=thread_id,
         )
 
+        import time as _time
+        _run_start = _time.monotonic()
+
         try:
             # Stream events from the graph
             async for event in self.graph.astream_events(
@@ -580,14 +597,100 @@ class AgentSupervisor:
                 async for processed_event in processor.process_event(event):
                     yield processed_event
 
+            # Emit usage metrics before completion
+            usage_totals = usage_tracker.get_total_tokens()
+            if usage_totals.get("call_count", 0) > 0:
+                yield events.usage(
+                    input_tokens=usage_totals["input_tokens"],
+                    output_tokens=usage_totals["output_tokens"],
+                    cached_tokens=usage_totals.get("cached_tokens", 0),
+                    cost_usd=usage_totals["cost_usd"],
+                    model="aggregate",
+                    tier=str(tier) if tier else "pro",
+                )
+                logger.info(
+                    "usage_tracked",
+                    total_tokens=usage_totals["total_tokens"],
+                    cost_usd=usage_totals["cost_usd"],
+                    call_count=usage_totals["call_count"],
+                )
+
             # Emit completion event
             yield {"type": "complete"}
 
             logger.info("supervisor_run_completed", thread_id=thread_id)
 
+            # Fire-and-forget: extract memories from this conversation
+            if user_id and messages:
+                # Collect episodic context from the run
+                _duration_s = round(_time.monotonic() - _run_start, 1)
+                _tools_used = sorted({
+                    info.get("tool", "")
+                    for info in processor.pending_tool_calls.values()
+                    if info.get("tool")
+                } | {
+                    info.get("tool", "")
+                    for info in getattr(processor, "_completed_tools", [])
+                    if info.get("tool")
+                })
+                # Also collect from emitted_tool_call_ids tracking
+                _tool_names_from_calls = set()
+                for _tc_id, _tc_info in processor.pending_tool_calls.items():
+                    if _tc_info.get("tool"):
+                        _tool_names_from_calls.add(_tc_info["tool"])
+                for _tool_list in processor.pending_tool_calls_by_tool.keys():
+                    _tool_names_from_calls.add(_tool_list)
+                _tools_used = sorted(_tool_names_from_calls | set(_tools_used))
+
+                episodic_context = {
+                    "task_description": query[:500],
+                    "mode": original_mode,
+                    "tools_used": _tools_used,
+                    "outcome": "completed",
+                    "duration_seconds": _duration_s,
+                }
+
+                asyncio.create_task(
+                    self._extract_memories(
+                        messages=messages,
+                        user_id=user_id,
+                        conversation_id=effective_task_id,
+                        episodic_context=episodic_context,
+                    )
+                )
+
         except Exception as e:
             logger.error("supervisor_run_failed", error=str(e), thread_id=thread_id)
             yield {"type": "error", "error": str(e)}
+
+    @staticmethod
+    async def _extract_memories(
+        messages: list[dict],
+        user_id: str,
+        conversation_id: str,
+        episodic_context: dict | None = None,
+    ) -> None:
+        """Background task to extract and persist memories from a conversation.
+
+        Args:
+            messages: Conversation messages
+            user_id: User ID
+            conversation_id: Conversation/task ID
+            episodic_context: Optional dict with task_description, tools_used,
+                outcome, duration_seconds for enriched episodic memories
+        """
+        try:
+            from app.services.memory_service import extract_memories_from_conversation
+
+            await extract_memories_from_conversation(
+                messages=messages,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                episodic_context=episodic_context,
+            )
+        except Exception as e:
+            # Never let memory extraction crash anything
+            logger.warning("background_memory_extraction_failed", error=str(e))
 
     async def invoke(
         self,

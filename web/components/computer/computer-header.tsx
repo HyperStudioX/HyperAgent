@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { TerminalSquare, Monitor, Folder, X, ListTodo, Circle, Settings2, Eye, EyeOff, PanelRightOpen } from "lucide-react";
+import { TerminalSquare, Monitor, Folder, X, ListTodo, Circle, Settings2, Eye, EyeOff, PanelRightOpen, PanelTop } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ interface ComputerHeaderProps {
     autoOpen?: boolean;
     onFollowAgentChange?: (enabled: boolean) => void;
     onAutoOpenChange?: (enabled: boolean) => void;
+    splitView?: boolean;
+    onToggleSplitView?: () => void;
 }
 
 const modeConfig: { mode: ComputerMode; icon: React.ElementType; labelKey: string }[] = [
@@ -36,6 +38,8 @@ export function ComputerHeader({
     autoOpen = true,
     onFollowAgentChange,
     onAutoOpenChange,
+    splitView = false,
+    onToggleSplitView,
 }: ComputerHeaderProps) {
     const t = useTranslations("computer");
     const [showSettings, setShowSettings] = useState(false);
@@ -101,6 +105,22 @@ export function ComputerHeader({
                 </div>
 
                 <div className="flex items-center gap-0.5">
+                    {/* Split view toggle */}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                            "h-7 w-7 text-muted-foreground hover:text-foreground",
+                            splitView && "text-primary bg-primary/10"
+                        )}
+                        onClick={onToggleSplitView}
+                        title={t("splitView")}
+                        aria-label={t("splitView")}
+                        aria-pressed={splitView}
+                    >
+                        <PanelTop className="w-3.5 h-3.5" />
+                    </Button>
+
                     {/* Settings button */}
                     <div className="relative" ref={settingsRef}>
                         <Button

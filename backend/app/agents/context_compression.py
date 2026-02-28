@@ -15,8 +15,8 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Compression prompt template
-COMPRESSION_PROMPT = """You are a conversation summarizer. Your task is to create a concise summary of the conversation history that preserves all essential information.
+# Compression prompt template with recoverable reference extraction
+COMPRESSION_PROMPT = """You are a conversation summarizer. Your task is to create a concise summary that preserves all essential information AND recoverable references.
 
 Focus on:
 1. The main topic/goal of the conversation
@@ -25,14 +25,42 @@ Focus on:
 4. Current state of any ongoing tasks
 5. User preferences or requirements mentioned
 
-Be concise but comprehensive. The summary will be used to maintain context in a continued conversation.
+CRITICAL: You MUST preserve all recoverable references in a dedicated section. These allow the agent to re-access information after compression:
+
+Format your response as:
+
+## Summary
+[Concise summary of the conversation]
+
+## Preserved References
+- Files: [list all file paths mentioned, e.g., /home/user/app.py, /tmp/output.csv]
+- URLs: [list all URLs mentioned]
+- Tools Used: [list tool names that were called]
+- Variables: [list key variable names, function names, class names mentioned]
+- Sandbox IDs: [list any sandbox/session IDs]
+- Commands: [list shell commands that were executed]
+
+If a category has no items, omit it.
 {language_section}
 {existing_summary_section}
 
 Messages to summarize:
 {messages_text}
 
-Provide a clear, structured summary:"""
+Provide the structured summary with preserved references:"""
+
+
+@dataclass
+class CompressionResult:
+    """Result of context compression with preserved references.
+
+    Attributes:
+        summary: The compressed conversation summary
+        preserved_refs: Recoverable references extracted during compression
+    """
+
+    summary: str
+    preserved_refs: dict[str, list[str]]
 
 
 @dataclass
@@ -135,13 +163,73 @@ def _format_message_for_summary(message: BaseMessage) -> str:
     return f"{role}: {content}"
 
 
+def _extract_references_from_messages(messages: list[BaseMessage]) -> dict[str, list[str]]:
+    """Pre-extract recoverable references from messages before compression.
+
+    This ensures references survive even if the LLM summary misses some.
+    The agent can always re-read files, re-visit URLs, etc.
+
+    Args:
+        messages: Messages to extract references from
+
+    Returns:
+        Dict mapping reference types to lists of references
+    """
+    import re
+
+    refs: dict[str, set[str]] = {
+        "files": set(),
+        "urls": set(),
+        "tools": set(),
+        "commands": set(),
+    }
+
+    for msg in messages:
+        content = ""
+        if isinstance(msg, str):
+            content = msg
+        elif isinstance(msg.content, str):
+            content = msg.content
+        elif isinstance(msg.content, list):
+            content = " ".join(
+                item.get("text", "") if isinstance(item, dict) else str(item)
+                for item in msg.content
+            )
+
+        # Extract file paths (Unix-style)
+        file_paths = re.findall(r'(?:/[\w.-]+)+(?:\.\w+)?', content)
+        for fp in file_paths:
+            if len(fp) > 4 and not fp.startswith("//"):  # Filter out short fragments
+                refs["files"].add(fp)
+
+        # Extract URLs
+        urls = re.findall(r'https?://[^\s<>"\')\]]+', content)
+        refs["urls"].update(urls)
+
+        # Extract tool names from ToolMessages
+        if isinstance(msg, ToolMessage) and msg.name:
+            refs["tools"].add(msg.name)
+
+        # Extract tool calls from AIMessages
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tc in msg.tool_calls:
+                refs["tools"].add(tc.get("name", ""))
+
+        # Extract shell commands (common patterns)
+        cmd_patterns = re.findall(r'(?:shell_exec|command)["\s:]+([^"}\n]+)', content)
+        refs["commands"].update(c.strip() for c in cmd_patterns if len(c.strip()) > 3)
+
+    return {k: sorted(v) for k, v in refs.items() if v}
+
+
 class ContextCompressor:
     """Compresses conversation context using LLM summarization.
 
     This class handles:
     - Checking if compression is needed based on token thresholds
+    - Extracting recoverable references (files, URLs, tools) before summarization
     - Summarizing old messages while preserving recent ones
-    - Injecting summaries back into the conversation
+    - Injecting summaries back into the conversation with preserved references
     """
 
     def __init__(self, config: CompressionConfig | None = None):
@@ -220,12 +308,15 @@ class ContextCompressor:
         provider: str,
         locale: str = "en",
     ) -> tuple[str | None, list[BaseMessage]]:
-        """Compress older messages into a summary.
+        """Compress older messages into a summary with preserved references.
 
         Separates messages into:
         - System messages (always preserved)
         - Old messages (to be summarized)
         - Recent messages (preserved intact)
+
+        Before summarization, extracts recoverable references (file paths, URLs,
+        tool names, commands) so the agent can re-access information after compression.
 
         Args:
             messages: Full message list
@@ -268,12 +359,16 @@ class ContextCompressor:
         if len(old_messages) < self.config.min_messages_to_compress:
             return None, messages
 
+        # --- Recoverable reference extraction (pre-LLM, guaranteed) ---
+        extracted_refs = _extract_references_from_messages(old_messages)
+
         logger.info(
             "context_compression_starting",
             total_messages=len(messages),
             messages_to_compress=len(old_messages),
             messages_to_preserve=len(recent_messages),
             existing_summary_length=len(existing_summary) if existing_summary else 0,
+            extracted_refs_count=sum(len(v) for v in extracted_refs.values()),
         )
 
         # Build summary prompt
@@ -309,18 +404,32 @@ class ContextCompressor:
             response = await llm.ainvoke([HumanMessage(content=prompt)])
             new_summary = extract_text_from_content(response.content).strip()
 
+            # Append guaranteed extracted references (in case LLM missed some)
+            if extracted_refs:
+                ref_block = "\n\n## Extracted References (automated)\n"
+                for ref_type, ref_list in extracted_refs.items():
+                    ref_block += f"- {ref_type.title()}: {', '.join(ref_list[:20])}\n"
+                new_summary += ref_block
+
             # Validate summary isn't too long
             summary_tokens = estimate_tokens(new_summary)
             if summary_tokens > self.config.max_summary_tokens:
-                # Truncate summary if too long
+                # Truncate summary if too long, but keep references
                 max_chars = self.config.max_summary_tokens * 4
-                new_summary = new_summary[:max_chars] + "... [summary truncated]"
+                # Try to preserve the references section
+                if "## Extracted References" in new_summary:
+                    parts = new_summary.split("## Extracted References", 1)
+                    summary_part = parts[0][:max_chars - 500] + "... [truncated]"
+                    new_summary = summary_part + "\n## Extracted References" + parts[1]
+                else:
+                    new_summary = new_summary[:max_chars] + "... [summary truncated]"
 
             logger.info(
                 "context_compression_completed",
                 summary_tokens=estimate_tokens(new_summary),
                 compressed_messages=len(old_messages),
                 preserved_messages=len(recent_messages),
+                preserved_refs=sum(len(v) for v in extracted_refs.values()),
             )
 
             # Return the new summary and preserved messages

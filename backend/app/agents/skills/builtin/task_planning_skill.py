@@ -104,6 +104,27 @@ class TaskPlanningSkill(ToolSkill):
                 required=False,
                 default=10,
             ),
+            SkillParameter(
+                name="revision_mode",
+                type="boolean",
+                description="If true, revise an existing plan based on completed/failed step results",
+                required=False,
+                default=False,
+            ),
+            SkillParameter(
+                name="completed_steps",
+                type="array",
+                description="List of completed step results [{step_number, action, result_summary}] for revision mode",
+                required=False,
+                default=None,
+            ),
+            SkillParameter(
+                name="failed_steps",
+                type="array",
+                description="List of failed step details [{step_number, action, error}] for revision mode",
+                required=False,
+                default=None,
+            ),
         ],
         output_schema={
             "type": "object",
@@ -158,17 +179,28 @@ class TaskPlanningSkill(ToolSkill):
     )
 
     async def execute(self, params: dict[str, Any], context: SkillContext) -> dict[str, Any]:
-        """Analyze the task and create a structured plan."""
+        """Analyze the task and create a structured plan.
+
+        Supports two modes:
+        - Normal mode: Creates a fresh plan from the task description
+        - Revision mode: Revises an existing plan based on completed/failed steps
+        """
         task_description = params["task_description"]
         extra_context = params.get("context", "")
         available_tools = params.get("available_tools")
         max_steps = int(params.get("max_steps", 10))
+        revision_mode = bool(params.get("revision_mode", False))
+        completed_steps = params.get("completed_steps") or []
+        failed_steps = params.get("failed_steps") or []
 
         logger.info(
             "task_planning_skill_analyzing",
             task_length=len(task_description),
             has_context=bool(extra_context),
             max_steps=max_steps,
+            revision_mode=revision_mode,
+            completed_count=len(completed_steps),
+            failed_count=len(failed_steps),
         )
 
         # Build the planning prompt
@@ -199,7 +231,17 @@ Additional Context:
 {extra_context}
 """
 
-        prompt = f"""You are a task planning expert. Analyze the following task and \
+        if revision_mode and (completed_steps or failed_steps):
+            prompt = self._build_revision_prompt(
+                task_description=task_description,
+                completed_steps=completed_steps,
+                failed_steps=failed_steps,
+                context_section=context_section,
+                tools_section=tools_section,
+                max_steps=max_steps,
+            )
+        else:
+            prompt = f"""You are a task planning expert. Analyze the following task and \
 create a detailed, actionable execution plan.
 
 Task Description:
@@ -238,11 +280,71 @@ Important:
             "clarifying_questions": result.clarifying_questions,
         }
 
+        if revision_mode:
+            output["is_revision"] = True
+
         logger.info(
             "task_planning_skill_completed",
             step_count=len(result.steps),
             complexity=result.complexity_assessment,
             has_questions=len(result.clarifying_questions) > 0,
+            is_revision=revision_mode,
         )
 
         return output
+
+    @staticmethod
+    def _build_revision_prompt(
+        *,
+        task_description: str,
+        completed_steps: list[dict],
+        failed_steps: list[dict],
+        context_section: str,
+        tools_section: str,
+        max_steps: int,
+    ) -> str:
+        """Build a prompt for revising an existing plan after failures."""
+        completed_section = ""
+        if completed_steps:
+            items = []
+            for s in completed_steps:
+                step_num = s.get("step_number", "?")
+                action = s.get("action", "Unknown")
+                summary = s.get("result_summary", "Completed")
+                items.append(f"  - Step {step_num}: {action} -> {summary[:200]}")
+            completed_section = "Steps already completed successfully:\n" + "\n".join(items)
+
+        failed_section = ""
+        if failed_steps:
+            items = []
+            for s in failed_steps:
+                step_num = s.get("step_number", "?")
+                action = s.get("action", "Unknown")
+                error = s.get("error", "Unknown error")
+                items.append(f"  - Step {step_num}: {action} -> FAILED: {error[:200]}")
+            failed_section = "Steps that failed:\n" + "\n".join(items)
+
+        return f"""You are a task planning expert. A previous plan for this task \
+encountered failures. Revise the plan to work around the issues.
+
+Original Task:
+{task_description}
+{context_section}
+
+{completed_section}
+
+{failed_section}
+{tools_section}
+
+Guidelines for the revised plan:
+1. Do NOT repeat steps that already completed successfully
+2. For failed steps, try a different approach or tool
+3. Keep the remaining steps focused on achieving the original goal
+4. Maximum {max_steps} new steps (excluding completed ones)
+5. Number steps starting from where the failures occurred
+6. Include updated success criteria reflecting what still needs to be done
+
+Important:
+- Learn from the failures — do not repeat the same approach that failed
+- Consider alternative tools or methods for failed steps
+- Keep the plan practical and achievable"""

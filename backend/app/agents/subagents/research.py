@@ -52,7 +52,9 @@ def _get_cached_research_tools() -> list:
     if _cached_research_tools is None:
         with _research_cache_lock:
             if _cached_research_tools is None:
-                _cached_research_tools = get_tools_for_agent("research", include_handoffs=True)
+                tools = get_tools_for_agent("research", include_handoffs=True)
+                # Sort tools alphabetically for consistent KV-cache hits across requests
+                _cached_research_tools = sorted(tools, key=lambda t: t.name)
     return _cached_research_tools
 
 # Depth-based configuration
@@ -104,17 +106,30 @@ async def init_config_node(state: ResearchState) -> dict:
         scenario=scenario.value if isinstance(scenario, ResearchScenario) else scenario,
     )
 
+    lc_messages = [
+        SystemMessage(
+            content=search_prompt,
+            additional_kwargs={"cache_control": {"type": "ephemeral"}},
+        ),
+    ]
+
+    # Inject persistent user memories if available
+    user_id = state.get("user_id")
+    if user_id:
+        from app.services.memory_service import get_memory_store
+
+        memory_text = get_memory_store().format_memories_for_prompt(user_id)
+        if memory_text:
+            lc_messages.append(SystemMessage(content=memory_text))
+            logger.info("research_user_memories_injected", user_id=user_id)
+
+    lc_messages.append(HumanMessage(content=f"Research topic: {state.get('query') or ''}"))
+
     return {
         "system_prompt": config["system_prompt"],
         "report_structure": config["report_structure"],
         "depth_config": depth_config,
-        "lc_messages": [
-            SystemMessage(
-                content=search_prompt,
-                additional_kwargs={"cache_control": {"type": "ephemeral"}},
-            ),
-            HumanMessage(content=f"Research topic: {state.get('query') or ''}"),
-        ],
+        "lc_messages": lc_messages,
         "sources": [],
         "search_complete": False,
         "tool_iterations": 0,

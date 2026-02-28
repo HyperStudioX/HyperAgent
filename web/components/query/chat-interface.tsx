@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, memo } from "react";
+import React, { useState, useRef, useEffect, useCallback, memo, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
@@ -33,6 +33,7 @@ import { FileUploadButton } from "@/components/chat/file-upload-button";
 import { VoiceInputButton } from "@/components/chat/voice-input-button";
 import { AttachmentPreview } from "@/components/chat/attachment-preview";
 import { Button } from "@/components/ui/button";
+import { CostIndicator } from "@/components/ui/cost-indicator";
 import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { useGoogleDrivePicker } from "@/lib/hooks/use-google-drive-picker";
 import type {
@@ -1466,6 +1467,21 @@ export function ChatInterface() {
     const isProcessing = isLoading;
     const hasMessages = messages.length > 0 || streamingContent || isLoading;
 
+    // Collect all usage events from assistant messages in the current conversation
+    const allUsageEvents = useMemo(() => {
+        const events: AgentEvent[] = [];
+        for (const msg of messages) {
+            if (msg.role === "assistant" && msg.metadata?.agentEvents) {
+                for (const ev of msg.metadata.agentEvents) {
+                    if (ev.type === "usage") {
+                        events.push(ev);
+                    }
+                }
+            }
+        }
+        return events;
+    }, [messages]);
+
     const getPlaceholder = () => {
         if (selectedAgent === "research" && selectedScenario) {
             return t("researchPlaceholder", { scenario: tResearch(`${selectedScenario}.name`) });
@@ -1631,11 +1647,15 @@ export function ChatInterface() {
                                         )}
                                     </div>
 
-                                    <p className="text-xs text-muted-foreground hidden md:block">
-                                        {attachments.length > 0
-                                            ? tChat("filesAttached", { count: attachments.length })
-                                            : tChat("pressEnterToSend")}
-                                    </p>
+                                    {allUsageEvents.length > 0 && hasMessages ? (
+                                        <CostIndicator events={allUsageEvents} />
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground hidden md:block">
+                                            {attachments.length > 0
+                                                ? tChat("filesAttached", { count: attachments.length })
+                                                : tChat("pressEnterToSend")}
+                                        </p>
+                                    )}
                                 </div>
                                 <Button
                                     onClick={isProcessing ? handleStop : handleSubmit}

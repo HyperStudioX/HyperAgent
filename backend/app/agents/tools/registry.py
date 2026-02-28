@@ -14,19 +14,41 @@ from app.agents.state import AgentType
 from app.agents.tools.app_builder import get_app_builder_tools
 from app.agents.tools.browser_use import (
     browser_click,
+    browser_console_exec,
+    browser_get_accessibility_tree,
     browser_get_stream_url,
     browser_navigate,
     browser_press_key,
     browser_screenshot,
     browser_scroll,
+    browser_select_option,
     browser_type,
+    browser_wait_for_element,
 )
 from app.agents.tools.code_execution import execute_code
+from app.agents.tools.database import execute_sql
+from app.agents.tools.deployment import deploy_expose_port, deploy_get_url, deploy_to_production
+from app.agents.tools.file_tools import (
+    file_find_by_name,
+    file_find_in_content,
+    file_read,
+    file_str_replace,
+    file_write,
+)
 from app.agents.tools.handoff import get_handoff_tools_for_agent
+from app.agents.tools.http_client import http_request
+from app.agents.tools.notification import send_notification
+from app.agents.tools.shell_tools import (
+    shell_exec,
+    shell_kill,
+    shell_view,
+    shell_wait,
+)
 from app.agents.tools.hitl_tool import ask_user_tool
 from app.agents.tools.image_generation import generate_image
 from app.agents.tools.skill_invocation import get_skill_tools
 from app.agents.tools.slide_generation import generate_slides
+from app.agents.tools.tool_search import search_tools
 from app.agents.tools.vision import analyze_image
 from app.agents.tools.web_search import web_search
 from app.core.logging import get_logger
@@ -47,7 +69,15 @@ class ToolCategory(str, Enum):
     HANDOFF = "handoff"  # Agent-to-agent delegation
     SKILL = "skill"  # Skill invocation
     SLIDES = "slides"  # Slide/PPTX generation
+    FILE_OPS = "file_ops"  # File management (read, write, search, edit)
+    SHELL = "shell"  # Shell/process management (exec, view, wait, kill)
     HITL = "hitl"  # Human-in-the-loop tools (ask user for input/decisions)
+    DEPLOY = "deploy"  # Deployment and port exposure
+    HTTP_CLIENT = "http_client"  # HTTP API client for external requests
+    DATABASE = "database"  # Database query execution
+    NOTIFICATION = "notification"  # Notifications and webhooks
+    TOOL_SEARCH = "tool_search"  # Meta-tool for discovering tools
+    MCP = "mcp"  # MCP (Model Context Protocol) tools from external servers
 
 
 # Tool instances by category
@@ -64,8 +94,25 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
         browser_press_key,
         browser_scroll,
         browser_get_stream_url,
+        browser_console_exec,
+        browser_select_option,
+        browser_wait_for_element,
+        browser_get_accessibility_tree,
     ],
     ToolCategory.CODE_EXEC: [execute_code],
+    ToolCategory.FILE_OPS: [
+        file_read,
+        file_write,
+        file_str_replace,
+        file_find_by_name,
+        file_find_in_content,
+    ],
+    ToolCategory.SHELL: [
+        shell_exec,
+        shell_view,
+        shell_wait,
+        shell_kill,
+    ],
     ToolCategory.DATA: [sandbox_file],
     ToolCategory.APP_BUILDER: get_app_builder_tools(),
     # HANDOFF tools are created dynamically per agent
@@ -74,6 +121,18 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
     ToolCategory.SKILL: get_skill_tools(),
     # HITL tools for asking user for input/decisions
     ToolCategory.HITL: [ask_user_tool],
+    # Deployment and port exposure tools
+    ToolCategory.DEPLOY: [deploy_expose_port, deploy_get_url, deploy_to_production],
+    # HTTP API client
+    ToolCategory.HTTP_CLIENT: [http_request],
+    # Database query execution
+    ToolCategory.DATABASE: [execute_sql],
+    # Notifications and webhooks
+    ToolCategory.NOTIFICATION: [send_notification],
+    # Meta-tool for discovering available tools
+    ToolCategory.TOOL_SEARCH: [search_tools],
+    # MCP tools - dynamically populated via register_tool()
+    ToolCategory.MCP: [],
 }
 
 
@@ -85,10 +144,18 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.SLIDES,
         ToolCategory.BROWSER,
         ToolCategory.CODE_EXEC,  # For execute_code tool
+        ToolCategory.FILE_OPS,  # For file management (read, write, search, edit)
+        ToolCategory.SHELL,  # For shell/process management
         ToolCategory.APP_BUILDER,  # For building and running apps
         ToolCategory.SKILL,
         ToolCategory.HANDOFF,
         ToolCategory.HITL,  # For asking user for input/decisions
+        ToolCategory.DEPLOY,  # For exposing sandbox ports and production deployment
+        ToolCategory.HTTP_CLIENT,  # For calling external APIs
+        ToolCategory.DATABASE,  # For querying databases
+        ToolCategory.NOTIFICATION,  # For sending notifications/webhooks
+        ToolCategory.TOOL_SEARCH,  # For discovering tools on-demand
+        ToolCategory.MCP,  # MCP tools from external servers
     ],
     AgentType.RESEARCH.value: [
         ToolCategory.SEARCH,
