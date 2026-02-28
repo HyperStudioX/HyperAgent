@@ -146,7 +146,7 @@ class SlideGenerationSkill(Skill):
 
             logger.info("slide_generation_research_started", topic=topic[:100])
 
-            events = list(state.get("events", []))
+            events = list(state.get("pending_events", []))
             events.append({"stage": "Researching topic..."})
 
             try:
@@ -175,7 +175,7 @@ class SlideGenerationSkill(Skill):
                         "research_context": research_context,
                         "sources": sources,
                     },
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -187,7 +187,7 @@ class SlideGenerationSkill(Skill):
                         "research_context": "",
                         "sources": [],
                     },
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -205,7 +205,7 @@ class SlideGenerationSkill(Skill):
             research_context = state.get("output", {}).get("research_context", "")
             sources = state.get("output", {}).get("sources", [])
 
-            events = list(state.get("events", []))
+            events = list(state.get("pending_events", []))
             events.append({"stage": "Creating slide outline..."})
 
             logger.info(
@@ -299,7 +299,7 @@ Available layouts: title_slide, section_header, content, two_column, blank
                         "image_prompts": image_prompts,
                         "include_images": bool(params.get("include_images", False)),
                     },
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -343,7 +343,7 @@ Available layouts: title_slide, section_header, content, two_column, blank
                         "deck": fallback_deck.model_dump(),
                         "sources": sources,
                     },
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -351,7 +351,7 @@ Available layouts: title_slide, section_header, content, two_column, blank
                 logger.error("slide_outline_failed", error=str(e))
                 return {
                     "error": f"Failed to create slide outline: {e}",
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -366,12 +366,12 @@ Available layouts: title_slide, section_header, content, two_column, blank
             image_prompts: dict = output.get("image_prompts", {})
             include_images = output.get("include_images", False)
 
-            events = list(state.get("events", []))
+            events = list(state.get("pending_events", []))
 
             if not deck_data or not include_images or not image_prompts:
                 # Nothing to do — pass through
                 return {
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -445,7 +445,7 @@ Available layouts: title_slide, section_header, content, two_column, blank
                     **output,
                     "deck": deck.model_dump(),
                 },
-                "events": events,
+                "pending_events": events,
                 "iterations": state.get("iterations", 0) + 1,
             }
 
@@ -460,13 +460,13 @@ Available layouts: title_slide, section_header, content, two_column, blank
             deck_data = output.get("deck")
             sources = output.get("sources", [])
 
-            events = list(state.get("events", []))
+            events = list(state.get("pending_events", []))
             events.append({"stage": "Generating presentation..."})
 
             if not deck_data:
                 return {
                     "error": "No slide deck data available",
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -546,7 +546,7 @@ Available layouts: title_slide, section_header, content, two_column, blank
 
                 return {
                     "output": result_output,
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 
@@ -554,7 +554,7 @@ Available layouts: title_slide, section_header, content, two_column, blank
                 logger.error("slide_generation_failed", error=str(e))
                 return {
                     "error": f"PPTX generation failed: {e}",
-                    "events": events,
+                    "pending_events": events,
                     "iterations": state.get("iterations", 0) + 1,
                 }
 

@@ -1,34 +1,41 @@
-from typing import AsyncGenerator, Any
+from typing import Any
 
 from langchain_anthropic import ChatAnthropic
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 
+from app.ai.model_tiers import (
+    ModelTier,
+    resolve_model,
+    resolve_model_for_task,
+)
+from app.ai.thinking import ThinkingAwareChatOpenAI
 from app.config import settings
-from app.models.schemas import LLMProvider, ChatMessage, MessageRole
-from app.ai.model_tiers import ModelTier, get_model_for_tier, get_tier_for_task, get_provider_for_tier
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def extract_text_from_content(content: Any) -> str:
     """Extract text content from structured LLM chunk content.
-    
+
     Handles various content formats:
     - String: returns as-is
     - List of content blocks: extracts text from text blocks, skips tool_use blocks
     - Dict: extracts text field if present
     - Other: converts to string
-    
+
     Args:
         content: Content from LLM chunk (can be str, list, dict, etc.)
-        
+
     Returns:
         Extracted text as string
     """
     if isinstance(content, str):
         return content
-    
+
     if isinstance(content, list):
         text_parts = []
         for item in content:
@@ -51,7 +58,7 @@ def extract_text_from_content(content: Any) -> str:
                 # Fallback: convert to string
                 text_parts.append(str(item))
         return "".join(text_parts)
-    
+
     if isinstance(content, dict):
         # Try to extract text field
         if "text" in content:
@@ -62,7 +69,7 @@ def extract_text_from_content(content: Any) -> str:
         # Skip input_json_delta
         if content.get("type") == "input_json_delta":
             return ""
-    
+
     # Fallback: convert to string
     return str(content)
 
@@ -73,19 +80,16 @@ class LLMService:
     # Cache LLM clients by (provider, model) to avoid re-creating HTTP clients
     _cache: dict[tuple[str, str], BaseChatModel] = {}
 
-    def __init__(self):
-        self._anthropic: ChatAnthropic | None = None
-        self._openai: ChatOpenAI | None = None
-        self._gemini: ChatGoogleGenerativeAI | None = None
-
     def _get_anthropic(self, model: str | None = None) -> ChatAnthropic:
         """Get Anthropic client."""
         if not settings.anthropic_api_key:
             raise ValueError("Anthropic API key not configured")
         return ChatAnthropic(
             api_key=settings.anthropic_api_key,
-            model=model or settings.default_model_anthropic,
+            model=model or settings.tier_pro_anthropic,
             streaming=True,
+            timeout=float(settings.llm_request_timeout),
+            max_retries=settings.llm_max_retries,
         )
 
     def _get_openai(self, model: str | None = None) -> ChatOpenAI:
@@ -94,8 +98,10 @@ class LLMService:
             raise ValueError("OpenAI API key not configured")
         return ChatOpenAI(
             api_key=settings.openai_api_key,
-            model=model or settings.default_model_openai,
+            model=model or settings.tier_pro_openai,
             streaming=True,
+            request_timeout=float(settings.llm_request_timeout),
+            max_retries=settings.llm_max_retries,
         )
 
     def _get_gemini(self, model: str | None = None) -> ChatGoogleGenerativeAI:
@@ -104,52 +110,102 @@ class LLMService:
             if not settings.gcp_project_id:
                 raise ValueError("GCP_PROJECT_ID must be set when using Vertex AI")
             return ChatGoogleGenerativeAI(
-                model=model or settings.default_model_gemini,
+                model=model or settings.tier_pro_gemini,
                 vertexai=True,
                 project=settings.gcp_project_id,
                 location=settings.gcp_location,
                 streaming=True,
+                timeout=float(settings.llm_request_timeout),
+                max_retries=settings.llm_max_retries,
             )
         if not settings.gemini_api_key:
             raise ValueError("Gemini API key not configured")
         return ChatGoogleGenerativeAI(
             api_key=settings.gemini_api_key,
-            model=model or settings.default_model_gemini,
+            model=model or settings.tier_pro_gemini,
             streaming=True,
+            timeout=float(settings.llm_request_timeout),
+            max_retries=settings.llm_max_retries,
         )
 
-    def get_llm(
-        self, provider: LLMProvider = LLMProvider.ANTHROPIC, model: str | None = None
-    ) -> BaseChatModel:
-        """Get LLM instance for the specified provider."""
-        # Resolve the effective model name for cache lookup
-        if provider == LLMProvider.ANTHROPIC:
-            effective_model = model or settings.default_model_anthropic
-        elif provider == LLMProvider.OPENAI:
-            effective_model = model or settings.default_model_openai
-        elif provider == LLMProvider.GEMINI:
-            effective_model = model or settings.default_model_gemini
-        else:
-            raise ValueError(f"Unknown provider: {provider}")
+    def _get_custom_openai_compatible(
+        self, provider_name: str, model: str | None = None
+    ) -> ChatOpenAI:
+        """Get an OpenAI-compatible client for a custom provider."""
+        from app.core.provider_registry import provider_registry
 
-        cache_key = (provider.value, effective_model)
+        config = provider_registry.get_custom(provider_name)
+        if config is None:
+            raise ValueError(f"Unknown custom provider: {provider_name}")
+        effective_model = model or config.default_model
+        if not effective_model:
+            raise ValueError(
+                f"No model specified for custom provider '{provider_name}' "
+                f"and no default_model configured"
+            )
+
+        # Pass enable_thinking via extra_body (OpenAI SDK's extra_body param)
+        extra_body: dict[str, Any] | None = None
+        if config.enable_thinking:
+            extra_body = {"enable_thinking": True}
+
+        client = ThinkingAwareChatOpenAI(
+            api_key=config.api_key or "not-needed",
+            base_url=config.base_url,
+            model=effective_model,
+            streaming=True,
+            request_timeout=float(settings.llm_request_timeout),
+            max_retries=settings.llm_max_retries,
+            extra_body=extra_body,
+            thinking_mode=config.enable_thinking,
+        )
+
+        return client
+
+    def get_llm(self, provider: str = "anthropic", model: str | None = None) -> BaseChatModel:
+        """Get LLM instance for the specified provider."""
+        from app.core.provider_registry import provider_registry
+
+        # Resolve the effective model name for cache lookup
+        if provider == "anthropic":
+            effective_model = model or settings.tier_pro_anthropic
+        elif provider == "openai":
+            effective_model = model or settings.tier_pro_openai
+        elif provider == "gemini":
+            effective_model = model or settings.tier_pro_gemini
+        else:
+            # Custom provider
+            config = provider_registry.get_custom(provider)
+            if config is None:
+                raise ValueError(f"Unknown provider: {provider}")
+            effective_model = model or config.default_model
+            if not effective_model:
+                raise ValueError(
+                    f"No model specified for custom provider '{provider}' "
+                    f"and no default_model configured"
+                )
+
+        cache_key = (provider, effective_model)
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        if provider == LLMProvider.ANTHROPIC:
+        if provider == "anthropic":
             client = self._get_anthropic(model)
-        elif provider == LLMProvider.OPENAI:
+        elif provider == "openai":
             client = self._get_openai(model)
-        else:
+        elif provider == "gemini":
             client = self._get_gemini(model)
+        else:
+            client = self._get_custom_openai_compatible(provider, model)
 
+        logger.debug("llm_client_created", provider=provider, model=effective_model)
         self._cache[cache_key] = client
         return client
 
     def get_llm_for_tier(
         self,
         tier: ModelTier,
-        provider: LLMProvider | None = None,
+        provider: str | None = None,
         model_override: str | None = None,
     ) -> BaseChatModel:
         """Get LLM for a specific tier, with optional model override.
@@ -162,20 +218,14 @@ class LLMService:
         Returns:
             LLM instance configured for the specified tier
         """
-        # Auto-select provider based on tier if not explicitly provided
-        if provider is None:
-            provider = get_provider_for_tier(tier, settings.tier_providers)
-
-        if model_override:
-            return self.get_llm(provider, model_override)
-
-        model = get_model_for_tier(tier, provider, settings.tier_mappings)
-        return self.get_llm(provider, model)
+        p, m = resolve_model(tier, provider, model_override)
+        logger.info("llm_invocation", tier=tier.value, provider=p, model=m)
+        return self.get_llm(p, m)
 
     def choose_llm_for_task(
         self,
         task_type: str,
-        provider: LLMProvider | None = None,
+        provider: str | None = None,
         tier_override: ModelTier | None = None,
         model_override: str | None = None,
     ) -> BaseChatModel:
@@ -184,7 +234,7 @@ class LLMService:
         Priority: model_override > tier_override > auto-routing
 
         Args:
-            task_type: Type of task (e.g., "research", "chat", "code")
+            task_type: Type of task (e.g., "research", "task", "code")
             provider: The LLM provider (if None, auto-selects based on tier configuration)
             tier_override: Optional tier override (bypasses auto-routing)
             model_override: Optional model override (bypasses tier and auto-routing)
@@ -192,107 +242,46 @@ class LLMService:
         Returns:
             LLM instance configured for the task
         """
-        tier = tier_override or get_tier_for_task(task_type)
-
-        # Auto-select provider based on tier if not explicitly provided
-        if provider is None:
-            provider = get_provider_for_tier(tier, settings.tier_providers)
-
-        if model_override:
-            return self.get_llm(provider, model_override)
-
-        return self.get_llm_for_tier(tier, provider)
-
-    def convert_messages(self, messages: list[ChatMessage]) -> list:
-        """Convert chat messages to LangChain format."""
-        converted = []
-        for msg in messages:
-            if msg.role == MessageRole.USER:
-                converted.append(HumanMessage(content=msg.content))
-            elif msg.role == MessageRole.ASSISTANT:
-                converted.append(AIMessage(content=msg.content))
-            elif msg.role == MessageRole.SYSTEM:
-                converted.append(SystemMessage(content=msg.content))
-        return converted
-
-    async def chat(
-        self,
-        message: str,
-        history: list[ChatMessage] | None = None,
-        provider: LLMProvider = LLMProvider.ANTHROPIC,
-        model: str | None = None,
-        system_prompt: str | None = None,
-    ) -> str:
-        """Send a chat message and get a response."""
-        llm = self.get_llm(provider, model)
-
-        messages = []
-        if system_prompt:
-            messages.append(SystemMessage(content=system_prompt))
-        if history:
-            messages.extend(self.convert_messages(history))
-        messages.append(HumanMessage(content=message))
-
-        response = await llm.ainvoke(messages)
-        return response.content
-
-    async def stream_chat(
-        self,
-        message: str,
-        history: list[ChatMessage] | None = None,
-        provider: LLMProvider = LLMProvider.ANTHROPIC,
-        model: str | None = None,
-        system_prompt: str | None = None,
-    ) -> AsyncGenerator[str, None]:
-        """Stream a chat response token by token."""
-        llm = self.get_llm(provider, model)
-
-        messages = []
-        if system_prompt:
-            messages.append(SystemMessage(content=system_prompt))
-        if history:
-            messages.extend(self.convert_messages(history))
-        messages.append(HumanMessage(content=message))
-
-        async for chunk in llm.astream(messages):
-            if chunk.content:
-                yield extract_text_from_content(chunk.content)
+        tier, p, m = resolve_model_for_task(task_type, provider, tier_override, model_override)
+        logger.info("llm_invocation", task_type=task_type, tier=tier.value, provider=p, model=m)
+        return self.get_llm(p, m)
 
     async def generate_title(
         self,
         message: str,
-        provider: LLMProvider = LLMProvider.ANTHROPIC,
+        provider: str = "anthropic",
         model: str | None = None,
     ) -> str:
         """Generate a concise title for a conversation based on the user's message.
-        
+
         Args:
             message: The user's input message
             provider: LLM provider to use
             model: Optional model override
-            
+
         Returns:
             A concise title (max 5-6 words)
         """
+        logger.info("llm_invocation", task_type="naming", provider=provider, model=model)
         llm = self.get_llm(provider, model)
-        
+
         prompt = (
             "Generate a very concise, meaningful title for an AI conversation "
             "that starts with the following user message. "
             "Respond ONLY with the title text (no quotes, no period, max 6 words):\n\n"
             f"'{message}'"
         )
-        
+
         messages = [HumanMessage(content=prompt)]
         response = await llm.ainvoke(messages)
         title = extract_text_from_content(response.content).strip()
-        
+
         # Clean up the title
         if title.startswith('"') and title.endswith('"'):
             title = title[1:-1]
         elif title.startswith("'") and title.endswith("'"):
             title = title[1:-1]
-            
+
         return title
 
 

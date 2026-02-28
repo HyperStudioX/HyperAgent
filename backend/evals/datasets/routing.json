@@ -6,98 +6,91 @@
     {
       "id": "chat_general_greeting",
       "input": "Hello, how are you?",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "general",
       "description": "Basic greeting should route to chat"
     },
     {
       "id": "chat_general_question",
       "input": "What is Python?",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "general",
       "description": "General knowledge question should route to chat"
     },
     {
       "id": "chat_image_generation",
       "input": "Generate an image of a cat sitting on a rainbow",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "image",
       "description": "Image generation should route to chat (has image_generation skill)"
     },
     {
       "id": "chat_image_create",
       "input": "Create a picture of a sunset over mountains",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "image",
       "description": "Image creation should route to chat"
     },
     {
       "id": "chat_code_write",
       "input": "Write a Python function to sort a list",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "code",
       "description": "Code writing should route to chat (has code_generation skill)"
     },
     {
-      "id": "chat_code_review",
-      "input": "Review this code for bugs: def add(a, b): return a + b",
-      "expected_agent": "chat",
-      "category": "code",
-      "description": "Code review should route to chat (has code_review skill)"
-    },
-    {
       "id": "chat_writing_email",
       "input": "Write an email to my team about the project update",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "writing",
       "description": "Email writing should route to chat"
     },
     {
       "id": "chat_writing_blog",
       "input": "Write a blog post about machine learning",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "writing",
       "description": "Blog writing should route to chat"
     },
     {
       "id": "chat_quick_search",
       "input": "What's the weather today in San Francisco?",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "search",
       "description": "Quick web search should route to chat"
     },
     {
       "id": "chat_simple_research",
       "input": "What are the latest AI developments?",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "search",
       "description": "Simple research question should route to chat"
     },
     {
       "id": "chat_browser_amazon",
       "input": "Go to amazon.com and find the price of iPhone 15",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "browser",
       "description": "Browser automation should route to chat (has browser tools)"
     },
     {
       "id": "chat_browser_form",
       "input": "Fill out the contact form on example.com with my details",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "browser",
       "description": "Form filling should route to chat"
     },
     {
       "id": "chat_browser_screenshot",
       "input": "Take a screenshot of google.com",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "browser",
       "description": "Screenshot should route to chat"
     },
     {
       "id": "chat_browser_click",
       "input": "Click the login button on that website",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "browser",
       "description": "Browser interaction should route to chat"
     },
@@ -132,49 +125,49 @@
     {
       "id": "data_csv_analyze",
       "input": "Analyze this CSV file and create visualizations of the sales trends",
-      "expected_agent": "data",
+      "expected_agent": "task",
       "category": "data",
-      "description": "CSV analysis with visualization should route to data agent"
+      "description": "CSV analysis with visualization should route to task agent (has data_analysis skill)"
     },
     {
       "id": "data_excel_process",
       "input": "Process this Excel file and find patterns in the customer data",
-      "expected_agent": "data",
+      "expected_agent": "task",
       "category": "data",
-      "description": "Excel processing should route to data agent"
+      "description": "Excel processing should route to task agent (has data_analysis skill)"
     },
     {
       "id": "data_statistics",
       "input": "Run statistical analysis on this dataset and calculate correlations",
-      "expected_agent": "data",
+      "expected_agent": "task",
       "category": "data",
-      "description": "Statistical analysis should route to data agent"
+      "description": "Statistical analysis should route to task agent (has data_analysis skill)"
     },
     {
       "id": "data_visualization",
       "input": "Create a dashboard with charts showing quarterly revenue breakdown",
-      "expected_agent": "data",
+      "expected_agent": "task",
       "category": "data",
-      "description": "Data visualization dashboard should route to data agent"
+      "description": "Data visualization dashboard should route to task agent (has data_analysis skill)"
     },
     {
       "id": "chat_math_simple",
       "input": "What is 25 times 48?",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "general",
       "description": "Simple math should route to chat"
     },
     {
       "id": "chat_translation",
       "input": "Translate 'Hello, how are you?' to Spanish",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "general",
       "description": "Translation should route to chat"
     },
     {
       "id": "chat_explanation",
       "input": "Explain how neural networks work",
-      "expected_agent": "chat",
+      "expected_agent": "task",
       "category": "general",
       "description": "Explanation requests should route to chat"
     }

@@ -11,26 +11,26 @@ from typing import Any
 from langchain_core.tools import BaseTool
 
 from app.agents.state import AgentType
-from app.agents.tools.handoff import get_handoff_tools_for_agent
-from app.agents.tools.web_search import web_search
+from app.agents.tools.app_builder import get_app_builder_tools
 from app.agents.tools.browser_use import (
-    browser_navigate,
-    browser_screenshot,
     browser_click,
-    browser_type,
-    browser_press_key,
-    browser_scroll,
     browser_get_stream_url,
+    browser_navigate,
+    browser_press_key,
+    browser_screenshot,
+    browser_scroll,
+    browser_type,
 )
+from app.agents.tools.code_execution import execute_code
+from app.agents.tools.handoff import get_handoff_tools_for_agent
+from app.agents.tools.hitl_tool import ask_user_tool
 from app.agents.tools.image_generation import generate_image
+from app.agents.tools.skill_invocation import get_skill_tools
 from app.agents.tools.slide_generation import generate_slides
 from app.agents.tools.vision import analyze_image
-from app.agents.tools.code_execution import execute_code
-from app.agents.tools.skill_invocation import get_skill_tools
-from app.agents.tools.hitl_tool import ask_user_tool
-from app.agents.tools.app_builder import get_app_builder_tools
-from app.sandbox import sandbox_file
+from app.agents.tools.web_search import web_search
 from app.core.logging import get_logger
+from app.sandbox import sandbox_file
 
 logger = get_logger(__name__)
 
@@ -79,7 +79,7 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
 
 # Define which tool categories each agent type can access
 AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
-    AgentType.CHAT.value: [
+    AgentType.TASK.value: [
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
         ToolCategory.SLIDES,
@@ -94,16 +94,6 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
         ToolCategory.BROWSER,
-        ToolCategory.SKILL,
-        ToolCategory.HANDOFF,
-        ToolCategory.HITL,  # For asking user for input/decisions
-    ],
-    # Data agent needs IMAGE for visualization generation and SEARCH for web data
-    AgentType.DATA.value: [
-        ToolCategory.SEARCH,  # For fetching web data for analysis
-        ToolCategory.IMAGE,   # For generating visualization images
-        ToolCategory.CODE_EXEC,
-        ToolCategory.DATA,
         ToolCategory.SKILL,
         ToolCategory.HANDOFF,
         ToolCategory.HITL,  # For asking user for input/decisions
@@ -133,7 +123,7 @@ def get_tools_for_agent(
     All tools are enabled - the LLM decides when to use them.
 
     Args:
-        agent_type: The agent type (e.g., "chat", "research")
+        agent_type: The agent type (e.g., "task", "research")
         include_handoffs: Whether to include handoff tools
 
     Returns:
@@ -236,9 +226,7 @@ def unregister_tool(category: ToolCategory, tool_name: str) -> bool:
         return False
 
     original_len = len(TOOL_CATALOG[category])
-    TOOL_CATALOG[category] = [
-        t for t in TOOL_CATALOG[category] if t.name != tool_name
-    ]
+    TOOL_CATALOG[category] = [t for t in TOOL_CATALOG[category] if t.name != tool_name]
 
     if len(TOOL_CATALOG[category]) < original_len:
         logger.info(
@@ -276,13 +264,9 @@ def get_tool_info() -> dict[str, Any]:
         Dict with registry state information
     """
     return {
-        "categories": {
-            cat.value: [t.name for t in tools]
-            for cat, tools in TOOL_CATALOG.items()
-        },
+        "categories": {cat.value: [t.name for t in tools] for cat, tools in TOOL_CATALOG.items()},
         "agent_mappings": {
-            agent: [cat.value for cat in cats]
-            for agent, cats in AGENT_TOOL_MAPPING.items()
+            agent: [cat.value for cat in cats] for agent, cats in AGENT_TOOL_MAPPING.items()
         },
         "total_tools": len(get_all_tools()),
     }

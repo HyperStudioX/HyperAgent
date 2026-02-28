@@ -1,123 +1,57 @@
 # HyperAgent
 
-AI-powered multi-agent platform with composable skills for chat, research, coding, data analysis, and more.
+> **Experimental** — This project is an exploration of multi-agent architectures, composable skill systems, and tool-calling workflows. It is under active development and not intended for production use. APIs, agent behaviors, and project structure may change without notice.
 
-## What is HyperAgent?
+An experimental multi-agent platform built with LangGraph for exploring AI agent orchestration, composable skills, and multi-provider LLM integration.
 
-HyperAgent is a **next-generation AI platform** that combines specialized agents with composable skills:
+## Architecture
 
-### 🤖 Multi-Agent System
+### Agents
 
-**Chat Agent (Primary)** — Handles most tasks with intelligent skill invocation:
-- Natural conversations with advanced LLMs
-- AI image generation (Gemini/DALL-E)
-- Content writing (emails, articles, documents)
-- Code generation and review
-- Presentation/slide generation (PPTX)
-- Quick web research
-- And much more...
+HyperAgent uses a hybrid architecture with two agents:
 
-**Research Agent** — Deep research workflows:
-- Comprehensive multi-source research
-- In-depth analysis and synthesis
-- Detailed reports with citations
-- Academic-level research papers
+- **Task Agent** — General-purpose agent handling most requests via a ReAct loop with tool calling. Supports modes: chat, data analysis, app building, image generation, slide creation, and browser automation.
+- **Research Agent** — Multi-step research with search, analysis, synthesis, and report writing. Used only for deep research requiring 10+ sources.
 
-**Data Agent** — Data analytics:
-- CSV/JSON/Excel processing
-- Statistical analysis
-- Data visualization and charting
-- Trend analysis and insights
+A supervisor routes requests to the appropriate agent based on query intent. The Task agent handles ~80% of requests by invoking skills and tools directly.
 
-**Computer Agent** — Browser automation:
-- Visual website interaction
-- Form filling and submission
-- Automated web scraping
-- Screenshot capture
+### Skills
 
-### 🛠️ Skills System
+Skills are composable LangGraph subgraphs invoked as tools via `invoke_skill`:
 
-Skills are composable LangGraph subgraphs that agents invoke as tools:
+`image_generation` · `code_generation` · `web_research` · `data_analysis` · `slide_generation` · `app_builder` · `task_planning`
 
-- **`image_generation`** - AI image generation
-- **`code_generation`** - Generate code snippets
-- **`code_review`** - Code analysis for bugs/style/security
-- **`web_research`** - Focused research with summarization
-- **`data_visualization`** - Generate visualization code
-- **`slide_generation`** - Create presentation slides (PPTX)
+### Tools
 
-Any agent can invoke any skill, making the system highly composable and extensible.
+Organized by category: search, image, browser automation (7 tools), code execution, file operations, app building, slide generation, skill invocation, and human-in-the-loop (`ask_user`).
 
-### 🧠 Context Compression
+### LLM Providers
 
-Intelligent context management for long conversations:
+Three built-in providers (Anthropic, OpenAI, Gemini) plus custom OpenAI-compatible providers (DeepSeek, Kimi, Qwen, MiniMax, Ollama, etc.) with three-tier model routing (MAX/PRO/FLASH) and per-task auto-selection.
 
-- **LLM-based Summarization** - Older messages summarized to preserve meaning
-- **Preserves Recent Context** - Keeps recent messages intact (configurable)
-- **Automatic Triggering** - Compresses when token threshold reached
-- **Fallback Safety** - Falls back to truncation if compression fails
+Includes `ThinkingAwareChatOpenAI` for providers with reasoning/thinking mode support — captures and replays `reasoning_content` for multi-turn tool-calling conversations.
 
-### 🛡️ Safety Guardrails
+### Sandbox
 
-Comprehensive safety scanning at multiple integration points:
+Dual sandbox providers for code execution, browser automation, and app hosting:
+- **E2B** — Cloud sandboxes (requires API key)
+- **BoxLite** — Local Docker-based sandboxes
 
-- **Input Scanning** - Prompt injection and jailbreak detection
-- **Output Scanning** - Toxicity, PII, and harmful content filtering
-- **Tool Scanning** - URL validation and code safety checks
+### Other Systems
 
-Powered by `llm-guard` with configurable violation actions (block, warn, log).
-
-### 🧪 Evaluation Framework
-
-Comprehensive testing framework for agent quality:
-
-- **Routing Accuracy** - Validates correct agent selection (≥90% threshold)
-- **Tool Selection** - Validates skill/tool usage (≥85% threshold)
-- **Response Quality** - LLM-as-judge evaluation (≥0.7 threshold)
-
-Mock LLMs enable deterministic testing. LangSmith integration for tracking.
-
-## Architecture Highlights
-
-- **Simplified Hybrid Architecture** - Chat agent handles 80%+ of requests using skills
-- **Composable Skills** - Reusable LangGraph subgraphs for focused tasks
-- **Specialized Agents** - Complex workflows handled by dedicated agents
-- **Context Compression** - LLM-based summarization for long conversations
-- **Safety Guardrails** - Multi-layer protection against harmful inputs/outputs
-- **Event Streaming** - Real-time SSE streaming for all operations
-- **Multi-Provider** - Supports Anthropic Claude, OpenAI GPT-4, Google Gemini
-
-## Key Features
-
-- ✅ Streaming responses with real-time updates
-- ✅ Multi-provider LLM support (Anthropic, OpenAI, Google)
-- ✅ Composable skills system for extensibility
-- ✅ Context compression for long conversations
-- ✅ Safety guardrails (prompt injection, toxicity, PII detection)
-- ✅ Agent evaluation framework with mock LLMs
-- ✅ File attachments with vision support
-- ✅ Browser automation with E2B Desktop
-- ✅ Code execution in secure sandboxes
-- ✅ Presentation generation with live slide preview
-- ✅ Human-in-the-loop for high-risk actions
-- ✅ Source tracking and citations
-- ✅ Clean, minimal interface
-- ✅ Internationalization (English, 中文)
-
-## Documentation
-
-- **[Agent System Design](docs/Agent-System-Design.md)** — Multi-agent system and skills architecture
-- **[Agent Evaluations](docs/Agent-Evals-Design.md)** — Evaluation framework and testing
-- **[Development Guide](docs/Development.md)** — Setup, tech stack, and API reference
-- **[Design Style Guide](docs/Design-Style-Guide.md)** — UI components, colors, and typography
+- **Context Compression** — LLM-based summarization when conversations exceed token thresholds
+- **Safety Guardrails** — Input/output/tool scanning via `llm-guard` (prompt injection, toxicity, PII, unsafe URLs/code)
+- **Human-in-the-Loop** — Redis pub/sub interrupts for user approval of high-risk actions
+- **Agent Handoff** — Task agent can delegate to Research agent (max 3 handoffs per request)
+- **Evaluation Framework** — Routing accuracy, tool selection, and response quality evals with mock LLMs
 
 ## Quick Start
 
 ### Backend (Python/FastAPI)
 ```bash
 cd backend
-uv sync                    # Install dependencies
-uv run alembic upgrade head # Run migrations
+uv sync
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -128,22 +62,20 @@ npm install
 npm run dev
 ```
 
-Visit `http://localhost:3000` to start using HyperAgent.
+Visit `http://localhost:5000` (frontend) with backend at `http://localhost:8080`.
 
 ## Tech Stack
 
-**Backend:**
-- FastAPI + LangGraph for multi-agent orchestration
-- PostgreSQL for persistence
-- Redis for caching, rate limiting, and HITL
-- E2B for code execution and browser automation
-- llm-guard for safety guardrails
+**Backend:** FastAPI, LangGraph, PostgreSQL, Redis, E2B/BoxLite sandboxes, llm-guard
 
-**Frontend:**
-- Next.js 16 (App Router)
-- React 18 with TypeScript
-- Zustand for state management
-- Radix UI + Tailwind CSS
+**Frontend:** Next.js 16 (App Router), React 18, TypeScript, Zustand, Radix UI, Tailwind CSS, next-intl (en, zh-CN)
+
+## Documentation
+
+- [Agent System Design](docs/Agent-System-Design.md) — Architecture, routing, skills, guardrails, HITL
+- [Agent Evaluations](docs/Agent-Evals-Design.md) — Evaluation framework and testing
+- [Development Guide](docs/Development.md) — Setup, environment variables, API reference
+- [Design Style Guide](docs/Design-Style-Guide.md) — UI components, colors, typography
 
 ## License
 

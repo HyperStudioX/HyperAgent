@@ -10,6 +10,7 @@ viewing.
 
 import asyncio
 import base64
+import shlex
 from typing import Literal
 
 from app.config import settings
@@ -249,16 +250,30 @@ class BoxLiteDesktopExecutor(BaseDesktopExecutor):
         if not self._box:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
-        result = await self._box.exec("bash", "-c", command)
-        return result.stdout, result.stderr, result.exit_code
+        try:
+            result = await asyncio.wait_for(
+                self._box.exec("bash", "-c", command),
+                timeout=timeout_ms / 1000,
+            )
+            return result.stdout, result.stderr, result.exit_code
+        except asyncio.TimeoutError:
+            logger.warning(
+                "boxlite_desktop_command_timeout",
+                command=command[:200],
+                timeout_ms=timeout_ms,
+                sandbox_id=self._sandbox_id,
+            )
+            return "", f"Command timed out after {timeout_ms}ms", 124
 
     async def extract_page_content(self, url: str, timeout_ms: int = 30000) -> str:
         if not self._box:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
+        # Sanitize the URL to prevent shell injection when embedded in the script
+        safe_url = shlex.quote(url)
+
         extract_script = f"""python3 -c "
-import urllib.request
-import html.parser
+import sys, urllib.request, html.parser
 
 class TextExtractor(html.parser.HTMLParser):
     def __init__(self):
@@ -280,7 +295,8 @@ class TextExtractor(html.parser.HTMLParser):
         return chr(10).join(self.text)
 
 try:
-    req = urllib.request.Request('{url}', headers={{'User-Agent': 'Mozilla/5.0'}})
+    target_url = sys.argv[1]
+    req = urllib.request.Request(target_url, headers={{'User-Agent': 'Mozilla/5.0'}})
     with urllib.request.urlopen(req, timeout=20) as response:
         html_content = response.read().decode('utf-8', errors='ignore')
     parser = TextExtractor()
@@ -288,7 +304,7 @@ try:
     print(parser.get_text())
 except Exception as e:
     print(f'Error: {{e}}')
-"
+" {safe_url}
 """
         try:
             stdout, stderr, exit_code = await self.run_command(extract_script, timeout_ms)

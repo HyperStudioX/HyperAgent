@@ -245,22 +245,6 @@ class TestSkillSelection:
 
         assert "code_generation" in skill_ids
 
-    @pytest.mark.asyncio
-    async def test_code_review_skill(self, mock_chat_agent):
-        """Test code review skill selection."""
-        result = await mock_chat_agent.process(
-            "Review this code for bugs: def add(a, b): return a + b"
-        )
-
-        skill_ids = [
-            tc["args"].get("skill_id")
-            for tc in result["tool_calls"]
-            if tc["name"] == "invoke_skill"
-        ]
-
-        assert "code_review" in skill_ids
-
-
 class TestToolSelectionEdgeCases:
     """Test edge cases for tool selection."""
 

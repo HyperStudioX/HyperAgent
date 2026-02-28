@@ -1,8 +1,8 @@
-# How the Chat Agent Decides to Invoke Tools or Skills
+# How the Task Agent Decides to Invoke Tools or Skills
 
 ## Overview
 
-The chat agent uses **LLM-based autonomous decision-making** to choose between tools and skills. The decision is not hardcoded but emerges from:
+The task agent uses **LLM-based autonomous decision-making** to choose between tools and skills. The decision is not hardcoded but emerges from:
 
 1. **System prompt guidance** - Instructions on when to use what
 2. **Tool descriptions** - LangChain tool schemas that the LLM sees
@@ -13,11 +13,11 @@ The chat agent uses **LLM-based autonomous decision-making** to choose between t
 
 ### Step 1: Tool Binding
 
-**Location**: `backend/app/agents/subagents/chat.py` (reason_node)
+**Location**: `backend/app/agents/subagents/task.py` (reason_node)
 
 ```python
-# Get all tools for chat agent
-all_tools = get_tools_for_agent("chat", include_handoffs=True)
+# Get all tools for task agent
+all_tools = get_tools_for_agent("task", include_handoffs=True)
 
 # Bind tools to LLM
 llm_with_tools = llm.bind_tools(all_tools) if all_tools else llm
@@ -54,11 +54,11 @@ You have access to specialized skills via invoke_skill and list_skills:
 Available skills include:
 - web_research: Focused web research with source summarization
 - code_generation: Generate code snippets for specific tasks
-- code_review: Review code for bugs, style issues, and security vulnerabilities
 - image_generation: Generate AI images from text descriptions
-- data_visualization: Create data visualizations and charts
+- data_analysis: Full data analysis with planning, code execution, and summarization
 - task_planning: Analyze complex tasks and create structured execution plans
 - slide_generation: Create professional PPTX presentations with research and structured outlines
+- app_builder: Build and run web applications with live preview
 
 When to use skills:
 - Use list_skills first to discover available skills and their parameters
@@ -101,9 +101,9 @@ async def invoke_skill(
     ...
 ) -> str:
     """Invoke a registered skill to perform a specialized task.
-    
+
     Skills are composable subgraphs that provide focused capabilities like
-    web research, code review, data visualization, and more. Each skill has
+    web research, data analysis, app building, and more. Each skill has
     its own input requirements and output format.
     
     To see available skills and their parameters, list them first or check
@@ -179,7 +179,7 @@ LLM Reasoning:
 
 **Examples**:
 - `invoke_skill("web_research", {"topic": "AI trends"})` - Research with analysis
-- `invoke_skill("code_review", {"code": "..."})` - Code review with structured feedback
+- `invoke_skill("data_analysis", {"query": "Summarize trends in this CSV"})` - Data analysis with code execution
 - `invoke_skill("app_builder", {"description": "todo app"})` - Multi-step app building
 - `invoke_skill("slide_generation", {"topic": "AI trends"})` - Presentation generation
 
@@ -198,17 +198,17 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
 }
 
 # Chat agent gets all tools from allowed categories
-def get_tools_for_agent("chat", include_handoffs=True) -> list[BaseTool]:
+def get_tools_for_agent("task", include_handoffs=True) -> list[BaseTool]:
     # Returns: [web_search, execute_code, invoke_skill, list_skills, ...]
 ```
 
 ### 2. Tool Binding to LLM
 
 ```python
-# backend/app/agents/subagents/chat.py (reason_node)
+# backend/app/agents/subagents/task.py (reason_node)
 
 # Get all tools
-all_tools = get_tools_for_agent("chat", include_handoffs=True)
+all_tools = get_tools_for_agent("task", include_handoffs=True)
 # all_tools = [web_search, execute_code, invoke_skill, list_skills, ...]
 
 # Bind to LLM
@@ -222,7 +222,7 @@ ai_message = await llm_with_tools.ainvoke(lc_messages)
 ### 3. Tool Execution
 
 ```python
-# backend/app/agents/subagents/chat.py (act_node)
+# backend/app/agents/subagents/task.py (act_node)
 
 # Get tool map
 tool_map = {tool.name: tool for tool in all_tools}
@@ -274,17 +274,17 @@ for tool_call in ai_message.tool_calls:
 
 **Result**: Code execution output
 
-### Example 4: Code Review → Skill
+### Example 4: Data Analysis → Skill
 
-**User Query**: "Review this code for bugs and security issues"
+**User Query**: "Analyze this CSV and tell me the key trends"
 
 **LLM Decision Process**:
-1. Code review task requiring structured analysis
-2. System prompt: "code_review: Review code for bugs, style issues, and security vulnerabilities"
-3. This needs structured feedback, not just execution
-4. **Decision**: Call `invoke_skill("code_review", {"code": "..."})`
+1. Data analysis task requiring planning, code execution, and synthesis
+2. System prompt: "data_analysis: Full data analysis with planning, code execution, and summarization"
+3. This needs a multi-step workflow, not just code execution
+4. **Decision**: Call `invoke_skill("data_analysis", {"query": "Analyze key trends", "attachment_ids": [...]})`
 
-**Result**: Structured review with categories (bugs, style, security)
+**Result**: Structured analysis with findings, code, and visualizations
 
 ### Example 5: Image Generation → Skill (via mode)
 
@@ -302,7 +302,7 @@ for tool_call in ai_message.tool_calls:
 The agent can receive mode hints that influence decisions:
 
 ```python
-# backend/app/agents/subagents/chat.py (reason_node)
+# backend/app/agents/subagents/task.py (reason_node)
 
 if mode == "image":
     enhanced_query = f"Generate an image based on this description: {query}\n\nUse the image_generation skill to create the image."
@@ -347,7 +347,7 @@ To improve how the agent decides between tools and skills:
 
 ## Summary
 
-The chat agent decides between tools and skills through:
+The task agent decides between tools and skills through:
 
 1. **LLM-based autonomous decision-making** - No hardcoded rules
 2. **System prompt guidance** - Instructions on when to use what

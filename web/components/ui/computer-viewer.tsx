@@ -12,10 +12,10 @@ type ViewerSize = "small" | "medium" | "large";
 // E2B Desktop default resolution is 1024x768 (4:3 aspect ratio)
 const E2B_RESOLUTION = { width: 1024, height: 768 };
 
-const SIZE_CONFIG: Record<ViewerSize, { width: number; height: number }> = {
-    small: { width: 384, height: 288 },   // 384/288 = 1.33
-    medium: { width: 512, height: 384 },  // 512/384 = 1.33
-    large: { width: 640, height: 480 },   // 640/480 = 1.33
+const SIZE_CONFIG: Record<ViewerSize, { width: number }> = {
+    small: { width: 384 },
+    medium: { width: 512 },
+    large: { width: 640 },
 };
 
 interface ComputerViewerProps {
@@ -48,22 +48,19 @@ export function ComputerViewer({
     const fullscreenIframeRef = useRef<HTMLIFrameElement>(null);
     const normalIframeRef = useRef<HTMLIFrameElement>(null);
 
-    // Send auth key to iframe via postMessage after load instead of URL param
+    // Send auth key to iframe via postMessage after load.
+    // We use "*" as targetOrigin because the iframe sandbox omits allow-same-origin,
+    // giving the iframe an opaque (null) origin that cannot be matched by a specific origin string.
     const handleIframeLoad = useCallback(
         (iframeRef: React.RefObject<HTMLIFrameElement | null>) => {
             if (stream.authKey && iframeRef.current?.contentWindow) {
-                try {
-                    const targetOrigin = new URL(stream.streamUrl).origin;
-                    iframeRef.current.contentWindow.postMessage(
-                        { type: "auth", authKey: stream.authKey },
-                        targetOrigin
-                    );
-                } catch {
-                    // URL parsing failed — skip postMessage
-                }
+                iframeRef.current.contentWindow.postMessage(
+                    { type: "auth", authKey: stream.authKey },
+                    "*"
+                );
             }
         },
-        [stream.authKey, stream.streamUrl]
+        [stream.authKey]
     );
 
     const handleOpenExternal = () => {
@@ -73,15 +70,15 @@ export function ComputerViewer({
 
     if (isFullscreen) {
         return (
-            <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+            <div className="fixed inset-0 z-[100] bg-background flex flex-col pt-safe pb-safe pl-safe pr-safe">
                 {/* Fullscreen header */}
-                <div className="flex items-center justify-between px-4 h-12 bg-black/80 border-b border-white/10">
+                <div className="flex items-center justify-between px-4 h-12 bg-card/95 backdrop-blur-sm border-b border-border">
                     <div className="flex items-center gap-3">
-                        <Monitor className="w-4 h-4 text-white" />
-                        <span className="text-sm font-medium text-white">
+                        <Monitor className="w-4 h-4 text-foreground" />
+                        <span className="text-sm font-medium text-foreground">
                             {t("liveBrowser")}
                         </span>
-                        <span className="text-xs text-white/60">
+                        <span className="text-xs text-muted-foreground">
                             {stream.sandboxId.slice(0, 8)}...
                         </span>
                     </div>
@@ -89,7 +86,7 @@ export function ComputerViewer({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-white hover:bg-white/10"
+                            className="h-8 w-8 text-foreground hover:bg-accent"
                             onClick={handleOpenExternal}
                             title={tc("openInNewTab")}
                         >
@@ -98,7 +95,7 @@ export function ComputerViewer({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-white hover:bg-white/10"
+                            className="h-8 w-8 text-foreground hover:bg-accent"
                             onClick={() => setIsFullscreen(false)}
                             title={tc("exitFullscreen")}
                         >
@@ -108,7 +105,7 @@ export function ComputerViewer({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-white hover:bg-white/10"
+                                className="h-8 w-8 text-foreground hover:bg-accent"
                                 onClick={onClose}
                                 title={tc("close")}
                             >
@@ -124,7 +121,7 @@ export function ComputerViewer({
                         ref={fullscreenIframeRef}
                         src={streamUrl}
                         className="w-full h-full border-0"
-                        sandbox="allow-scripts allow-same-origin allow-popups allow-pointer-lock"
+                        sandbox="allow-scripts allow-popups allow-pointer-lock"
                         allow="autoplay; fullscreen"
                         referrerPolicy="no-referrer"
                         onLoad={() => handleIframeLoad(fullscreenIframeRef)}
@@ -156,7 +153,7 @@ export function ComputerViewer({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7"
+                            className="h-9 w-9"
                             onClick={handleOpenExternal}
                             title={tc("openInNewTab")}
                         >
@@ -165,10 +162,10 @@ export function ComputerViewer({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7"
+                            className="h-9 w-9"
                             onClick={() => setIsFullscreen(true)}
                             title={tc("fullscreen")}
-                            aria-expanded={isFullscreen}
+                            aria-pressed={isFullscreen}
                         >
                             <Maximize2 className="w-3.5 h-3.5" />
                         </Button>
@@ -176,7 +173,7 @@ export function ComputerViewer({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-7 w-7"
+                                className="h-9 w-9"
                                 onClick={() => setIsExpanded(!isExpanded)}
                                 title={isExpanded ? tc("collapse") : tc("expand")}
                             >
@@ -191,7 +188,7 @@ export function ComputerViewer({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-7 w-7"
+                                className="h-9 w-9"
                                 onClick={onClose}
                                 title={tc("close")}
                             >
@@ -206,7 +203,7 @@ export function ComputerViewer({
             {isExpanded && (
                 <div className="px-2 pb-2">
                     <div
-                        className="rounded-md overflow-hidden border border-border bg-black mx-auto"
+                        className="rounded-md overflow-hidden border border-border bg-muted mx-auto"
                         style={{
                             width: '100%',
                             maxWidth: `${sizeConfig.width}px`,
@@ -220,7 +217,7 @@ export function ComputerViewer({
                             style={{
                                 display: 'block',
                             }}
-                            sandbox="allow-scripts allow-same-origin allow-popups allow-pointer-lock"
+                            sandbox="allow-scripts allow-popups allow-pointer-lock"
                             allow="autoplay; fullscreen"
                             referrerPolicy="no-referrer"
                             onLoad={() => handleIframeLoad(normalIframeRef)}

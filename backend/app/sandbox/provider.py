@@ -56,15 +56,23 @@ def _check_e2b_available(sandbox_type: str) -> tuple[bool, str]:
 
 
 def _check_boxlite_available(sandbox_type: str) -> tuple[bool, str]:
-    """Check BoxLite provider availability."""
+    """Check BoxLite provider availability (import + Docker binary)."""
+    import shutil
+
     try:
         import boxlite  # noqa: F401
-
-        return True, ""
     except ImportError:
         return False, (
             "BoxLite not installed. Install with: pip install 'hyperagent-api[local-sandbox]'"
         )
+
+    # Verify Docker binary is available on PATH
+    if shutil.which("docker") is None:
+        return False, (
+            "Docker not found on PATH. BoxLite requires Docker to be installed and available."
+        )
+
+    return True, ""
 
 
 def create_code_executor(**kwargs) -> BaseCodeExecutor:

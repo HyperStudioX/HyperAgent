@@ -31,6 +31,22 @@ class ImageGenerationService:
         """Check if model is a Gemini model (vs Imagen)."""
         return model.startswith("gemini-")
 
+    def _resolve_image_model(self, provider: str) -> str:
+        """Resolve the image generation model for a given provider."""
+        # Built-in providers
+        if provider == "gemini":
+            return settings.image_gen_model_gemini
+        if provider == "openai":
+            return settings.image_gen_model_openai
+        # Custom providers
+        from app.core.provider_registry import provider_registry
+
+        custom = provider_registry.get_custom(provider)
+        if custom and custom.image_model:
+            return custom.image_model
+        # Fallback to gemini default
+        return settings.image_gen_model_gemini
+
     def detect_provider(self, model: str) -> ImageProvider:
         """Detect which provider to use based on model name.
 
@@ -56,7 +72,7 @@ class ImageGenerationService:
             return ImageProvider.OPENAI
 
         # Fall back to default provider
-        default = getattr(settings, "image_gen_default_provider", "gemini")
+        default = settings.image_model_provider or settings.default_provider
         return ImageProvider.OPENAI if default == "openai" else ImageProvider.GEMINI
 
     def _map_to_openai_size(self, size: str) -> str:
@@ -85,7 +101,18 @@ class ImageGenerationService:
             return "1024x1792"
 
     # Supported aspect ratios for Gemini image generation
-    SUPPORTED_ASPECT_RATIOS = {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+    SUPPORTED_ASPECT_RATIOS = {
+        "1:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "4:5",
+        "5:4",
+        "9:16",
+        "16:9",
+        "21:9",
+    }
 
     def _parse_aspect_ratio(self, size: str) -> str:
         """Parse size string to supported aspect ratio."""
@@ -97,6 +124,7 @@ class ImageGenerationService:
 
         # Calculate GCD for simplified ratio
         from math import gcd
+
         divisor = gcd(width, height)
         ratio = f"{width // divisor}:{height // divisor}"
 
@@ -371,7 +399,8 @@ class ImageGenerationService:
             List of generated images
         """
         if model is None:
-            model = settings.image_gen_model
+            img_provider = settings.image_model_provider or settings.default_provider
+            model = self._resolve_image_model(img_provider)
         if safety_filter is None:
             safety_filter = settings.image_gen_safety_filter
         if quality is None:

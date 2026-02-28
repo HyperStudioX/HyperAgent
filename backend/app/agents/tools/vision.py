@@ -9,8 +9,9 @@ import httpx
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.core.logging import get_logger
 from app.ai.vision import vision_service
+from app.core.logging import get_logger
+from app.guardrails.scanners.tool_scanner import tool_scanner
 
 logger = get_logger(__name__)
 
@@ -66,7 +67,23 @@ def _is_url(s: str) -> bool:
 
 
 async def _fetch_image_as_base64(url: str) -> str:
-    """Fetch an image from URL and return as base64 using pooled HTTP client."""
+    """Fetch an image from URL and return as base64 using pooled HTTP client.
+
+    Validates the URL scheme and runs guardrail scanning to prevent SSRF
+    attacks (e.g., accessing cloud metadata endpoints at 169.254.169.254).
+    """
+    # Validate URL scheme and netloc
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid URL scheme: {parsed.scheme}. Only http/https allowed.")
+    if not parsed.netloc:
+        raise ValueError("Invalid URL: missing host.")
+
+    # Run guardrail scanner to block internal/dangerous URLs
+    scan_result = await tool_scanner.scan("analyze_image", {"url": url})
+    if not scan_result.passed:
+        raise ValueError(f"URL blocked by security scan: {scan_result.reason}")
+
     client = await get_http_client()
     response = await client.get(url)
     response.raise_for_status()

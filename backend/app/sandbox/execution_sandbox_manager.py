@@ -5,8 +5,9 @@ sharing across multiple tool calls within the same user/task context.
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.config import settings
@@ -24,6 +25,14 @@ def get_default_execution_session_timeout() -> timedelta:
 # Cleanup interval for expired sessions (60 seconds)
 CLEANUP_INTERVAL_SECONDS = 60
 
+# Skip health checks if last successful check was less than this many seconds ago
+HEALTH_CHECK_SKIP_SECONDS = 30
+
+
+def _utcnow() -> datetime:
+    """Return the current UTC time as a timezone-aware datetime."""
+    return datetime.now(timezone.utc)
+
 
 @dataclass
 class ExecutionSandboxSession:
@@ -31,9 +40,12 @@ class ExecutionSandboxSession:
 
     executor: BaseCodeExecutor
     session_key: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_accessed: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utcnow)
+    last_accessed: datetime = field(default_factory=_utcnow)
     timeout: timedelta = field(default_factory=get_default_execution_session_timeout)
+
+    # Timestamp of last successful health check (monotonic clock)
+    last_health_check: float = 0.0
 
     @property
     def sandbox_id(self) -> str | None:
@@ -45,11 +57,11 @@ class ExecutionSandboxSession:
     @property
     def is_expired(self) -> bool:
         """Check if the session has expired."""
-        return datetime.utcnow() > (self.last_accessed + self.timeout)
+        return datetime.now(timezone.utc) > (self.last_accessed + self.timeout)
 
     def touch(self) -> None:
         """Update last accessed time to prevent expiry."""
-        self.last_accessed = datetime.utcnow()
+        self.last_accessed = datetime.now(timezone.utc)
 
 
 class ExecutionSandboxManager:
@@ -61,7 +73,14 @@ class ExecutionSandboxManager:
     """
 
     _instance: "ExecutionSandboxManager | None" = None
-    _lock: asyncio.Lock = asyncio.Lock()
+    _lock: "asyncio.Lock | None" = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """Lazily create the class-level lock to avoid binding to wrong event loop."""
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     def __init__(self) -> None:
         """Initialize the execution sandbox manager."""
@@ -194,6 +213,9 @@ class ExecutionSandboxManager:
     async def _is_sandbox_healthy(self, session: ExecutionSandboxSession) -> bool:
         """Check if a sandbox session is still healthy and responsive.
 
+        Skips the actual health check command if the last successful check
+        was less than HEALTH_CHECK_SKIP_SECONDS ago.
+
         Args:
             session: The session to check
 
@@ -203,6 +225,15 @@ class ExecutionSandboxManager:
         if not session.executor.sandbox_id:
             return False
 
+        # Skip health check if last successful check was recent
+        now = time.monotonic()
+        recently_checked = (
+            session.last_health_check > 0
+            and (now - session.last_health_check) < HEALTH_CHECK_SKIP_SECONDS
+        )
+        if recently_checked:
+            return True
+
         try:
             # Perform a lightweight health check by running a simple command
             runtime = session.executor.get_runtime()
@@ -210,7 +241,10 @@ class ExecutionSandboxManager:
                 "echo 'health_check'",
                 timeout=5,
             )
-            return result.exit_code == 0 and "health_check" in result.stdout
+            healthy = result.exit_code == 0 and "health_check" in result.stdout
+            if healthy:
+                session.last_health_check = now
+            return healthy
         except Exception as e:
             self._health_check_failures += 1
             logger.warning(
@@ -243,30 +277,40 @@ class ExecutionSandboxManager:
     async def _cleanup_session_internal(self, session_key: str) -> bool:
         """Internal cleanup method (assumes lock is held).
 
+        Attempts to kill the sandbox first, then removes from the session dict.
+        On kill failure the session is still removed to avoid infinite retry,
+        but an ERROR is logged indicating the sandbox may be leaked.
+
         Args:
             session_key: Session key to clean up
 
         Returns:
             True if session was cleaned up, False if not found
         """
-        session = self._sessions.pop(session_key, None)
-        if session:
-            try:
-                await session.executor.cleanup()
-                self._total_cleaned += 1
-                logger.info(
-                    "execution_sandbox_session_cleaned",
-                    session_key=session_key,
-                    sandbox_id=session.sandbox_id,
-                )
-                return True
-            except Exception as e:
-                logger.warning(
-                    "execution_sandbox_session_cleanup_failed",
-                    session_key=session_key,
-                    error=str(e),
-                )
-        return False
+        session = self._sessions.get(session_key)
+        if session is None:
+            return False
+
+        try:
+            await session.executor.cleanup()
+            self._total_cleaned += 1
+            logger.info(
+                "execution_sandbox_session_cleaned",
+                session_key=session_key,
+                sandbox_id=session.sandbox_id,
+            )
+        except Exception as e:
+            self._total_cleaned += 1
+            logger.error(
+                "execution_sandbox_session_cleanup_failed_sandbox_may_be_leaked",
+                session_key=session_key,
+                sandbox_id=session.sandbox_id,
+                error=str(e),
+            )
+        finally:
+            self._sessions.pop(session_key, None)
+
+        return True
 
     async def cleanup_expired(self) -> int:
         """Clean up all expired sessions.
@@ -304,6 +348,10 @@ class ExecutionSandboxManager:
 
         if self._cleanup_task:
             self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
             self._cleanup_task = None
 
         logger.info("execution_all_sessions_cleaned", count=cleaned)

@@ -99,7 +99,10 @@ async def write_file(
             # Text content
             file_content = content.encode("utf-8") if isinstance(content, str) else content
 
-        # Ensure parent directory exists
+        # Ensure parent directory exists.
+        # This is required for E2B sandboxes whose write_file() does NOT
+        # create parent directories automatically.  For BoxLite sandboxes
+        # this is a harmless no-op (mkdir -p on an existing dir succeeds).
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
             await sandbox.run_command(f"mkdir -p {shlex.quote(parent_dir)}", timeout=10)
@@ -153,8 +156,17 @@ async def list_directory(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
         entries = []
         lines = (result.stdout or "").strip().split("\n")
         for line in lines[1:]:  # Skip the "total" line
-            parts = line.split(None, 8)
-            if len(parts) >= 9:
+            if not line.strip():
+                continue
+            try:
+                parts = line.split(None, 8)
+                if len(parts) < 9:
+                    logger.debug(
+                        "sandbox_list_directory_skipping_line",
+                        line=line[:200],
+                        reason="fewer than 9 fields",
+                    )
+                    continue
                 entry = {
                     "permissions": parts[0],
                     "links": parts[1],
@@ -166,6 +178,13 @@ async def list_directory(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
                     "is_directory": parts[0].startswith("d"),
                 }
                 entries.append(entry)
+            except (ValueError, IndexError) as e:
+                logger.warning(
+                    "sandbox_list_directory_parse_error",
+                    line=line[:200],
+                    error=str(e),
+                )
+                continue
 
         # Get modification timestamps using stat for all entries
         if entries:

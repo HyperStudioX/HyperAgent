@@ -15,23 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.db.models import Conversation, ConversationMessage
 from app.db.models import File as FileModel
-from app.models.schemas import LLMProvider
 from app.services.file_storage import file_storage_service
 
 logger = get_logger(__name__)
 
 
-def get_default_model(provider: LLMProvider) -> str:
-    """Get default model for a provider."""
-    defaults = {
-        LLMProvider.ANTHROPIC: "claude-sonnet-4-20250514",
-        LLMProvider.OPENAI: "gpt-4o",
-        LLMProvider.GEMINI: "gemini-2.5-flash",
-    }
-    return defaults.get(provider, "claude-sonnet-4-20250514")
-
-
-CHAT_SYSTEM_PROMPT = """You are HyperAgent, a helpful AI assistant. You are designed to help users with various tasks including coding, research, analysis, and general questions.
+TASK_SYSTEM_PROMPT = """You are HyperAgent, a versatile AI assistant and general-purpose task handler. You help users accomplish a wide range of tasks including coding, research, analysis, and general questions.
 
 You have access to a web search tool that you can use to find current information when needed. Use it when:
 - The user asks about recent events or news

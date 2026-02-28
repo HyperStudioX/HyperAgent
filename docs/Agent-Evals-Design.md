@@ -50,17 +50,17 @@ make eval-langsmith
 
 ### 1. Routing Accuracy
 
-Tests whether the supervisor correctly routes queries to the appropriate agent (chat, research, or data).
+Tests whether the supervisor correctly routes queries to the appropriate agent (task or research).
 
 **Test Categories:**
-- General conversation → Chat Agent
-- Image generation → Chat Agent (uses `image_generation` skill)
-- Slide/presentation generation → Chat Agent (uses `slide_generation` skill / `generate_slides` tool)
-- Code tasks → Chat Agent (uses `code_generation`/`code_review` skills)
-- Writing tasks → Chat Agent (handled directly by LLM)
-- Browser automation → Chat Agent (uses browser tools)
+- General conversation → Task Agent
+- Image generation → Task Agent (uses `image_generation` skill)
+- Slide/presentation generation → Task Agent (uses `slide_generation` skill / `generate_slides` tool)
+- Code tasks → Task Agent (uses `code_generation` skill)
+- Writing tasks → Task Agent (handled directly by LLM)
+- Browser automation → Task Agent (uses browser tools)
+- Data analytics → Task Agent (uses `data_analysis` skill)
 - Comprehensive research → Research Agent
-- Data analytics → Data Agent
 
 **Success Criteria:** ≥ 90% accuracy
 
@@ -262,7 +262,7 @@ Edit `backend/evals/datasets/routing.json`:
     {
       "id": "unique_test_id",
       "input": "User query to test",
-      "expected_agent": "chat|research|data",
+      "expected_agent": "task|research",
       "category": "general|code|image|research|data",
       "description": "What this test validates"
     }

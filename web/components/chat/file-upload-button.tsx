@@ -28,10 +28,11 @@ export function AttachmentButton({
     const handleClick = () => {
         if (buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect();
-            setMenuPosition({
-                top: rect.top - 320, // Menu height is ~320px
-                left: rect.left,
-            });
+            const menuHeight = 320;
+            // Position above button, but clamp to viewport
+            const top = Math.max(8, rect.top - menuHeight);
+            const left = Math.max(8, Math.min(rect.left, window.innerWidth - 280));
+            setMenuPosition({ top, left });
         }
         setIsMenuOpen(true);
     };

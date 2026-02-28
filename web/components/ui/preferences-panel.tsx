@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
-import { Sun, Moon, Globe, Monitor, ChevronUp } from "lucide-react";
+import { Sun, Moon, Globe, Monitor, ChevronUp, Cpu, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 interface PreferencesPanelProps {
   theme: "light" | "dark" | "auto";
@@ -29,6 +30,24 @@ export function PreferencesPanel({
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const {
+    provider,
+    setProvider,
+    tier,
+    setTier,
+    availableProviders,
+    providersLoaded,
+    loadProviders,
+  } = useSettingsStore();
+  const tSettings = useTranslations("settings");
+
+  // Load providers on mount
+  useEffect(() => {
+    if (!providersLoaded) {
+      loadProviders();
+    }
+  }, [providersLoaded, loadProviders]);
 
   const handleLocaleChange = (newLocale: string) => {
     document.cookie = `locale=${newLocale};path=/;max-age=31536000`;
@@ -91,6 +110,68 @@ export function PreferencesPanel({
             "overflow-hidden"
           )}
         >
+          {/* Provider */}
+          {availableProviders.length > 1 && (
+            <div className="p-2.5 border-b border-border">
+              <div className="px-1 py-1 mb-1">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t("provider")}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {availableProviders.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setProvider(p.id)}
+                    className={cn(
+                      "flex-1 min-w-0 h-9 px-2 rounded-lg flex items-center justify-center gap-1.5",
+                      "text-xs font-medium transition-colors",
+                      "cursor-pointer",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                      provider === p.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Cpu className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{p.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Model Tier */}
+          <div className="p-2.5 border-b border-border">
+            <div className="px-1 py-1 mb-1">
+              <span className="text-xs font-medium text-muted-foreground">
+                {tSettings("modelTier")}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(["auto", "max", "pro", "flash"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTier(t)}
+                  className={cn(
+                    "flex-1 min-w-0 h-9 px-2 rounded-lg flex items-center justify-center gap-1.5",
+                    "text-xs font-medium transition-colors",
+                    "cursor-pointer",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    tier === t
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {t === "auto" ? tSettings("autoTier") : t.charAt(0).toUpperCase() + t.slice(1)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Theme */}
           <div className="p-2.5 border-b border-border">
             <div className="px-1 py-1 mb-1">

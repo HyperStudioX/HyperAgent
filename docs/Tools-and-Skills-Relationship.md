@@ -1,305 +1,357 @@
-# Tools and Skills Relationship During Agent Execution
+# Tools and Skills Relationship
 
-## Executive Summary
+## Overview
 
-**Tools** and **Skills** are two complementary layers in HyperAgent's architecture:
+HyperAgent has two complementary capability layers:
 
-- **Tools** are atomic, single-purpose functions that agents call directly (e.g., `web_search`, `execute_code`, `browser_navigate`)
-- **Skills** are composable LangGraph subgraphs that agents invoke via the `invoke_skill` tool, which then orchestrate multiple steps internally using services (not tools)
-
-The key relationship: **Agents use Tools → Skills are invoked via Tools → Skills use Services (not Tools)**
-
-## Architecture Overview
+- **Tools** are atomic LangChain `BaseTool` instances that agents bind to their LLM and invoke via tool-calling. Each tool does one thing (search, execute code, navigate browser).
+- **Skills** are multi-step LangGraph subgraphs that orchestrate complex workflows. Agents invoke skills through the `invoke_skill` tool, which bridges the two systems.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Agent (Chat/Research/Data)                │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  ReAct Loop: reason → act → reason → ... → finalize  │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            │ Has access to Tools
-                            ▼
-        ┌───────────────────────────────────────┐
-        │         Tool Registry                  │
-        │  ┌─────────────────────────────────┐  │
-        │  │ Direct Tools:                   │  │
-        │  │ - web_search                    │  │
-        │  │ - execute_code                  │  │
-        │  │ - browser_navigate              │  │
-        │  │ - generate_image                │  │
-        │  │ - generate_slides               │  │
-        │  │ - analyze_image                 │  │
-        │  │ - ask_user (HITL)               │  │
-        │  │ - handoff_to_* (agent routing)  │  │
-        │  └─────────────────────────────────┘  │
-        │  ┌─────────────────────────────────┐  │
-        │  │ Skill Invocation Tools:          │  │
-        │  │ - invoke_skill                  │  │
-        │  │ - list_skills                  │  │
-        │  └─────────────────────────────────┘  │
-        └───────────────────────────────────────┘
-                            │
-                            │ invoke_skill(skill_id, params)
-                            ▼
-        ┌───────────────────────────────────────┐
-        │      Skill Executor                   │
-        │  ┌─────────────────────────────────┐  │
-        │  │ Skill Registry                  │  │
-        │  │ - web_research                  │  │
-        │  │ - code_review                  │  │
-        │  │ - app_builder                  │  │
-        │  │ - image_generation             │  │
-        │  │ - data_visualization           │  │
-        │  │ - task_planning                │  │
-        │  │ - slide_generation             │  │
-        │  └─────────────────────────────────┘  │
-        └───────────────────────────────────────┘
-                            │
-                            │ Executes LangGraph subgraph
-                            ▼
-        ┌───────────────────────────────────────┐
-        │         Skill Implementation          │
-        │  ┌─────────────────────────────────┐  │
-        │  │ Uses Services (NOT Tools):      │  │
-        │  │ - search_service               │  │
-        │  │ - llm_service                  │  │
-        │  │ - app_sandbox_manager          │  │
-        │  │ - (other backend services)      │  │
-        │  └─────────────────────────────────┘  │
-        └───────────────────────────────────────┘
+Agent (Task / Research)
+  │
+  │  LLM selects tool via tool-calling
+  ▼
+Tool Registry (TOOL_CATALOG)
+  ├── Direct tools: web_search, execute_code, browser_*, generate_image, ...
+  ├── App builder tools: create_app_project, app_write_file, ...
+  ├── Skill bridge: invoke_skill, list_skills
+  ├── HITL: ask_user
+  └── Handoff: handoff_to_research (dynamic)
+        │
+        │  invoke_skill("data_analysis", {...})
+        ▼
+Skill Executor → SkillRegistry → Skill.create_graph()
+  │
+  │  Skill nodes execute internally
+  ▼
+Backend Services: llm_service, search_service, sandbox_manager, ...
 ```
 
-## Detailed Relationship Analysis
+---
 
-### 1. Tools: Direct Agent Capabilities
+## A. Tool System
 
-**Location**: `backend/app/agents/tools/`
+### Tool Catalog
 
-**Characteristics**:
-- Atomic, single-purpose functions
-- Directly callable by agents via LangChain tool binding
-- Organized by categories (SEARCH, IMAGE, BROWSER, CODE_EXEC, SKILL, HANDOFF, HITL)
-- Each agent type has access to specific tool categories
+All tools are registered in `backend/app/agents/tools/registry.py`:
 
-**Tool Categories**:
+| Category | Tools | Module |
+|----------|-------|--------|
+| **SEARCH** | `web_search` | `tools/web_search.py` |
+| **IMAGE** | `generate_image`, `analyze_image` | `tools/image_generation.py`, `tools/vision.py` |
+| **SLIDES** | `generate_slides` | `tools/slide_generation.py` |
+| **BROWSER** | `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_get_stream_url` | `tools/browser_use.py` |
+| **CODE_EXEC** | `execute_code` | `tools/code_execution.py` |
+| **DATA** | `sandbox_file` | `sandbox/__init__.py` |
+| **APP_BUILDER** | `create_app_project`, `app_start_server`, `app_run_command`, `app_install_packages`, `app_get_preview_url` | `tools/app_builder.py` |
+| **SKILL** | `invoke_skill`, `list_skills` | `tools/skill_invocation.py` |
+| **HITL** | `ask_user` | `tools/hitl_tool.py` |
+| **HANDOFF** | `handoff_to_research` (dynamic per agent) | `tools/handoff.py` |
+
+### Agent Tool Access
+
+Each agent type gets a subset of categories via `AGENT_TOOL_MAPPING`:
+
+| Agent | Categories |
+|-------|-----------|
+| **Task** | SEARCH, IMAGE, SLIDES, BROWSER, CODE_EXEC, APP_BUILDER, SKILL, HANDOFF, HITL |
+| **Research** | SEARCH, IMAGE, BROWSER, SKILL, HANDOFF, HITL |
+
+Key: Research agent has no CODE_EXEC, DATA, APP_BUILDER, or SLIDES access.
+
+### Tool Execution Pipeline
+
+All tool calls go through the unified pipeline in `tools/tool_pipeline.py`:
+
+```
+1. before_execution()     ← HITL approval, guardrail scan, ask_user handling
+2. inject_tool_context()  ← Add user_id/task_id to tool args
+3. on_tool_call()         ← Emit tool_call event to frontend
+4. tool.ainvoke(args)     ← Actual tool execution (with retry on transient failure)
+5. after_execution()      ← Extract events (images, skill output, app builder)
+6. truncate_tool_result() ← Enforce max content length per tool
+7. on_tool_result()       ← Emit tool_result event to frontend
+```
+
+The pipeline has three hook implementations:
+
+| Hook Class | Used By | Capabilities |
+|-----------|---------|-------------|
+| `TaskToolHooks` | Task agent | Full HITL (tool + skill approval, ask_user), guardrails, event extraction |
+| `ResearchToolHooks` | Research agent | HITL (tool + skill approval), guardrails, source parsing |
+| `CanonicalToolHooks` | `execute_react_loop` | Legacy callback wrapping (on_tool_call/result/token) |
+
+**`skip_before_execution` flag**: When a tool has already been HITL-approved, the approved execution re-enters the pipeline with `skip_before_execution=True`, bypassing HITL/guardrails but still getting context injection, event extraction, and truncation.
+
+### Batch vs Single Execution
+
+- **`execute_tools_batch()`**: Partitions tool calls into parallel (most tools, semaphore-limited to 5), sequential (browser tools — side effects), and HITL-requiring. Returns `(messages, events, error_count, pending_interrupt)`.
+- **`execute_tool()`**: Single tool through the full pipeline. Returns `ToolExecutionResult(message, events, pending_interrupt)`.
+
+### Context Injection
+
+`tools/context_injection.py` injects session identifiers into tool args:
+
+| Injection Type | Tools |
+|---------------|-------|
+| **user_id + task_id** | All browser tools, all app builder tools, `invoke_skill`, `execute_code`, `sandbox_file` |
+| **user_id only** | `generate_image`, `generate_slides` |
+
+---
+
+## B. Skill System
+
+### Skill Type Hierarchy
+
 ```python
-class ToolCategory(str, Enum):
-    SEARCH = "search"        # web_search
-    IMAGE = "image"          # generate_image, analyze_image
-    SLIDES = "slides"        # generate_slides
-    BROWSER = "browser"      # browser_navigate, browser_click, etc.
-    CODE_EXEC = "code_exec"  # execute_code
-    DATA = "data"            # sandbox_file
-    APP_BUILDER = "app_builder"  # create_app_project, app_write_file, etc.
-    HANDOFF = "handoff"      # handoff_to_research, handoff_to_data, etc.
-    SKILL = "skill"          # invoke_skill, list_skills
-    HITL = "hitl"            # ask_user
+Skill (abstract base)                    # Graph-based skills
+├── create_graph() → StateGraph          # Must implement
+├── validate_input(params) → (bool, str) # Input validation
+└── metadata: SkillMetadata              # Skill metadata
+
+ToolSkill(Skill)                         # Single-step skills
+├── execute(params, context) → dict      # Must implement
+└── create_graph()                       # Auto-generates 1-node graph wrapping execute()
 ```
 
-**Agent Tool Access**:
-- **Chat Agent**: SEARCH, IMAGE, SLIDES, BROWSER, CODE_EXEC, APP_BUILDER, SKILL, HANDOFF, HITL
-- **Research Agent**: SEARCH, IMAGE, BROWSER, SKILL, HANDOFF, HITL
-- **Data Agent**: SEARCH, IMAGE, CODE_EXEC, DATA, SKILL, HANDOFF, HITL
+- `Skill`: For multi-step workflows (web_research, app_builder, data_analysis, slide_generation)
+- `ToolSkill`: For single-step operations (image_generation, code_generation, task_planning)
 
-**Example Tool Execution Flow**:
+### SkillMetadata Fields
+
 ```python
-# Agent reasoning decides to use web_search
-ai_message = await llm_with_tools.ainvoke(messages)  # Returns AIMessage with tool_calls
-
-# Act node executes the tool
-for tool_call in ai_message.tool_calls:
-    tool = tool_map[tool_call["name"]]
-    result = await tool.ainvoke(tool_call["args"])
-    # Add ToolMessage with result to conversation
+class SkillMetadata(BaseModel):
+    id: str                          # "web_research", "data_analysis"
+    name: str                        # "Web Research", "Data Analysis"
+    version: str = "1.0.0"
+    description: str
+    category: str                    # "research", "data", "creative", "automation", "code"
+    parameters: list[SkillParameter] # Input parameter definitions
+    output_schema: dict              # JSON schema for output
+    required_tools: list[str]        # Tools this skill binds to its LLM (validated at invocation)
+    risk_level: str | None           # "low", "medium", "high" — for HITL governance
+    max_execution_time_seconds: int  # Timeout (default 300s)
+    max_iterations: int              # Max graph iterations (default 10)
+    author: str                      # "hyperagent"
+    tags: list[str]                  # Searchable tags
+    enabled: bool                    # Whether skill is active
 ```
 
-### 2. Skills: Composable Subgraphs
+### All Builtin Skills
 
-**Location**: `backend/app/agents/skills/`
+| Skill ID | Type | Category | Graph Nodes | required_tools | Runtime Dependencies |
+|----------|------|----------|-------------|----------------|---------------------|
+| `web_research` | Skill | research | search → summarize | `[]` | `search_service`, `llm_service` |
+| `data_analysis` | Skill | data | plan → code_loop → summarize | `["execute_code", "sandbox_file", "web_search", "generate_image", "analyze_image"]` | `llm_service`, `execute_react_loop` with 5 bound tools |
+| `app_builder` | Skill | automation | plan → scaffold → generate → start → finalize | `[]` | `llm_service`, `app_sandbox_manager` |
+| `slide_generation` | Skill | creative | research → outline → images → generate | `[]` | `search_service`, `llm_service`, `image_generation_service`, `pptx_generation_service` |
+| `image_generation` | ToolSkill | creative | (single execute) | `[]` | `image_generation_service`, `file_storage_service` |
+| `code_generation` | ToolSkill | code | (single execute) | `[]` | `llm_service` |
+| `task_planning` | ToolSkill | automation | (single execute) | `[]` | `llm_service` |
 
-**Characteristics**:
-- Self-contained LangGraph subgraphs
-- Multi-step workflows with internal state management
-- Invoked by agents through the `invoke_skill` tool
-- Use backend services directly (not tools)
-- Have their own metadata, parameters, and output schemas
+### How Skills Use Tools vs Services
 
-**Skill Invocation Flow**:
-```
-1. Agent calls invoke_skill(skill_id="web_research", params={"topic": "..."})
-   ↓
-2. invoke_skill tool validates input and calls SkillExecutor
-   ↓
-3. SkillExecutor gets skill from SkillRegistry
-   ↓
-4. SkillExecutor executes skill's LangGraph subgraph
-   ↓
-5. Skill nodes use services (search_service, llm_service) directly
-   ↓
-6. Skill returns structured output to agent
-```
+Most skills call backend services directly and declare `required_tools=[]`. There is one exception:
 
-**Key Insight**: Skills do NOT call tools. They use services directly:
-- `search_service.search_raw()` instead of `web_search` tool
-- `llm_service.get_llm_for_tier()` instead of LLM tool calls
-- `app_sandbox_manager.create_project()` instead of app_builder tools
+**`data_analysis` — the only skill that binds tools to an LLM:**
 
-### 3. Why This Architecture?
-
-**Separation of Concerns**:
-- **Tools** = Simple, direct capabilities for agents
-- **Skills** = Complex, multi-step workflows that need orchestration
-
-**Benefits**:
-1. **Skills encapsulate complexity**: A skill like `app_builder` handles planning, file generation, package installation, server startup - all internally
-2. **Skills can be reused**: Multiple agents can invoke the same skill
-3. **Skills have structured I/O**: Clear parameters and output schemas
-4. **Skills can be versioned**: Metadata includes version numbers
-5. **Skills can be dynamically loaded**: Custom skills can be added via database
-
-**Example: App Builder Skill**
 ```python
-# Agent calls: invoke_skill("app_builder", {"description": "todo app"})
-# 
-# Skill internally:
-# 1. plan_app node: Uses llm_service to generate plan
-# 2. generate_files node: Uses llm_service to generate code
-# 3. create_project node: Uses app_sandbox_manager service
-# 4. install_packages node: Uses app_sandbox_manager service
-# 5. start_server node: Uses app_sandbox_manager service
-# 
-# Returns: {"preview_url": "...", "files_created": [...]}
+# In _get_data_tools():
+from app.agents.tools.code_execution import execute_code
+from app.agents.tools.image_generation import generate_image
+from app.agents.tools.vision import analyze_image
+from app.agents.tools.web_search import web_search
+from app.sandbox import sandbox_file
+
+return [execute_code, sandbox_file, web_search, generate_image, analyze_image]
+
+# In code_loop node:
+llm_with_tools = llm.bind_tools(all_tools)
+result = await execute_react_loop(llm_with_tools=llm_with_tools, tools=all_tools, ...)
 ```
 
-### 4. Tool vs Skill Decision Matrix
+`data_analysis` runs a full ReAct loop internally, where the LLM can call `execute_code`, `sandbox_file`, `web_search`, `generate_image`, and `analyze_image`. Its `required_tools` accurately lists all 5 tools.
 
-| Aspect | Use Tool | Use Skill |
-|--------|----------|-----------|
-| **Complexity** | Single operation | Multi-step workflow |
-| **State Management** | Stateless | Needs internal state |
-| **Reusability** | Direct function call | Composable subgraph |
-| **I/O Structure** | Simple params/return | Structured schema |
-| **Examples** | `web_search("query")` | `invoke_skill("web_research", {"topic": "..."})` |
-| | `execute_code("print('hi')")` | `invoke_skill("app_builder", {...})` |
-| | `browser_navigate("url")` | `invoke_skill("data_visualization", {...})` |
+All other skills call services directly:
 
-### 5. Execution Flow Example
+| Skill | What it calls | Instead of tool |
+|-------|--------------|-----------------|
+| `web_research` | `search_service.search_raw()` | `web_search` |
+| `app_builder` | `app_sandbox_manager.scaffold_project()`, `.write_file()`, `.install_dependencies()`, `.start_dev_server()` | `create_app_project`, `app_write_file`, etc. |
+| `slide_generation` | `search_service.search_raw()`, `image_generation_service.generate_image()`, `pptx_generation_service.generate_pptx()` | `web_search`, `generate_image`, `generate_slides` |
+| `image_generation` | `image_generation_service.generate_image()` | `generate_image` |
 
-**Scenario**: User asks "Research the latest trends in AI"
+### required_tools Semantics
 
-```
-1. Agent (reason_node):
-   - Receives query: "Research the latest trends in AI"
-   - LLM decides: Use web_research skill (better than basic web_search)
-   - Calls: invoke_skill("web_research", {"topic": "latest trends in AI"})
+`required_tools` is a **runtime contract** — it lists exactly the tools a skill binds to its LLM via `.bind_tools()`. At invocation time, `invoke_skill` validates all declared tools exist in the registry:
 
-2. Tool (invoke_skill):
-   - Validates skill exists in registry
-   - Validates parameters match skill schema
-   - Calls SkillExecutor.execute_skill()
-
-3. Skill Executor:
-   - Gets WebResearchSkill from registry
-   - Creates initial state: {"input_params": {"topic": "..."}, "output": {}}
-   - Executes skill's LangGraph: search_node → summarize_node → END
-
-4. Skill Nodes:
-   - search_node: Calls search_service.search_raw() directly (NOT web_search tool)
-   - summarize_node: Calls llm_service.get_llm_for_tier() directly
-   - Returns: {"summary": "...", "sources": [...], "key_findings": [...]}
-
-5. Tool (invoke_skill):
-   - Collects skill output and events
-   - Returns JSON string to agent
-
-6. Agent (act_node):
-   - Receives ToolMessage with skill results
-   - Continues reasoning with results in context
-
-7. Agent (reason_node):
-   - Uses skill output to generate final response
-   - No more tool calls needed
-   - Finalizes with response
+```python
+# In skill_invocation.py
+if skill.metadata.required_tools:
+    from app.agents.tools.registry import get_all_tools
+    known = {t.name for t in get_all_tools()}
+    missing = [t for t in skill.metadata.required_tools if t not in known]
+    if missing:
+        return error("Skill requires unavailable tools: {missing}")
 ```
 
-### 6. Key Code Locations
+Skills that call services directly (not tools) correctly declare `required_tools=[]`.
 
-**Tool Registry**: `backend/app/agents/tools/registry.py`
-- Defines tool categories and agent mappings
-- `get_tools_for_agent()` - Returns tools available to an agent
-- `TOOL_CATALOG` - All tools organized by category
+### Skill Registration & Loading
 
-**Skill Invocation Tool**: `backend/app/agents/tools/skill_invocation.py`
-- `invoke_skill` - Tool that agents call to invoke skills
-- `list_skills` - Tool to discover available skills
+**Builtin skills**: Auto-discovered at startup in `SkillRegistry._register_builtin_skills()`. Stored in-memory only. Synced to DB via `sync_builtin_skills()` which updates: `name`, `version`, `description`, `category`, `author`, `metadata_json`.
 
-**Skill Registry**: `backend/app/services/skill_registry.py`
-- Manages skill discovery and loading
-- Handles both builtin and dynamic skills
-- `get_skill()` - Retrieves skill by ID
+**Dynamic skills**: Loaded from `skill_definitions` DB table. Source code validated by `skill_code_validator`, hash-verified, then executed in a restricted namespace with safe builtins and whitelisted imports.
 
-**Skill Executor**: `backend/app/services/skill_executor.py`
-- Executes skill LangGraph subgraphs
-- Manages execution state and events
-- Streams events back to agent
+**Skill composition**: Skills can invoke other skills via `SkillContext.invoke_skill()`, with a max depth limit (default 3) to prevent infinite recursion.
 
-**Agent Implementation**: `backend/app/agents/subagents/chat.py`
-- `reason_node` - LLM reasoning with tools bound
-- `act_node` - Executes tool calls (including invoke_skill)
-- ReAct loop: reason → act → reason → ... → finalize
+---
 
-### 7. Important Distinctions
+## C. Event Flow
 
-**Tools are NOT available inside Skills**:
-- Skills cannot call `web_search`, `execute_code`, or other tools
-- Skills use services directly: `search_service`, `llm_service`, etc.
-- This prevents circular dependencies and keeps skills self-contained
+Events flow from skills to the frontend through multiple paths. Understanding these paths is critical for avoiding duplication.
 
-**Skills are invoked via Tools**:
-- The `invoke_skill` tool is the bridge between agents and skills
-- Agents see skills as just another tool option
-- Skills appear in the tool list alongside direct tools
+### Path 1: Real-time dispatch (primary for stage/terminal events)
 
-**Skills can specify required_tools**:
-- Skills have a `required_tools` metadata field
-- This is documentation only - it lists what tools the skill conceptually uses
-- Example: `web_research` skill has `required_tools=["web_search"]` but actually uses `search_service`
+```
+Skill node emits event
+  → skill_executor yields event via astream
+  → invoke_skill iterates generator
+  → dispatch_custom_event("skill_event", data=event)
+  → stream_processor._handle_custom_event() yields to frontend
+```
 
-### 8. Design Rationale
+This is the **primary path** for `stage`, `terminal_command`, `terminal_output`, `terminal_error`, `terminal_complete`, `browser_stream`, and `workspace_update` events. They arrive at the frontend in real-time while the skill is still executing.
 
-**Why Skills Don't Use Tools**:
-1. **Avoid circular dependencies**: If skills called tools, and tools could call skills, we'd have cycles
-2. **Service layer abstraction**: Services provide a cleaner API than tool wrappers
-3. **Performance**: Direct service calls are more efficient than tool invocation overhead
-4. **State management**: Skills manage their own state; tools are stateless
+### Path 2: JSON extraction at tool_end (for skill_output)
 
-**Why Agents Use Tools (not services directly)**:
-1. **LLM integration**: Tools are LangChain-compatible for LLM tool calling
-2. **Standardization**: Tools provide consistent interface for agents
-3. **Guardrails**: Tools can have safety checks (tool_scanner)
-4. **HITL support**: Tools can require approval before execution
+```
+invoke_skill completes → returns JSON with {skill_id, output, success}
+  → stream_processor._handle_tool_end() parses JSON
+  → Extracts and emits skill_output event (for preview URLs, download URLs)
+```
 
-## Summary
+This is the **only path** for `skill_output` events from `invoke_skill`. The skill_executor also yields a `skill_output` event, but `invoke_skill` captures it into the `output` variable rather than dispatching it — so it appears in the JSON return, not as a custom event.
 
-- **Tools** = Atomic capabilities that agents call directly
-- **Skills** = Composable workflows invoked via `invoke_skill` tool
-- **Relationship** = Agents → Tools → Skills (via invoke_skill) → Services
-- **Key Point** = Skills use services, not tools, to avoid circular dependencies and maintain clean architecture
+### Path 3: State forwarding at chain_end (for subagent events)
 
-The architecture enables:
-- Simple operations via direct tools
-- Complex workflows via skills
-- Reusable, versioned, structured capabilities
-- Clear separation between agent reasoning and skill execution
+```
+Agent node completes → returns {events: [...]} in state
+  → stream_processor._handle_chain_end() forwards events from output.events
+  → Deduplication via _should_emit_subevent()
+```
 
-## Concrete Example: Web Search Tool vs Web Research Skill
+This catches events that were collected by `after_execution()` hooks (e.g., image events from `generate_image`, browser_stream from app_builder tools).
 
-For a detailed comparison of a specific tool vs skill pair, see:
-- **[Web Search Tool vs Web Research Skill](./Web-Search-Tool-vs-Skill.md)** - Detailed comparison showing:
-  - How `web_search` tool provides raw search results
-  - How `web_research` skill adds AI summarization and analysis
-  - When to use each approach
-  - Performance and cost differences
-  - Code examples and output comparisons
+### Deduplication
+
+The `StreamProcessor` maintains per-session dedup sets:
+
+| Event Type | Dedup Key | Set |
+|-----------|----------|-----|
+| `stage` | `{name}:{status}` | `emitted_stage_keys` |
+| `tool_call` | tool_call_id | `emitted_tool_call_ids` |
+| `tool_result` | `result:{tool_call_id}` | `emitted_tool_call_ids` |
+| `image` | index | `emitted_image_indices` |
+| `skill_output` | `{skill_id}:{download_url\|preview_url}` | `emitted_skill_output_keys` |
+| `terminal_*` | content-based key (first 200 chars) | `emitted_terminal_keys` |
+| `workspace_update` | `ws:{operation}:{path}` | `emitted_terminal_keys` |
+| `browser_stream` | `bs:{stream_url}` | `emitted_terminal_keys` |
+| `interrupt` | interrupt_id | `emitted_interrupt_ids` |
+
+### What was removed (Fix 2)
+
+Previously, `invoke_skill` collected events in a `collected_events` list AND dispatched them in real-time via `dispatch_custom_event`. The JSON return included `"events": collected_events`, and both `stream_processor._handle_tool_end` and `event_extraction.extract_skill_events` extracted events from this JSON — creating dual emission. Now:
+
+- `invoke_skill` no longer collects or returns events in JSON
+- `stream_processor._handle_tool_end` no longer extracts `"events"` from invoke_skill JSON (only extracts `skill_output`)
+- `event_extraction.extract_skill_events` no longer extracts `parsed.get("events")` (only handles image and app_builder browser_stream)
+- Real-time dispatch via `dispatch_custom_event` is the single source for stage/terminal events
+
+---
+
+## D. HITL Integration
+
+### Tool Risk Classification
+
+`hitl/tool_risk.py` classifies tools into risk levels:
+
+| Risk Level | Tools |
+|-----------|-------|
+| **HIGH** | browser_*, execute_code, sandbox_file, shell_command |
+| **MEDIUM** | api_call, http_request, database_write |
+
+### Skill Risk Determination
+
+Skills are assessed via `get_skill_risk_level()`:
+1. If `risk_level` is explicitly set in metadata, use it
+2. Otherwise, infer from `required_tools` — if any tool is HIGH risk, the skill is HIGH risk
+
+### Approval Flow
+
+When `before_execution()` determines a tool needs approval:
+
+```
+1. Create approval interrupt → publish to Redis
+2. Return ToolExecutionResult(message=None, pending_interrupt={...})
+3. Agent stores pending_interrupt in state → graph pauses
+4. Frontend shows approval dialog → user responds
+5. wait_interrupt_node receives response
+6. If approved: re-execute tool via execute_tool() with skip_before_execution=True
+7. Tool goes through steps 2-7 of pipeline (context injection, execution, event extraction, truncation)
+```
+
+Both `TaskToolHooks` and `ResearchToolHooks` implement:
+- Tool-level HITL approval (for high-risk direct tools)
+- Skill-level HITL approval (for `invoke_skill` with high-risk skills)
+- Guardrail scanning (tool_scanner)
+
+`TaskToolHooks` additionally handles:
+- `ask_user` tool (DECISION and INPUT interrupt types)
+
+---
+
+## E. Data Model
+
+### SkillDefinition (DB)
+
+| Column | Source | Updated by sync_builtin_skills? |
+|--------|--------|-------------------------------|
+| `id` | SkillMetadata.id | N/A (PK) |
+| `name` | SkillMetadata.name | Yes |
+| `version` | SkillMetadata.version | Yes |
+| `description` | SkillMetadata.description | Yes |
+| `category` | SkillMetadata.category | Yes |
+| `author` | SkillMetadata.author | Yes |
+| `metadata_json` | Full SkillMetadata JSON | Yes |
+| `module_path` | Empty for builtins | No |
+| `source_code` | For dynamic skills only | No |
+| `source_code_hash` | For dynamic skills only | No |
+| `enabled` | Default true | No (also duplicated in metadata_json) |
+| `is_builtin` | true/false | No |
+| `invocation_count` | Runtime counter | No |
+| `last_invoked_at` | Runtime timestamp | No |
+
+### SkillDefinition.to_dict()
+
+Returns top-level columns plus fields parsed from `metadata_json`:
+- `parameters`, `required_tools`, `risk_level`, `tags`, `output_schema`
+
+---
+
+## F. Key Architectural Decisions
+
+### Why skills call services, not tools
+
+1. **No circular dependencies**: Tools can invoke skills (via `invoke_skill`), so skills invoking tools would create cycles
+2. **Performance**: Direct service calls avoid tool invocation overhead (context injection, HITL checks, event extraction)
+3. **State isolation**: Skills manage their own internal state; the tool pipeline manages agent-level state
+
+### Why data_analysis is the exception
+
+`data_analysis` needs an LLM-driven iterative code execution loop — the LLM must decide what code to run, inspect results, and iterate. This requires `execute_react_loop` with bound tools, which is fundamentally different from the service-call pattern other skills use.
+
+### Why required_tools validation matters
+
+Even though most skills call services directly, `data_analysis` genuinely depends on tools being registered. The validation in `invoke_skill` prevents silent failures where a skill's ReAct loop would have a degraded or empty tool set.

@@ -1,13 +1,14 @@
 """Task Planning Skill for decomposing complex tasks into executable steps."""
 
-from langgraph.graph import END, StateGraph
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from app.agents.skills.skill_base import (
-    Skill,
+    SkillContext,
     SkillMetadata,
     SkillParameter,
-    SkillState,
+    ToolSkill,
 )
 from app.ai.llm import llm_service
 from app.ai.model_tiers import ModelTier
@@ -42,9 +43,7 @@ class TaskPlan(BaseModel):
     complexity_assessment: str = Field(
         description="Overall complexity: 'simple', 'moderate', or 'complex'"
     )
-    steps: list[PlanStep] = Field(
-        description="Ordered list of steps to complete the task"
-    )
+    steps: list[PlanStep] = Field(description="Ordered list of steps to complete the task")
     success_criteria: list[str] = Field(
         description="Criteria to determine if the task is successfully completed"
     )
@@ -58,7 +57,7 @@ class TaskPlan(BaseModel):
     )
 
 
-class TaskPlanningSkill(Skill):
+class TaskPlanningSkill(ToolSkill):
     """Decomposes complex tasks into structured, executable plans.
 
     This skill analyzes a task description and produces a detailed plan with:
@@ -158,53 +157,49 @@ class TaskPlanningSkill(Skill):
         tags=["planning", "task-decomposition", "automation", "orchestration"],
     )
 
-    def create_graph(self) -> StateGraph:
-        """Create the LangGraph subgraph for task planning."""
-        graph = StateGraph(SkillState)
+    async def execute(self, params: dict[str, Any], context: SkillContext) -> dict[str, Any]:
+        """Analyze the task and create a structured plan."""
+        task_description = params["task_description"]
+        extra_context = params.get("context", "")
+        available_tools = params.get("available_tools")
+        max_steps = int(params.get("max_steps", 10))
 
-        async def analyze_and_plan_node(state: SkillState) -> dict:
-            """Analyze the task and create a structured plan."""
-            task_description = state["input_params"]["task_description"]
-            context = state["input_params"].get("context", "")
-            available_tools = state["input_params"].get("available_tools")
-            max_steps = int(state["input_params"].get("max_steps", 10))
+        logger.info(
+            "task_planning_skill_analyzing",
+            task_length=len(task_description),
+            has_context=bool(extra_context),
+            max_steps=max_steps,
+        )
 
-            logger.info(
-                "task_planning_skill_analyzing",
-                task_length=len(task_description),
-                has_context=bool(context),
-                max_steps=max_steps,
-            )
-
-            # Build the planning prompt
-            tools_section = ""
-            if available_tools:
-                tools_section = f"""
+        # Build the planning prompt
+        tools_section = ""
+        if available_tools:
+            tools_section = f"""
 Available Tools and Skills:
-{chr(10).join(f'- {tool}' for tool in available_tools)}
+{chr(10).join(f"- {tool}" for tool in available_tools)}
 
 When recommending tools, prefer those from this list.
 """
-            else:
-                tools_section = """
+        else:
+            tools_section = """
 Common Tools Available:
 - web_search: Search the web for information
 - execute_code: Run Python/JavaScript code
 - generate_image: Create AI-generated images
 - browser_navigate: Navigate to web pages
-- invoke_skill: Call skills (web_research, code_review, code_generation, etc.)
+- invoke_skill: Call skills (web_research, code_generation, data_analysis, etc.)
 
 When recommending tools, consider which would be most effective for each step.
 """
 
-            context_section = ""
-            if context:
-                context_section = f"""
+        context_section = ""
+        if extra_context:
+            context_section = f"""
 Additional Context:
-{context}
+{extra_context}
 """
 
-            prompt = f"""You are a task planning expert. Analyze the following task and \
+        prompt = f"""You are a task planning expert. Analyze the following task and \
 create a detailed, actionable execution plan.
 
 Task Description:
@@ -228,44 +223,26 @@ Important:
 - Consider error handling and fallback approaches
 - Keep the plan focused on achieving the stated goal"""
 
-            try:
-                llm = llm_service.get_llm_for_tier(ModelTier.PRO)
-                structured_llm = llm.with_structured_output(TaskPlan)
+        llm = llm_service.get_llm_for_tier(ModelTier.PRO)
+        structured_llm = llm.with_structured_output(TaskPlan)
 
-                result: TaskPlan = await structured_llm.ainvoke(prompt)
+        result: TaskPlan = await structured_llm.ainvoke(prompt)
 
-                # Convert to dict for output
-                output = {
-                    "task_summary": result.task_summary,
-                    "complexity_assessment": result.complexity_assessment,
-                    "steps": [step.model_dump() for step in result.steps],
-                    "success_criteria": result.success_criteria,
-                    "potential_challenges": result.potential_challenges,
-                    "clarifying_questions": result.clarifying_questions,
-                }
+        # Convert to dict for output
+        output = {
+            "task_summary": result.task_summary,
+            "complexity_assessment": result.complexity_assessment,
+            "steps": [step.model_dump() for step in result.steps],
+            "success_criteria": result.success_criteria,
+            "potential_challenges": result.potential_challenges,
+            "clarifying_questions": result.clarifying_questions,
+        }
 
-                logger.info(
-                    "task_planning_skill_completed",
-                    step_count=len(result.steps),
-                    complexity=result.complexity_assessment,
-                    has_questions=len(result.clarifying_questions) > 0,
-                )
+        logger.info(
+            "task_planning_skill_completed",
+            step_count=len(result.steps),
+            complexity=result.complexity_assessment,
+            has_questions=len(result.clarifying_questions) > 0,
+        )
 
-                return {
-                    "output": output,
-                    "iterations": state["iterations"] + 1,
-                }
-
-            except Exception as e:
-                logger.error("task_planning_skill_failed", error=str(e))
-                return {
-                    "error": f"Task planning failed: {str(e)}",
-                    "iterations": state["iterations"] + 1,
-                }
-
-        # Build graph - single node for planning
-        graph.add_node("analyze_and_plan", analyze_and_plan_node)
-        graph.set_entry_point("analyze_and_plan")
-        graph.add_edge("analyze_and_plan", END)
-
-        return graph.compile()
+        return output

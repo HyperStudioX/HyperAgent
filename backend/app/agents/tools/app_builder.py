@@ -10,14 +10,59 @@ from typing import Any, Literal
 
 from langchain_core.tools import tool
 
-from app.core.logging import get_logger
 from app.agents import events
+from app.core.logging import get_logger
 from app.sandbox.app_sandbox_manager import (
-    get_app_sandbox_manager,
     APP_TEMPLATES,
+    get_app_sandbox_manager,
 )
 
 logger = get_logger(__name__)
+
+# Blocklist of dangerous commands/patterns that should never run in the sandbox.
+DANGEROUS_COMMANDS = [
+    "rm -rf",
+    "curl",
+    "wget",
+    "nc",
+    "ncat",
+    "dd",
+    "mkfs",
+    "shutdown",
+    "reboot",
+    "python -c",
+    "python3 -c",
+    "bash -c",
+    "sh -c",
+    "chmod",
+    "chown",
+]
+
+# Maximum allowed timeout for app_run_command (seconds)
+MAX_COMMAND_TIMEOUT = 300
+
+
+def _is_command_blocked(command: str) -> str | None:
+    """Check if a command matches the dangerous commands blocklist.
+
+    Returns the matched pattern if blocked, None if allowed.
+    """
+    cmd_lower = command.strip().lower()
+
+    # Block command substitution patterns that could bypass the blocklist
+    for injection_pattern in ["$(", "`", "eval ", "exec "]:
+        if injection_pattern in cmd_lower:
+            return injection_pattern.strip()
+
+    for pattern in DANGEROUS_COMMANDS:
+        # Check if the dangerous command appears as a standalone token
+        # (at start, after pipe, after semicolon, after &&, after ||)
+        segments = cmd_lower.replace("&&", ";").replace("||", ";").replace("|", ";").split(";")
+        for segment in segments:
+            segment = segment.strip()
+            if segment.startswith(pattern) or segment.startswith(f"sudo {pattern}"):
+                return pattern
+    return None
 
 
 def _create_terminal_events(
@@ -100,6 +145,12 @@ async def create_app_project(
 
     Returns:
         Dict with project creation result including project directory
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments. This requires
+        framework-level support for binding request-scoped values to tool
+        invocations.
     """
     logger.info(
         "create_app_project_called",
@@ -172,22 +223,37 @@ async def app_write_file(
 
     Returns:
         Dict with write result
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments.
     """
     logger.info(
         "app_write_file_called",
         path=path,
     )
 
+    # Reject path traversal attempts
+    if ".." in path:
+        logger.warning("app_write_file_path_traversal", path=path)
+        return {
+            "success": False,
+            "error": "Path traversal ('..') is not allowed in file paths.",
+        }
+
     try:
         manager = get_app_sandbox_manager()
 
-        # Get existing session or create new one
+        # Get existing session; require create_app_project to be called first
         session = await manager.get_session(user_id=user_id, task_id=task_id)
         if not session:
-            session = await manager.get_or_create_sandbox(
-                user_id=user_id,
-                task_id=task_id,
-            )
+            return {
+                "success": False,
+                "error": (
+                    "No active app session. Use create_app_project"
+                    " first to scaffold a project before writing files."
+                ),
+            }
 
         # Write the file
         result = await manager.write_file(session, path, content)
@@ -234,6 +300,10 @@ async def app_read_file(
 
     Returns:
         Dict with file content
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments.
     """
     logger.info(
         "app_read_file_called",
@@ -282,6 +352,10 @@ async def app_list_files(
 
     Returns:
         Dict with file listing
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments.
     """
     logger.info(
         "app_list_files_called",
@@ -331,6 +405,10 @@ async def app_install_packages(
 
     Returns:
         Dict with installation result
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments.
     """
     logger.info(
         "app_install_packages_called",
@@ -401,6 +479,10 @@ async def app_start_server(
 
     Returns:
         Dict with server info including preview_url
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments.
     """
     logger.info(
         "app_start_server_called",
@@ -474,6 +556,10 @@ async def app_stop_server(
 
     Returns:
         Dict with stop result
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments.
     """
     logger.info("app_stop_server_called")
 
@@ -520,11 +606,41 @@ async def app_run_command(
 
     Returns:
         Dict with command output
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments. This requires
+        framework-level support for binding request-scoped values to tool
+        invocations. See also: create_app_project, app_write_file, and other
+        tool functions with the same pattern.
     """
+    # Cap timeout to prevent abuse
+    if timeout > MAX_COMMAND_TIMEOUT:
+        timeout = MAX_COMMAND_TIMEOUT
+
     logger.info(
         "app_run_command_called",
         command=command,
     )
+
+    # Check command against the dangerous commands blocklist
+    blocked = _is_command_blocked(command)
+    if blocked:
+        logger.warning(
+            "app_run_command_blocked",
+            command=command,
+            matched_pattern=blocked,
+        )
+        return {
+            "success": False,
+            "error": f"Command blocked for safety: contains '{blocked}'",
+            "terminal_events": _create_terminal_events(
+                command=command,
+                error=f"Command blocked: '{blocked}' is not allowed in the sandbox",
+                exit_code=1,
+                cwd="/home/user/app",
+            ),
+        }
 
     try:
         manager = get_app_sandbox_manager()
@@ -580,6 +696,10 @@ async def app_get_preview_url(
 
     Returns:
         Dict with preview URL if server is running
+
+    .. note::
+        TODO: user_id and task_id should be injected from the authenticated
+        request context rather than passed as tool arguments.
     """
     logger.info("app_get_preview_url_called")
 

@@ -9,7 +9,6 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from app.agents.utils import append_history, build_image_context_message
 from app.ai.llm import llm_service
-from app.models.schemas import LLMProvider
 
 
 def get_agent_llm_with_tools(
@@ -23,7 +22,7 @@ def get_agent_llm_with_tools(
     Uses choose_llm_for_task() as the single standardized entry point.
 
     Args:
-        agent_name: Name of the agent (e.g., "chat", "research", "data")
+        agent_name: Name of the agent (e.g., "task", "research", "data")
         state: Agent state containing provider, tier, model overrides
         tools: Optional list of tools to bind to the LLM
         task_type: Task type for LLM selection (defaults to agent_name)
@@ -33,7 +32,7 @@ def get_agent_llm_with_tools(
         If tools are provided, first element has tools bound, second is plain LLM.
         If no tools, both are the same plain LLM.
     """
-    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    provider = state.get("provider")
     tier = state.get("tier")
     model = state.get("model")
 
@@ -54,6 +53,7 @@ def build_initial_messages(
     history: list[dict] | None = None,
     query: str = "",
     image_attachments: list[dict] | None = None,
+    cache_system_prompt: bool = True,
 ) -> list[BaseMessage]:
     """Build the standard [System, ...history, Human] message list.
 
@@ -62,11 +62,15 @@ def build_initial_messages(
         history: Optional conversation history dicts with role/content
         query: Current user query
         image_attachments: Optional image attachments for vision context
+        cache_system_prompt: Whether to add cache_control for Anthropic prompt caching
 
     Returns:
         List of LangChain messages ready for LLM invocation
     """
-    messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
+    kwargs = {}
+    if cache_system_prompt:
+        kwargs["additional_kwargs"] = {"cache_control": {"type": "ephemeral"}}
+    messages: list[BaseMessage] = [SystemMessage(content=system_prompt, **kwargs)]
 
     if history:
         append_history(messages, history)

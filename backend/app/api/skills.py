@@ -1,7 +1,7 @@
 """Skills management API endpoints."""
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -45,6 +45,8 @@ class CreateSkillRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     parameters: list[SkillParameterSchema] = Field(default_factory=list)
     output_schema: dict[str, Any] = Field(default_factory=dict)
+    required_tools: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] | None = None
     source_code: str
 
 
@@ -58,6 +60,8 @@ class UpdateSkillRequest(BaseModel):
     tags: list[str] | None = None
     parameters: list[SkillParameterSchema] | None = None
     output_schema: dict[str, Any] | None = None
+    required_tools: list[str] | None = None
+    risk_level: Literal["low", "medium", "high"] | None = None
     source_code: str | None = None
     enabled: bool | None = None
 
@@ -72,6 +76,8 @@ class SkillMetadataResponse(BaseModel):
     category: str
     parameters: list[SkillParameterSchema]
     output_schema: dict[str, Any]
+    required_tools: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] | None = None
     tags: list[str]
     enabled: bool
 
@@ -130,6 +136,8 @@ def _build_skill_detail(
         category=skill_meta.category,
         parameters=params,
         output_schema=skill_meta.output_schema,
+        required_tools=getattr(skill_meta, "required_tools", []),
+        risk_level=getattr(skill_meta, "risk_level", None),
         tags=skill_meta.tags,
         enabled=skill_meta.enabled,
         source_code=source_code,
@@ -138,6 +146,73 @@ def _build_skill_detail(
         created_at=skill_def.created_at.isoformat() if skill_def and skill_def.created_at else None,
         updated_at=skill_def.updated_at.isoformat() if skill_def and skill_def.updated_at else None,
     )
+
+
+def _enforce_skill_ownership_or_builtin(
+    skill_def: SkillDefinition | None,
+    current_user_id: str,
+    skill_id: str,
+) -> None:
+    """Enforce that dynamic skills are only accessible by their author.
+
+    Built-in skills are globally readable and manageable (subject to existing
+    built-in mutation guards elsewhere).
+    """
+    if not skill_def:
+        # Built-ins may not have DB rows in some environments.
+        return
+    if skill_def.is_builtin:
+        return
+    if skill_def.author != current_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not authorized to access skill '{skill_id}'",
+        )
+
+
+def _infer_minimum_risk_from_required_tools(required_tools: list[str]) -> Literal["low", "medium", "high"]:
+    """Infer minimum risk from referenced tools."""
+    from app.agents.hitl.tool_risk import ToolRiskLevel, get_tool_risk_level
+
+    seen_medium = False
+    for tool_name in required_tools:
+        level = get_tool_risk_level(tool_name)
+        if level == ToolRiskLevel.HIGH:
+            return "high"
+        if level == ToolRiskLevel.MEDIUM:
+            seen_medium = True
+    return "medium" if seen_medium else "low"
+
+
+def _validate_skill_tool_metadata(
+    required_tools: list[str],
+    risk_level: Literal["low", "medium", "high"] | None,
+) -> Literal["low", "medium", "high"]:
+    """Validate tool metadata and return effective risk level."""
+    from app.agents.tools import get_all_tools
+
+    known_tools = {tool.name for tool in get_all_tools()}
+    unknown = sorted(set(required_tools) - known_tools)
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown required_tools: {unknown}",
+        )
+
+    inferred = _infer_minimum_risk_from_required_tools(required_tools)
+    if risk_level is None:
+        return inferred
+
+    rank = {"low": 0, "medium": 1, "high": 2}
+    if rank[risk_level] < rank[inferred]:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"risk_level '{risk_level}' is lower than tool-inferred minimum "
+                f"'{inferred}' for required_tools={required_tools}"
+            ),
+        )
+    return risk_level
 
 
 # === Endpoints ===
@@ -180,6 +255,8 @@ async def list_skills(
                     for p in s.parameters
                 ],
                 output_schema=s.output_schema,
+                required_tools=getattr(s, "required_tools", []),
+                risk_level=getattr(s, "risk_level", None),
                 tags=s.tags,
                 enabled=s.enabled,
             )
@@ -224,6 +301,7 @@ async def get_skill(
         select(SkillDefinition).where(SkillDefinition.id == skill_id)
     )
     skill_def = result.scalar_one_or_none()
+    _enforce_skill_ownership_or_builtin(skill_def, current_user.id, skill_id)
 
     return _build_skill_detail(skill.metadata, skill_def)
 
@@ -258,6 +336,7 @@ async def create_skill(
     is_valid, error, code_hash = skill_code_validator.validate_and_hash(request.source_code)
     if not is_valid:
         raise HTTPException(status_code=400, detail=f"Invalid source code: {error}")
+    effective_risk = _validate_skill_tool_metadata(request.required_tools, request.risk_level)
 
     # Generate skill ID from name
     skill_id = request.name.lower().replace(" ", "_").replace("-", "_")
@@ -277,6 +356,8 @@ async def create_skill(
             "category": request.category,
             "parameters": [p.model_dump() for p in request.parameters],
             "output_schema": request.output_schema,
+            "required_tools": request.required_tools,
+            "risk_level": effective_risk,
             "tags": request.tags,
             "enabled": True,
             "author": current_user.id,
@@ -347,6 +428,8 @@ async def update_skill(
     if not skill_def:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found")
 
+    _enforce_skill_ownership_or_builtin(skill_def, current_user.id, skill_id)
+
     # Guard: reject builtin edits
     if skill_def.is_builtin:
         raise HTTPException(status_code=403, detail="Cannot modify built-in skills")
@@ -402,6 +485,17 @@ async def update_skill(
             existing_meta["parameters"] = [p.model_dump() for p in request.parameters]
         if request.output_schema is not None:
             existing_meta["output_schema"] = request.output_schema
+        if request.required_tools is not None:
+            existing_meta["required_tools"] = request.required_tools
+        if request.risk_level is not None:
+            existing_meta["risk_level"] = request.risk_level
+
+        effective_required_tools = list(existing_meta.get("required_tools", []))
+        effective_risk = _validate_skill_tool_metadata(
+            required_tools=effective_required_tools,
+            risk_level=existing_meta.get("risk_level"),
+        )
+        existing_meta["risk_level"] = effective_risk
 
         skill_def.metadata_json = json.dumps(existing_meta)
 
@@ -429,6 +523,8 @@ async def update_skill(
                     for p in existing_meta.get("parameters", [])
                 ],
                 output_schema=existing_meta.get("output_schema", {}),
+                required_tools=existing_meta.get("required_tools", []),
+                risk_level=existing_meta.get("risk_level"),
                 tags=existing_meta.get("tags", []),
                 enabled=skill_def.enabled,
                 source_code=skill_def.source_code if not skill_def.is_builtin else None,

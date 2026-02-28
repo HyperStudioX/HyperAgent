@@ -11,11 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents import agent_supervisor
+from app.ai.model_tiers import ModelTier, resolve_model
 from app.api.query_helpers import (
-    CHAT_SYSTEM_PROMPT,
+    TASK_SYSTEM_PROMPT,
     _sse_data,
     get_conversation_history,
-    get_default_model,
     get_file_context,
     get_image_attachments,
     trim_duplicate_user_message,
@@ -58,9 +58,9 @@ async def query(
         )
 
         # Enhance system prompt with file context
-        system_prompt = CHAT_SYSTEM_PROMPT
+        system_prompt = TASK_SYSTEM_PROMPT
         if file_context:
-            system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
+            system_prompt = f"{TASK_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
 
         history = [m.model_dump() for m in request.history]
         if not history and request.conversation_id:
@@ -71,11 +71,14 @@ async def query(
             )
             history = trim_duplicate_user_message(history, request.message)
 
-        if request.mode == QueryMode.CHAT:
+        # Resolve effective provider/model for responses (respects tier config)
+        effective_provider, effective_model = resolve_model(ModelTier.PRO, provider=request.provider)
+
+        if request.mode == QueryMode.TASK:
             # Use agent supervisor even for chat to enable tools
             result = await agent_supervisor.invoke(
                 query=request.message,
-                mode=QueryMode.CHAT.value,
+                mode=QueryMode.TASK.value,
                 user_id=current_user.id,
                 messages=history,
                 system_prompt=system_prompt,
@@ -85,10 +88,10 @@ async def query(
 
             return UnifiedQueryResponse(
                 id=str(uuid.uuid4()),
-                mode=QueryMode.CHAT,
+                mode=QueryMode.TASK,
                 content=result.get("response", ""),
-                model=request.model or get_default_model(request.provider),
-                provider=request.provider,
+                model=request.model or effective_model,
+                provider=effective_provider,
             )
 
         elif request.mode in (QueryMode.APP, QueryMode.DATA, QueryMode.IMAGE, QueryMode.SLIDE):
@@ -107,8 +110,8 @@ async def query(
                 id=str(uuid.uuid4()),
                 mode=request.mode,
                 content=result.get("response", ""),
-                model=request.model or get_default_model(request.provider),
-                provider=request.provider,
+                model=request.model or effective_model,
+                provider=effective_provider,
             )
     except ValueError as e:
         logger.error("chat_error", error=str(e))
@@ -141,12 +144,13 @@ async def query(
 
         logger.info("research_task_created", task_id=task_id, query=request.message[:50])
 
+        eff_p, eff_m = resolve_model(ModelTier.PRO, provider=request.provider)
         return UnifiedQueryResponse(
             id=str(uuid.uuid4()),
             mode=QueryMode.RESEARCH,
             task_id=task_id,
-            model=request.model or get_default_model(request.provider),
-            provider=request.provider,
+            model=request.model or eff_m,
+            provider=eff_p,
         )
 
 
@@ -157,7 +161,7 @@ async def stream_query(
 ):
     """Stream response for chat, research, and other agent modes."""
     _CHAT_MODES = (
-        QueryMode.CHAT,
+        QueryMode.TASK,
         QueryMode.APP,
         QueryMode.DATA,
         QueryMode.IMAGE,
@@ -202,9 +206,9 @@ async def stream_query(
         )
 
         # Enhance system prompt with file context
-        system_prompt = CHAT_SYSTEM_PROMPT
+        system_prompt = TASK_SYSTEM_PROMPT
         if file_context:
-            system_prompt = f"{CHAT_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
+            system_prompt = f"{TASK_SYSTEM_PROMPT}\n\nThe user has attached the following files for context:\n\n{file_context}"
 
         # Generate task_id for browser session management if not provided
         # Use request.task_id, conversation_id as fallback, or generate a new one

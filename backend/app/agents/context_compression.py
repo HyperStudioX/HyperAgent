@@ -7,12 +7,11 @@ it summarizes them using a fast LLM (FLASH tier).
 
 from dataclasses import dataclass
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.ai.llm import extract_text_from_content, llm_service
 from app.ai.model_tiers import ModelTier
 from app.core.logging import get_logger
-from app.models.schemas import LLMProvider
 
 logger = get_logger(__name__)
 
@@ -27,7 +26,7 @@ Focus on:
 5. User preferences or requirements mentioned
 
 Be concise but comprehensive. The summary will be used to maintain context in a continued conversation.
-
+{language_section}
 {existing_summary_section}
 
 Messages to summarize:
@@ -153,6 +152,29 @@ class ContextCompressor:
         """
         self.config = config or CompressionConfig()
 
+    @staticmethod
+    def _snap_to_tool_pair_boundary(messages: list[BaseMessage], split_index: int) -> int:
+        """Adjust split index so it doesn't orphan ToolMessages from their AIMessage.
+
+        Scans backward from the proposed split so that:
+        - No ToolMessage is separated from its parent AIMessage
+        - No AIMessage with tool_calls is separated from its ToolMessage responses
+        """
+        if split_index <= 0 or split_index >= len(messages):
+            return split_index
+
+        while split_index > 0 and isinstance(messages[split_index], ToolMessage):
+            split_index -= 1
+
+        if (
+            split_index > 0
+            and isinstance(messages[split_index - 1], AIMessage)
+            and getattr(messages[split_index - 1], "tool_calls", None)
+        ):
+            split_index -= 1
+
+        return split_index
+
     def should_compress(
         self,
         messages: list[BaseMessage],
@@ -195,7 +217,8 @@ class ContextCompressor:
         self,
         messages: list[BaseMessage],
         existing_summary: str | None,
-        provider: LLMProvider,
+        provider: str,
+        locale: str = "en",
     ) -> tuple[str | None, list[BaseMessage]]:
         """Compress older messages into a summary.
 
@@ -208,6 +231,7 @@ class ContextCompressor:
             messages: Full message list
             existing_summary: Any existing summary to build upon
             provider: LLM provider for summarization
+            locale: User's preferred language code for summary generation
 
         Returns:
             Tuple of (new_summary, preserved_messages)
@@ -226,14 +250,19 @@ class ContextCompressor:
             else:
                 other_messages.append(msg)
 
-        # Split into old (to summarize) and recent (to preserve)
+        # Split into old (to summarize) and recent (to preserve).
+        # Snap the boundary so we don't split an AIMessage(tool_calls)
+        # from its corresponding ToolMessage responses.
         preserve_count = self.config.preserve_recent
         if len(other_messages) <= preserve_count:
             # Not enough messages to compress
             return None, messages
 
-        old_messages = other_messages[:-preserve_count]
-        recent_messages = other_messages[-preserve_count:]
+        raw_split = len(other_messages) - preserve_count
+        split_index = self._snap_to_tool_pair_boundary(other_messages, raw_split)
+
+        old_messages = other_messages[:split_index]
+        recent_messages = other_messages[split_index:]
 
         # Check if we have enough old messages to summarize
         if len(old_messages) < self.config.min_messages_to_compress:
@@ -252,6 +281,14 @@ class ContextCompressor:
         if existing_summary:
             existing_summary_section = f"Previous conversation summary:\n{existing_summary}\n\nAdditional messages to incorporate:"
 
+        # Include language instruction so the summary matches the conversation language
+        language_section = ""
+        if locale and locale != "en":
+            from app.agents.prompts import LANGUAGE_MAP
+
+            language = LANGUAGE_MAP.get(locale, locale)
+            language_section = f"\nIMPORTANT: Write the summary in {language} to match the conversation language."
+
         messages_text = "\n\n".join(
             _format_message_for_summary(m) for m in old_messages
         )
@@ -259,6 +296,7 @@ class ContextCompressor:
         prompt = COMPRESSION_PROMPT.format(
             existing_summary_section=existing_summary_section,
             messages_text=messages_text,
+            language_section=language_section,
         )
 
         # Use FLASH tier for fast, cheap summarization

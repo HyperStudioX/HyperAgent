@@ -8,7 +8,7 @@ from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from app.models.schemas import LLMProvider, ModelTier, ResearchDepth, ResearchScenario
+from app.models.schemas import ModelTier, ResearchDepth, ResearchScenario
 from app.services.search import SearchResult
 
 
@@ -16,16 +16,16 @@ class AgentType(str, Enum):
     """Available agent types.
 
     Simplified architecture:
-    - CHAT: Main agent with skills for general tasks, image generation, writing, and coding
+    - TASK: General-purpose handler with skills (Q&A, images,
+      writing, coding, data analysis, etc.)
     - RESEARCH: Deep research workflows with comprehensive analysis
-    - DATA: Data analytics and visualization
 
-    Note: Deprecated agent type (IMAGE) is mapped to CHAT at the routing layer via AGENT_NAME_MAP.
+    Note: Deprecated agent types (IMAGE, DATA, etc.) are mapped
+    to TASK at the routing layer via AGENT_NAME_MAP.
     """
 
-    CHAT = "chat"
+    TASK = "task"
     RESEARCH = "research"
-    DATA = "data"
 
 
 # Re-export HandoffInfo and SharedAgentMemory from handoff module for backward compatibility
@@ -78,27 +78,38 @@ class SupervisorState(TypedDict, total=False):
 
     # Output
     response: str  # Final text response
+    # WARNING: Uses operator.add reducer — nodes must only return NEW events,
+    # never the full accumulated list. Returning all events causes duplication
+    # because operator.add appends the returned list to the existing one.
     events: Annotated[list[dict[str, Any]], operator.add]  # Streaming events
 
     # Metadata
     task_id: str | None
     user_id: str | None
     attachment_ids: list[str]  # IDs of attached files for tool access
-    image_attachments: list[dict]  # Base64-encoded image data for vision tools [{id, filename, base64_data, mime_type}]
-    provider: LLMProvider
+    image_attachments: list[
+        dict
+    ]  # Base64-encoded image data for vision tools [{id, filename, base64_data, mime_type}]
+    provider: str
     model: str | None
     tier: ModelTier | None  # User-specified tier override
     locale: str  # User's preferred language (e.g., 'en', 'zh-CN')
 
 
-class ChatState(SupervisorState, total=False):
-    """State for the chat subagent."""
+class TaskState(SupervisorState, total=False):
+    """State for the task subagent."""
 
     # Chat-specific fields
     system_prompt: str
     lc_messages: list[BaseMessage]  # LangChain messages for tool calling
     has_error: bool  # Flag to signal error and stop the loop
     # Note: tool_iterations is inherited from SupervisorState
+
+    # Planned execution mode (Phase 2)
+    # When task_planning skill returns a plan, steps are parsed into execution_plan.
+    # The agent then tracks progress through the plan step-by-step.
+    execution_plan: list[dict]  # Parsed plan steps [{step_number, action, tool_or_skill, ...}]
+    current_step_index: int  # 0-indexed pointer into execution_plan
 
 
 class ResearchState(SupervisorState, total=False):
@@ -116,6 +127,9 @@ class ResearchState(SupervisorState, total=False):
     search_complete: bool  # Flag to exit search loop
     # Note: tool_iterations (inherited from SupervisorState) tracks search iterations
 
+    # Error tracking
+    consecutive_errors: int  # Consecutive tool errors for circuit breaker
+
     # Handoff tracking
     deferred_handoff: HandoffInfo | None  # Handoff deferred until search tools complete
 
@@ -124,31 +138,6 @@ class ResearchState(SupervisorState, total=False):
     analysis: str
     synthesis: str
     report_chunks: list[str]
-
-
-class DataAnalysisState(SupervisorState, total=False):
-    """State for the data analysis subagent."""
-
-    # Data analysis planning
-    data_source: str  # URL, file path, or inline data
-    data_type: str  # csv, json, etc.
-    analysis_type: str  # visualization, statistics, processing, ml, general
-    analysis_plan: str  # Planning output
-
-    # Code generation
-    code: str  # Generated Python code
-    language: str  # Programming language (always python for data)
-
-    # Execution results
-    execution_result: str
-    stdout: str
-    stderr: str
-    sandbox_id: str | None
-
-    # Image output (supports multiple images/charts)
-    visualization: str | None  # DEPRECATED: Use images instead
-    visualization_type: str | None  # DEPRECATED: Use images instead
-    images: list[dict[str, str]] | None  # List of {data: str, type: str, path: str}
 
 
 # =============================================================================
@@ -169,22 +158,14 @@ class RouterOutput(TypedDict, total=False):
     events: list[dict[str, Any]]
 
 
-class ChatOutput(TypedDict, total=False):
-    """Return type for chat_node."""
+class TaskOutput(TypedDict, total=False):
+    """Return type for task_node."""
 
     response: str
     events: list[dict[str, Any]]
     pending_handoff: HandoffInfo | None
     handoff_count: int
     handoff_history: list[HandoffInfo]
-
-
-class ResearchPrepOutput(TypedDict, total=False):
-    """Return type for research_prep_node."""
-
-    query: str
-    depth: Any  # ResearchDepth
-    scenario: Any  # ResearchScenario
 
 
 class ResearchPostOutput(TypedDict, total=False):
@@ -197,22 +178,9 @@ class ResearchPostOutput(TypedDict, total=False):
     response: str
 
 
-class DataOutput(TypedDict, total=False):
-    """Return type for data_node."""
-
-    response: str
-    events: list[dict[str, Any]]
-    shared_memory: SharedAgentMemory
-    pending_handoff: HandoffInfo | None
-    handoff_count: int
-    handoff_history: list[HandoffInfo]
-
-
 class ErrorOutput(TypedDict, total=False):
     """Return type for error cases in nodes."""
 
     response: str
     events: list[dict[str, Any]]
     has_error: bool
-
-

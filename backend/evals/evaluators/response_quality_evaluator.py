@@ -64,7 +64,7 @@ class ResponseQualityEvaluator:
             from app.ai.llm import llm_service
             from app.ai.model_tiers import ModelTier
 
-            return llm_service.get_llm_for_tier(ModelTier.STANDARD)
+            return llm_service.get_llm_for_tier(ModelTier.PRO)
         except ImportError:
             raise ValueError(
                 "No judge LLM provided and could not import default. "

@@ -16,25 +16,23 @@ logger = get_logger(__name__)
 ROUTER_PROMPT = """You are a routing assistant that determines which specialized agent should handle a user query.
 
 Available agents:
-1. chat - Primary agent for most tasks: conversation, Q&A, image generation, writing, coding, app building, and general requests. Has powerful skills for specialized tasks.
+1. task - Primary agent for most tasks: conversation, Q&A, image generation, writing, coding, app building, data analysis, and general requests. Has powerful skills for specialized tasks.
 2. research - ONLY for deep, comprehensive research requiring extensive web search, multi-source analysis, and detailed reports
-3. data - ONLY for data analytics: CSV/JSON processing, statistical analysis, and data visualization
 
-IMPORTANT: Route almost everything to CHAT agent. It has skills for:
+IMPORTANT: Route almost everything to TASK agent. It has skills for:
 - Image generation (image_generation skill)
 - Code generation (code_generation skill)
-- Code review (code_review skill)
 - Code execution (execute_code tool)
 - App building (app_builder skill)
+- Data analysis (data_analysis skill) - CSV/Excel/JSON analysis, statistics, visualization, ML
 - Web search (web_search tool)
 - Quick research (web_research skill)
 
-Route to specialized agents ONLY when:
-- RESEARCH: Comprehensive multi-step research with synthesis and detailed analysis
-- DATA: Data analytics, CSV processing, statistical analysis, or data visualization
+Route to RESEARCH agent ONLY when:
+- Comprehensive multi-step research with synthesis and detailed analysis
 
 Analyze the user's query and respond with a JSON object containing:
-- "agent": The agent name (chat, research, or data)
+- "agent": The agent name (task or research)
 - "confidence": Your confidence level (0.0 to 1.0)
 - "reason": Brief explanation for your choice
 
@@ -42,46 +40,51 @@ Respond with ONLY the JSON object, no other text.
 
 Examples:
 Query: "Hello, how are you?"
-{"agent": "chat", "confidence": 0.95, "reason": "General conversation"}
+{"agent": "task", "confidence": 0.95, "reason": "General conversation"}
 
 Query: "Research and write a comprehensive report on AI developments in 2024 with citations"
 {"agent": "research", "confidence": 0.95, "reason": "Deep research requiring multi-source analysis and detailed report"}
 
 Query: "What are the latest AI developments?"
-{"agent": "chat", "confidence": 0.9, "reason": "Simple question - chat can search and answer"}
+{"agent": "task", "confidence": 0.9, "reason": "Simple question - task agent can search and answer"}
 
 Query: "Write a Python function to sort a list"
-{"agent": "chat", "confidence": 0.95, "reason": "Code generation - chat has code_generation skill"}
+{"agent": "task", "confidence": 0.95, "reason": "Code generation - task agent has code_generation skill"}
 
 Query: "Write and execute Python code to test this algorithm"
-{"agent": "chat", "confidence": 0.95, "reason": "Code task - chat has code skills and execute_code tool"}
-
-Query: "Review this code for bugs"
-{"agent": "chat", "confidence": 0.95, "reason": "Code review - chat has code_review skill"}
+{"agent": "task", "confidence": 0.95, "reason": "Code task - task agent has code skills and execute_code tool"}
 
 Query: "Write a blog post about climate change"
-{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat handles writing directly"}
+{"agent": "task", "confidence": 0.95, "reason": "Writing task - task agent handles writing directly"}
 
 Query: "Write an email to my team"
-{"agent": "chat", "confidence": 0.95, "reason": "Writing task - chat handles writing directly"}
+{"agent": "task", "confidence": 0.95, "reason": "Writing task - task agent handles writing directly"}
 
 Query: "Analyze this CSV file and create visualizations of the trends"
-{"agent": "data", "confidence": 0.95, "reason": "Data analytics and visualization task"}
+{"agent": "task", "confidence": 0.95, "reason": "Data analysis - task agent has data_analysis skill"}
+
+Query: "Run statistical analysis on this dataset and calculate correlations"
+{"agent": "task", "confidence": 0.95, "reason": "Data analysis - task agent has data_analysis skill"}
 
 Query: "Generate an image of a sunset over mountains"
-{"agent": "chat", "confidence": 0.95, "reason": "Image generation - chat has image_generation skill"}
+{"agent": "task", "confidence": 0.95, "reason": "Image generation - task agent has image_generation skill"}
 
 Query: "Go to amazon.com and find the price of iPhone 15"
-{"agent": "chat", "confidence": 0.95, "reason": "Browser automation - chat agent has browser tools"}
+{"agent": "task", "confidence": 0.95, "reason": "Browser automation - task agent has browser tools"}
 
 Query: "Fill out the contact form on example.com"
-{"agent": "chat", "confidence": 0.95, "reason": "Form interaction - chat agent has browser tools"}
+{"agent": "task", "confidence": 0.95, "reason": "Form interaction - task agent has browser tools"}
 
 Query: "Generate a picture of a cat"
-{"agent": "chat", "confidence": 0.95, "reason": "Image generation - chat has image_generation skill"}
+{"agent": "task", "confidence": 0.95, "reason": "Image generation - task agent has image_generation skill"}
 
 Query: "Create a detailed academic research paper on quantum computing"
 {"agent": "research", "confidence": 0.9, "reason": "Comprehensive research requiring detailed analysis"}"""
+
+ROUTER_SYSTEM_MESSAGE = SystemMessage(
+    content=ROUTER_PROMPT,
+    additional_kwargs={"cache_control": {"type": "ephemeral"}},
+)
 
 
 @dataclass
@@ -102,20 +105,18 @@ ROUTING_CONFIDENCE_THRESHOLD = 0.5
 # Maps all agent names (including deprecated ones) to canonical AgentType values
 AGENT_NAME_MAP = {
     # Canonical agent types
-    "chat": AgentType.CHAT,
+    "task": AgentType.TASK,
     "research": AgentType.RESEARCH,
-    "data": AgentType.DATA,
-    "app": AgentType.CHAT,  # App mode routes to chat agent with app_builder skill
-    "image": AgentType.CHAT,  # Image mode routes to chat agent with image_generation skill
-    "writing": AgentType.CHAT,  # Writing mode routes to chat agent
-    "slide": AgentType.CHAT,  # Slide mode routes to chat agent with slide_generation skill
-    "CHAT": AgentType.CHAT,
+    "data": AgentType.TASK,  # Data mode routes to task agent with data_analysis skill
+    "app": AgentType.TASK,  # App mode routes to task agent with app_builder skill
+    "image": AgentType.TASK,  # Image mode routes to task agent with image_generation skill
+    "slide": AgentType.TASK,  # Slide mode routes to task agent with slide_generation skill
+    "TASK": AgentType.TASK,
     "RESEARCH": AgentType.RESEARCH,
-    "DATA": AgentType.DATA,
-    "APP": AgentType.CHAT,
-    "IMAGE": AgentType.CHAT,
-    "WRITING": AgentType.CHAT,
-    "SLIDE": AgentType.CHAT,
+    "DATA": AgentType.TASK,
+    "APP": AgentType.TASK,
+    "IMAGE": AgentType.TASK,
+    "SLIDE": AgentType.TASK,
 }
 
 
@@ -141,8 +142,8 @@ def parse_router_response_json(response: str) -> RoutingResult | None:
 
         data = json.loads(clean_response)
 
-        agent_name = data.get("agent", "chat").lower()
-        agent_type = AGENT_NAME_MAP.get(agent_name, AgentType.CHAT)
+        agent_name = data.get("agent", "task").lower()
+        agent_type = AGENT_NAME_MAP.get(agent_name, AgentType.TASK)
         confidence = float(data.get("confidence", 0.8))
 
         return RoutingResult(
@@ -166,7 +167,7 @@ def parse_router_response_legacy(response: str) -> RoutingResult:
         RoutingResult with agent type and reason
     """
     lines = response.strip().split("\n")
-    agent_str = AgentType.CHAT.value  # Default
+    agent_str = AgentType.TASK.value  # Default
     reason = "Default routing"
 
     for line in lines:
@@ -183,7 +184,7 @@ def parse_router_response_legacy(response: str) -> RoutingResult:
             else:
                 agent_part = agent_part.upper()
             # Map to AgentType
-            agent_type = AGENT_NAME_MAP.get(agent_part, AgentType.CHAT)
+            agent_type = AGENT_NAME_MAP.get(agent_part, AgentType.TASK)
             agent_str = agent_type.value
         elif line.upper().startswith("REASON:"):
             reason = line.split(":", 1)[1].strip()
@@ -232,9 +233,9 @@ async def route_query(state: SupervisorState) -> dict:
         mode_lower = explicit_mode.lower().strip()
 
         # Check if it's a valid agent type (including image/app/writing which map to chat)
-        valid_modes = {"chat", "research", "data", "app", "image", "writing", "slide"}
+        valid_modes = {"task", "research", "data", "app", "image", "slide"}
         if mode_lower in valid_modes:
-            agent_type = AGENT_NAME_MAP.get(mode_lower, AgentType.CHAT)
+            agent_type = AGENT_NAME_MAP.get(mode_lower, AgentType.TASK)
             logger.info(
                 "routing_explicit_mode",
                 query=query[:50],
@@ -261,7 +262,7 @@ async def route_query(state: SupervisorState) -> dict:
     try:
         response = await llm.ainvoke(
             [
-                SystemMessage(content=ROUTER_PROMPT),
+                ROUTER_SYSTEM_MESSAGE,
                 HumanMessage(content=f"Query: {query}"),
             ]
         )
@@ -301,16 +302,17 @@ async def route_query(state: SupervisorState) -> dict:
             "events": [routing_event],
         }
     except Exception as e:
-        logger.error("routing_failed", error=str(e))
-        # Default to chat on routing failure
+        logger.error("routing_failed", error=str(e), query=query[:50])
+        # Default to task on routing failure -- do not expose internal error
+        # details in the response sent to clients.
         return {
-            "selected_agent": AgentType.CHAT.value,
-            "routing_reason": f"Default (routing error: {str(e)})",
+            "selected_agent": AgentType.TASK.value,
+            "routing_reason": "Default (routing error)",
             "routing_confidence": 0.0,
             "events": [
                 {
                     "type": "routing",
-                    "agent": AgentType.CHAT.value,
+                    "agent": AgentType.TASK.value,
                     "reason": "Default due to routing error",
                     "confidence": 0.0,
                 }

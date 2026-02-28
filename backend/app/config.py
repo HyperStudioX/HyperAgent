@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 from typing import Literal
 
@@ -25,27 +26,31 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5000"
 
     # LLM Providers
-    default_provider: Literal["anthropic", "openai", "gemini"] = "anthropic"
+    default_provider: str = "anthropic"
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     gemini_api_key: str = ""
+
+    # Per-tier provider override (blank = use default_provider)
+    max_model_provider: str = ""
+    pro_model_provider: str = ""
+    flash_model_provider: str = ""
+
+    # Vision provider override (blank = use default_provider)
+    vision_model_provider: str = ""
+
+    # Image generation provider override (blank = use default_provider)
+    image_model_provider: str = ""
+
+    # Custom OpenAI-Compatible Providers (JSON array)
+    custom_providers: str = ""
 
     # GCP / Vertex AI (use Vertex AI instead of Google AI Studio for Gemini)
     gemini_use_vertex_ai: bool = False
     gcp_project_id: str = ""
     gcp_location: str = "us-central1"
 
-    # Models
-    default_model_anthropic: str = "claude-sonnet-4-20250514"
-    default_model_openai: str = "gpt-4o"
-    default_model_gemini: str = "gemini-2.5-flash"
-
     # Model Tier Configuration
-    # Providers for each tier (which provider to use for each complexity level)
-    tier_max_provider: Literal["anthropic", "openai", "gemini"] = "anthropic"
-    tier_pro_provider: Literal["anthropic", "openai", "gemini"] = "anthropic"
-    tier_flash_provider: Literal["anthropic", "openai", "gemini"] = "anthropic"
-
     # Models for each tier and provider combination
     tier_max_anthropic: str = "claude-opus-4-20250514"
     tier_max_openai: str = "gpt-4o"
@@ -60,25 +65,15 @@ class Settings(BaseSettings):
     tier_flash_gemini: str = "gemini-2.0-flash"
 
     # Multimodal Model Configuration
-    # Image Understanding (Vision - Gemini only)
-    vision_model: str = "gemini-2.5-flash"
+    # Image Understanding (Vision) - per-provider models
+    vision_model_gemini: str = "gemini-2.5-flash"
+    vision_model_openai: str = "gpt-4o"
 
-    # Image Generation (Multi-provider)
-    image_gen_model: str = "gemini-3-pro-image-preview"
-    image_gen_default_size: str = "1024x1024"
+    # Image Generation - per-provider models
+    image_gen_model_gemini: str = "gemini-3-pro-image-preview"
+    image_gen_model_openai: str = "dall-e-3"
     image_gen_safety_filter: str = "block_some"  # block_none, block_some, block_most
-    image_gen_default_provider: Literal["gemini", "openai"] = "gemini"
-
-    # OpenAI Image Generation (DALL-E)
-    image_gen_openai_model: str = "dall-e-3"
     image_gen_openai_quality: str = "standard"  # standard or hd
-
-    # Audio Transcription (Gemini only)
-    audio_transcription_model: str = "gemini-2.0-flash-exp"
-
-    # Audio Text-to-Speech (Gemini only)
-    audio_tts_model: str = "gemini-2.0-flash-exp"
-    audio_tts_voice: str = "Puck"  # Voice options: Puck, Charon, Kore, Fenrir, Aoede
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hyperagent"
@@ -91,6 +86,10 @@ class Settings(BaseSettings):
     r2_bucket_name: str = "hyperagent"
     r2_endpoint_url: str = ""
     local_storage_path: str = "./uploads"  # For local development
+
+    # LLM Client Configuration
+    llm_request_timeout: int = 120  # Timeout in seconds for LLM API requests
+    llm_max_retries: int = 2  # Max retries for transient LLM failures
 
     # LangGraph Configuration
     langgraph_recursion_limit: int = (
@@ -178,51 +177,28 @@ class Settings(BaseSettings):
             raise ValueError("NEXTAUTH_SECRET must be set when auth is enabled")
         return self
 
+    @model_validator(mode="after")
+    def register_custom_providers(self):
+        """Parse CUSTOM_PROVIDERS JSON and register them in the provider registry."""
+        if self.custom_providers:
+            from app.core.provider_registry import CustomProviderConfig, provider_registry
+
+            try:
+                configs = json.loads(self.custom_providers)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"CUSTOM_PROVIDERS contains invalid JSON: {e}") from e
+
+            for i, cfg in enumerate(configs):
+                try:
+                    provider_registry.register(CustomProviderConfig(**cfg))
+                except Exception as e:
+                    raise ValueError(f"CUSTOM_PROVIDERS entry {i} is malformed: {e}") from e
+        return self
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
-
-    @property
-    def tier_mappings(self) -> dict:
-        """Get tier mappings from configuration."""
-        from app.ai.model_tiers import ModelMapping, ModelTier
-
-        return {
-            ModelTier.MAX: ModelMapping(
-                anthropic=self.tier_max_anthropic,
-                openai=self.tier_max_openai,
-                gemini=self.tier_max_gemini,
-            ),
-            ModelTier.PRO: ModelMapping(
-                anthropic=self.tier_pro_anthropic,
-                openai=self.tier_pro_openai,
-                gemini=self.tier_pro_gemini,
-            ),
-            ModelTier.FLASH: ModelMapping(
-                anthropic=self.tier_flash_anthropic,
-                openai=self.tier_flash_openai,
-                gemini=self.tier_flash_gemini,
-            ),
-        }
-
-    @property
-    def tier_providers(self) -> dict:
-        """Get provider for each tier from configuration."""
-        from app.ai.model_tiers import ModelTier
-        from app.models.schemas import LLMProvider
-
-        provider_map = {
-            "anthropic": LLMProvider.ANTHROPIC,
-            "openai": LLMProvider.OPENAI,
-            "gemini": LLMProvider.GEMINI,
-        }
-
-        return {
-            ModelTier.MAX: provider_map[self.tier_max_provider],
-            ModelTier.PRO: provider_map[self.tier_pro_provider],
-            ModelTier.FLASH: provider_map[self.tier_flash_provider],
-        }
 
 
 @lru_cache

@@ -79,15 +79,14 @@ class Skill:
 
 ## Builtin Skills
 
-Eight skills are available out of the box in `backend/app/agents/skills/builtin/`:
+Seven skills are available out of the box in `backend/app/agents/skills/builtin/`:
 
 | Skill ID | Category | Description |
 |----------|----------|-------------|
 | `web_research` | research | Focused web research with summarization |
 | `code_generation` | code | Generate code snippets with explanations |
-| `code_review` | code | Code quality analysis (bugs, style, security) |
 | `image_generation` | creative | AI image generation |
-| `data_visualization` | data | Generate visualization code |
+| `data_analysis` | data | Analyze datasets with planning, code execution, and summarized insights |
 | `slide_generation` | creative | Create PPTX presentations with research and outlines |
 | `app_builder` | automation | Build web applications in sandboxes |
 | `task_planning` | automation | Analyze complex tasks and create structured execution plans |
@@ -337,10 +336,10 @@ Agents use **LLM-based autonomous decision-making** to choose between direct too
 All tools (including skill invocation tools) are bound to the LLM:
 
 ```python
-# backend/app/agents/subagents/chat.py (reason_node)
+# backend/app/agents/subagents/task.py (reason_node)
 
-# Get all tools for chat agent
-all_tools = get_tools_for_agent("chat", include_handoffs=True)
+# Get all tools for task agent
+all_tools = get_tools_for_agent("task", include_handoffs=True)
 # Returns: [web_search, execute_code, invoke_skill, list_skills, ...]
 
 # Bind tools to LLM
@@ -376,10 +375,10 @@ You have access to specialized skills via invoke_skill and list_skills:
 Available skills include:
 - web_research: Focused web research with source summarization
 - code_generation: Generate code snippets for specific tasks
-- code_review: Review code for bugs, style issues, and security vulnerabilities
 - image_generation: Generate AI images from text descriptions
-- data_visualization: Create data visualizations and charts
+- data_analysis: Full data analysis with planning, code execution, and summarization
 - task_planning: Analyze complex tasks and create structured execution plans
+- app_builder: Build and run web applications with live preview
 - slide_generation: Create professional PPTX presentations with research and structured outlines
 
 When to use skills:
@@ -449,17 +448,17 @@ The LLM considers multiple factors when deciding:
 
 **Result**: Code execution output
 
-#### Example 4: Code Review → Skill
+#### Example 4: Data Analysis → Skill
 
-**User Query**: "Review this code for bugs and security issues"
+**User Query**: "Analyze this CSV and summarize key trends"
 
 **LLM Decision Process**:
-1. Code review task requiring structured analysis
-2. System prompt: "code_review: Review code for bugs, style issues, and security vulnerabilities"
-3. This needs structured feedback, not just execution
-4. **Decision**: Call `invoke_skill("code_review", {"code": "..."})`
+1. Data analysis task requiring multi-step workflow
+2. System prompt: "data_analysis: Full data analysis workflow..."
+3. This needs planning, code execution, and synthesis
+4. **Decision**: Call `invoke_skill("data_analysis", {"query": "Summarize key trends in this dataset"})`
 
-**Result**: Structured review with categories (bugs, style, security)
+**Result**: Structured analysis with findings, metrics, and visualizations
 
 ### When to Use Direct Tools
 
@@ -481,22 +480,22 @@ The LLM considers multiple factors when deciding:
 **Use skills when**:
 - ✅ Complex, multi-step workflow needed
 - ✅ Structured analysis required (summarization, insights)
-- ✅ Task matches skill's purpose (research, code review, writing)
+- ✅ Task matches skill's purpose (research, analysis, app building)
 - ✅ Combined operations (search + summarize, plan + execute)
 - ✅ Structured output needed (not just raw results)
 
 **Examples**:
-- `invoke_skill("web_research", {"topic": "AI trends"})` - Research with analysis
-- `invoke_skill("code_review", {"code": "..."})` - Code review with structured feedback
-- `invoke_skill("app_builder", {"description": "todo app"})` - Multi-step app building
-- `invoke_skill("slide_generation", {"topic": "AI trends"})` - Presentation generation
+- `invoke_skill("web_research", {"topic": "AI trends"})` — Research with analysis
+- `invoke_skill("data_analysis", {"query": "Top insights from this CSV"})` — Data analysis with code execution
+- `invoke_skill("app_builder", {"description": "todo app"})` — Multi-step app building
+- `invoke_skill("slide_generation", {"topic": "AI trends"})` — Presentation generation
 
 ### Mode-Based Guidance
 
 The agent can receive mode hints that influence decisions:
 
 ```python
-# backend/app/agents/subagents/chat.py (reason_node)
+# backend/app/agents/subagents/task.py (reason_node)
 
 if mode == "image":
     enhanced_query = f"Generate an image based on this description: {query}\n\nUse the image_generation skill to create the image."
@@ -554,27 +553,24 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
 
 # Agent access mapping
 AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
-    "chat": [
+    "task": [
         ToolCategory.SEARCH,
         ToolCategory.IMAGE,
-        ToolCategory.SLIDES,       # Chat can generate slides
+        ToolCategory.SLIDES,
         ToolCategory.BROWSER,
         ToolCategory.CODE_EXEC,
-        ToolCategory.SKILL,        # Chat can invoke skills
+        ToolCategory.APP_BUILDER,
+        ToolCategory.SKILL,
         ToolCategory.HANDOFF,
         ToolCategory.HITL,
     ],
     "research": [
         ToolCategory.SEARCH,
+        ToolCategory.IMAGE,
         ToolCategory.BROWSER,
-        ToolCategory.SKILL,        # Research can invoke skills
+        ToolCategory.SKILL,
         ToolCategory.HANDOFF,
-    ],
-    "data": [
-        ToolCategory.CODE_EXEC,
-        ToolCategory.DATA,
-        ToolCategory.SKILL,        # Data can invoke skills
-        ToolCategory.HANDOFF,
+        ToolCategory.HITL,
     ],
 }
 
@@ -624,12 +620,12 @@ Skills are exposed via REST in `backend/app/api/skills.py`:
 ```
 1. User: "Research the latest AI trends"
 
-2. Supervisor routes to Chat Agent
+2. Supervisor routes to task agent
 
-3. Chat Agent reasons:
+3. Task agent reasons:
    - "User wants research, I should invoke web_research skill"
 
-4. Chat Agent calls tool:
+4. Task Agent calls tool:
    invoke_skill(
        skill_id="web_research",
        params={"topic": "latest AI trends", "max_sources": 5}
@@ -663,7 +659,7 @@ Skills are exposed via REST in `backend/app/api/skills.py`:
      "success": true
    }
 
-10. Chat Agent formats response to user
+10. Task agent formats response to user
 ```
 
 ## Creating Custom Skills

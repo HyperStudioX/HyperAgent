@@ -56,6 +56,9 @@ class EventType(str, Enum):
     # Skill events
     SKILL_OUTPUT = "skill_output"
 
+    # Plan execution events
+    PLAN_STEP = "plan_step"
+
     # Human-in-the-loop events
     INTERRUPT = "interrupt"
     INTERRUPT_RESPONSE = "interrupt_response"
@@ -259,6 +262,17 @@ class SkillOutputEvent(BaseModel):
     type: Literal["skill_output"] = "skill_output"
     skill_id: str = Field(..., description="Skill identifier")
     output: dict[str, Any] = Field(..., description="Skill execution output")
+    timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
+
+
+class PlanStepEvent(BaseModel):
+    """Event indicating plan step progress during planned execution mode."""
+
+    type: Literal["plan_step"] = "plan_step"
+    step_number: int = Field(..., description="Current step number (1-based)")
+    total_steps: int = Field(..., description="Total number of steps in the plan")
+    action: str = Field(..., description="Description of the current step action")
+    status: str = Field(default="running", description="Step status: running, completed, skipped")
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
 
@@ -697,6 +711,31 @@ def skill_output(
     return SkillOutputEvent(
         skill_id=skill_id,
         output=output,
+    ).model_dump()
+
+
+def plan_step(
+    step_number: int,
+    total_steps: int,
+    action: str,
+    status: str = "running",
+) -> dict[str, Any]:
+    """Create a plan step event dictionary.
+
+    Args:
+        step_number: Current step number (1-based)
+        total_steps: Total number of steps in the plan
+        action: Description of the current step action
+        status: Step status (running, completed, skipped)
+
+    Returns:
+        Plan step event dictionary
+    """
+    return PlanStepEvent(
+        step_number=step_number,
+        total_steps=total_steps,
+        action=action,
+        status=status,
     ).model_dump()
 
 

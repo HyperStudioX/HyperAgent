@@ -4,6 +4,45 @@ from langchain_core.messages import SystemMessage
 
 
 # ============================================================================
+# Locale / Language Support
+# ============================================================================
+
+LANGUAGE_MAP: dict[str, str] = {
+    "en": "English",
+    "zh-CN": "Simplified Chinese (简体中文)",
+    "zh-TW": "Traditional Chinese (繁體中文)",
+    "ja": "Japanese (日本語)",
+    "ko": "Korean (한국어)",
+    "es": "Spanish (Español)",
+    "fr": "French (Français)",
+    "de": "German (Deutsch)",
+    "pt": "Portuguese (Português)",
+    "ru": "Russian (Русский)",
+}
+
+
+def get_language_instruction(locale: str) -> str:
+    """Return an XML language instruction block for the given locale.
+
+    Returns an empty string for English (the default), so prompts remain
+    unchanged when no localisation is needed.
+
+    The instruction tells the model to match its output language to the
+    user's input language, using the locale as a hint.
+    """
+    if not locale or locale == "en":
+        return ""
+    language = LANGUAGE_MAP.get(locale, locale)
+    return (
+        f"\n\n<language>\n"
+        f"IMPORTANT: You MUST respond in the same language as the user's message. "
+        f"The user's preferred language is {language}. "
+        f"All your replies, explanations, and content must be in the user's language.\n"
+        f"</language>"
+    )
+
+
+# ============================================================================
 # Common Prompt Sections (Reusable across agents)
 # ============================================================================
 
@@ -23,9 +62,6 @@ HANDOFF_INSTRUCTIONS = """
 <handoff>
 You can delegate tasks to other specialized agents using handoff tools:
 - handoff_to_research: For in-depth web research and analysis
-- handoff_to_code: For code generation, debugging, and execution
-- handoff_to_writing: For long-form content creation
-- handoff_to_data: For data analysis and visualization
 
 When to delegate:
 - The task requires specialized expertise you don't have
@@ -71,11 +107,11 @@ For effective browser usage:
 
 
 # ============================================================================
-# Chat Agent Prompts
+# Task Agent Prompts
 # ============================================================================
 
-CHAT_SYSTEM_PROMPT = f"""<system>
-<role>You are HyperAgent, a helpful AI assistant. You are designed to help users with various tasks including answering questions, having conversations, and providing helpful information.</role>
+TASK_SYSTEM_PROMPT = f"""<system>
+<role>You are HyperAgent, a versatile AI assistant and general-purpose task handler. You help users accomplish a wide range of tasks including answering questions, generating images, writing code, building applications, conducting research, and more.</role>
 
 <tools>
 You have access to a web search tool that you can use to find current information when needed. Use it when:
@@ -149,10 +185,10 @@ You have access to specialized skills via invoke_skill and list_skills:
 Available skills include:
 - web_research: Focused web research with source summarization
 - code_generation: Generate code snippets for specific tasks
-- code_review: Review code for bugs, style issues, and security vulnerabilities
 - image_generation: Generate AI images from text descriptions
-- data_visualization: Create data visualizations and charts
+- data_analysis: Full data analysis workflow - plans approach, generates/executes Python code in sandbox, creates visualizations, and summarizes results. Use for CSV/Excel/JSON analysis, statistics, visualization, and ML.
 - task_planning: Analyze complex tasks and create structured execution plans with steps, dependencies, and success criteria
+- app_builder: Build and run web applications from descriptions (React, Next.js, Vue, Express, FastAPI, Flask, static sites) with live preview
 - slide_generation: Create professional PPTX presentations with research and structured outlines
 
 When to use skills:
@@ -163,7 +199,7 @@ When to use skills:
 - Use task_planning for complex multi-step tasks that need upfront planning before execution
 
 Example: To research a topic, first call list_skills to see web_research parameters, then invoke_skill with:
-{{"skill_id": "web_research", "params": {{"query": "your research question", "max_sources": 5}}}}
+{{"skill_id": "web_research", "params": {{"topic": "your research question", "max_sources": 5}}}}
 
 You have access to a human-in-the-loop tool for getting user input:
 - ask_user: Ask the user a question and wait for their response
@@ -233,7 +269,23 @@ For complex tasks that require specialized expertise, consider delegating to the
 </guidelines>
 </system>"""
 
-CHAT_SYSTEM_MESSAGE = SystemMessage(content=CHAT_SYSTEM_PROMPT)
+TASK_SYSTEM_MESSAGE = SystemMessage(
+    content=TASK_SYSTEM_PROMPT,
+    additional_kwargs={"cache_control": {"type": "ephemeral"}},
+)
+
+
+def get_task_system_prompt(locale: str = "en") -> str:
+    """Return the task system prompt with an optional language instruction.
+
+    For English (or no locale), returns the static ``TASK_SYSTEM_PROMPT``
+    so that prompt-caching still works. For other locales the language
+    instruction is appended just before the closing </system> tag.
+    """
+    if not locale or locale == "en":
+        return TASK_SYSTEM_PROMPT
+    lang = get_language_instruction(locale)
+    return TASK_SYSTEM_PROMPT.removesuffix("</system>") + lang + "\n</system>"
 
 
 # ============================================================================
@@ -296,9 +348,7 @@ Browser usage tips:
 """ + BROWSER_BEST_PRACTICES + """
 
 <handoff>
-You can delegate to specialized agents:
-- handoff_to_code: For code analysis or technical implementation details
-- handoff_to_data: For statistical analysis of research data
+You can delegate to specialized agents when needed.
 
 Only delegate if the task truly requires specialized processing.
 </handoff>
@@ -307,7 +357,8 @@ Only delegate if the task truly requires specialized processing.
 
 <completion>
 When you have gathered enough information to write a comprehensive {report_length} report,
-respond with "SEARCH_COMPLETE" to proceed to analysis.
+stop calling search tools and provide a brief summary of what you found.
+The system will automatically proceed to analysis.
 
 Do NOT write the report yet - just gather sources.
 </completion>
@@ -422,20 +473,8 @@ def get_report_prompt(
         [f"{i + 1}. {section}" for i, section in enumerate(report_structure)]
     )
 
-    # Map locale codes to language names for clearer instruction
-    language_map = {
-        "en": "English",
-        "zh-CN": "Simplified Chinese (简体中文)",
-        "zh-TW": "Traditional Chinese (繁體中文)",
-        "ja": "Japanese (日本語)",
-        "ko": "Korean (한국어)",
-        "es": "Spanish (Español)",
-        "fr": "French (Français)",
-        "de": "German (Deutsch)",
-        "pt": "Portuguese (Português)",
-        "ru": "Russian (Русский)",
-    }
-    language = language_map.get(locale, locale)
+    # Reuse the shared language instruction helper
+    language = LANGUAGE_MAP.get(locale, locale)
     language_instruction = f"\n\n<language>\nIMPORTANT: Write the entire report in {language}. All section headers, content, and conclusions must be in {language}.\n</language>" if locale != "en" else ""
 
     return f"""<user>
@@ -508,13 +547,6 @@ You also have access to image tools:
 - generate_image: Create custom visualizations or illustrations beyond what Python can generate
 - analyze_image: Extract data from charts, graphs, or screenshots shared by users
 </tools>
-
-<handoff>
-You can delegate to specialized agents:
-- handoff_to_code: For complex programming tasks or multi-file code projects
-
-Only delegate if the task goes beyond data analysis into software development.
-</handoff>
 
 {ERROR_RECOVERY_INSTRUCTIONS}
 
@@ -602,6 +634,23 @@ import seaborn as sns
 Never assume any library is pre-imported. Every script must be self-contained.
 </imports>
 </system>"""
+
+DATA_ANALYSIS_SYSTEM_MESSAGE = SystemMessage(
+    content=DATA_ANALYSIS_SYSTEM_PROMPT,
+    additional_kwargs={"cache_control": {"type": "ephemeral"}},
+)
+
+
+def get_data_system_prompt(locale: str = "en") -> str:
+    """Return the data analysis system prompt with an optional language instruction.
+
+    For English (or no locale), returns the static ``DATA_ANALYSIS_SYSTEM_PROMPT``.
+    """
+    if not locale or locale == "en":
+        return DATA_ANALYSIS_SYSTEM_PROMPT
+    lang = get_language_instruction(locale)
+    return DATA_ANALYSIS_SYSTEM_PROMPT.removesuffix("</system>") + lang + "\n</system>"
+
 
 CODE_GENERATION_PROMPT_TEMPLATE = """<user>
 <task>Based on the user's request, generate Python code for data analysis.</task>
@@ -798,151 +847,6 @@ SUMMARY_SYSTEM_PROMPT = "<system><role>You are a data analysis assistant. Summar
 
 
 # ============================================================================
-# Writing Agent Prompts
-# ============================================================================
-
-WRITING_SYSTEM_PROMPT = f"""<system>
-<role>You are a professional writer assistant specializing in creating high-quality content.</role>
-
-<capabilities>
-You can help with various types of writing:
-- Articles and blog posts
-- Technical documentation
-- Creative writing (stories, essays)
-- Business communications
-- Academic writing
-</capabilities>
-
-<guidelines>
-1. Understand the target audience and purpose
-2. Structure content logically with clear sections
-3. Use appropriate tone and style for the content type
-4. Include relevant examples and explanations
-5. Ensure clarity and readability
-</guidelines>
-
-<tools>
-You can use a web search tool to gather up-to-date facts or sources when needed.
-Prefer authoritative sources and include exact names, versions, and timeframes.
-
-You also have access to image tools:
-- generate_image: Create illustrations, diagrams, or visual content to enhance your writing
-- analyze_image: Extract information from reference images or screenshots shared by users
-
-IMPORTANT: When the user requests images (e.g., "配图", "需要插图", "with images", "add illustrations"), you MUST use the generate_image tool to create relevant images. Do not just describe what images would be good - actually generate them.
-</tools>
-
-<handoff>
-You can delegate to specialized agents:
-- handoff_to_research: For in-depth research on topics you need to write about
-
-Only delegate if you need comprehensive research before writing, not for simple fact-checking.
-</handoff>
-
-{ERROR_RECOVERY_INSTRUCTIONS}
-
-<formatting>
-When writing, organize your response with clear headings and formatting using markdown.
-</formatting>
-</system>"""
-
-OUTLINE_PROMPT_TEMPLATE = """<user>
-<task>Create a detailed outline for the following writing task:</task>
-
-<context>
-Task: {query}
-Writing Type: {writing_type}
-Tone: {tone}
-</context>
-
-<requirements>
-Provide a structured outline with:
-1. Main sections and subsections
-2. Key points to cover in each section
-3. Suggested word count for each section
-</requirements>
-
-<image_requirements>
-Check if the user's request mentions images (配图, 插图, illustrations, diagrams, visual content, etc.).
-If so, identify in the outline where images would be appropriate and what type of images to generate.
-</image_requirements>
-
-<formatting>
-Format the outline using markdown with proper headings.
-Ensure the outline matches the {writing_type} style and {tone} tone.
-</formatting>
-</user>"""
-
-
-def get_outline_prompt(query: str, writing_type: str, tone: str) -> str:
-    """Generate the outline prompt for writing agent.
-
-    Args:
-        query: Writing task query
-        writing_type: Type of writing
-        tone: Desired tone
-
-    Returns:
-        Formatted outline prompt
-    """
-    return OUTLINE_PROMPT_TEMPLATE.format(
-        query=query,
-        writing_type=writing_type,
-        tone=tone,
-    )
-
-
-DRAFT_PROMPT_TEMPLATE = """<user>
-<task>Write the content based on this outline:</task>
-
-<outline>
-{outline}
-</outline>
-
-<context>
-Original request: {query}
-Writing Type: {writing_type}
-Tone: {tone}
-</context>
-
-<requirements>
-Write engaging, well-structured content following the outline.
-Use markdown formatting for headings, lists, and emphasis where appropriate.
-Match the {writing_type} style and maintain a {tone} tone throughout.
-</requirements>
-
-<image_generation>
-IMPORTANT: If the original request mentions images (配图, 插图, illustrations, with images, etc.), you MUST use the generate_image tool to create relevant images for the content. Generate images that:
-- Match the content's theme and style
-- Are appropriate for the platform (e.g., Xiaohongshu/小红书 style for that platform)
-- Enhance the reader's understanding or engagement
-
-Do NOT skip image generation if the user requested it. Call generate_image with detailed prompts describing the desired images.
-</image_generation>
-</user>"""
-
-
-def get_draft_prompt(query: str, outline: str, writing_type: str, tone: str) -> str:
-    """Generate the draft prompt for writing agent.
-
-    Args:
-        query: Original writing request
-        outline: Created outline
-        writing_type: Type of writing
-        tone: Desired tone
-
-    Returns:
-        Formatted draft prompt
-    """
-    return DRAFT_PROMPT_TEMPLATE.format(
-        outline=outline,
-        query=query,
-        writing_type=writing_type,
-        tone=tone,
-    )
-
-
-# ============================================================================
 # Code Agent Prompts
 # ============================================================================
 
@@ -1063,10 +967,9 @@ You also have access to image tools:
 </tools>
 
 <handoff>
-You can delegate to specialized agents:
-- handoff_to_data: For data analysis tasks with visualizations
+You can delegate to specialized agents when needed.
 
-Only delegate if the task is primarily about data analysis rather than programming.
+Only delegate if the task is primarily about specialized processing rather than programming.
 </handoff>
 
 {ERROR_RECOVERY_INSTRUCTIONS}
@@ -1095,5 +998,4 @@ Supported languages: Python, JavaScript, TypeScript, Shell/Bash
 If the user wants to execute code, provide the code and indicate it should be run.
 </execution>
 </system>"""
-
 

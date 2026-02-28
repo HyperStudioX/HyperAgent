@@ -305,7 +305,7 @@ class Conversation(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    type: Mapped[str] = mapped_column(String(20), nullable=False, default="chat")
+    type: Mapped[str] = mapped_column(String(20), nullable=False, default="task")
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -519,7 +519,7 @@ class SkillDefinition(Base):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
-        return {
+        result = {
             "id": self.id,
             "name": self.name,
             "version": self.version,
@@ -533,6 +533,22 @@ class SkillDefinition(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+        # Enrich with fields from metadata_json blob
+        if self.metadata_json:
+            try:
+                import json
+
+                meta = json.loads(self.metadata_json)
+                result["parameters"] = meta.get("parameters", [])
+                result["required_tools"] = meta.get("required_tools", [])
+                result["risk_level"] = meta.get("risk_level")
+                result["tags"] = meta.get("tags", [])
+                result["output_schema"] = meta.get("output_schema", {})
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return result
 
 
 class SkillExecution(Base):

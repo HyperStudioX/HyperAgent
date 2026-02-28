@@ -4,7 +4,9 @@ Routes browser requests for sandbox apps through the backend so that
 iframe previews work without direct access to Docker-mapped ports.
 """
 
+import ipaddress
 import re
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -16,7 +18,7 @@ from app.sandbox.app_sandbox_manager import get_app_sandbox_manager
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/sandbox/app", tags=["sandbox-proxy"])
+router = APIRouter(prefix="/sandbox/app")
 
 # Shared async HTTP client (created lazily, reused across requests)
 _http_client: httpx.AsyncClient | None = None
@@ -31,6 +33,40 @@ def _get_http_client() -> httpx.AsyncClient:
             limits=httpx.Limits(max_connections=50, max_keepalive_connections=10),
         )
     return _http_client
+
+
+async def close_http_client() -> None:
+    """Close the shared HTTP client. Call during application shutdown."""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
+
+
+def _is_safe_internal_url(url: str) -> bool:
+    """Validate that a URL points to localhost or a private/Docker network IP.
+
+    Prevents SSRF by rejecting URLs that point to arbitrary external hosts.
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        if not host:
+            return False
+
+        # Allow localhost explicitly
+        if host in ("localhost", "127.0.0.1", "::1"):
+            return True
+
+        # Allow private/Docker network IPs
+        try:
+            addr = ipaddress.ip_address(host)
+            return addr.is_private or addr.is_loopback
+        except ValueError:
+            # Not a valid IP address (e.g. a hostname) -- reject
+            return False
+    except Exception:
+        return False
 
 
 # Headers that should not be forwarded to the sandbox
@@ -86,8 +122,34 @@ async def proxy_sandbox_app(
     if not session:
         raise HTTPException(status_code=404, detail="Sandbox session not found")
 
+    # Ownership check: verify the authenticated user owns this session.
+    # session_key format is "app:{user_id}:{task_id}"
+    try:
+        parts = session.session_key.split(":")
+        session_user_id = parts[1] if len(parts) >= 2 else None
+    except (AttributeError, IndexError):
+        session_user_id = None
+
+    if not session_user_id or session_user_id != current_user.id:
+        logger.warning(
+            "sandbox_proxy_ownership_denied",
+            sandbox_id=sandbox_id,
+            session_user_id=session_user_id,
+            request_user_id=current_user.id,
+        )
+        raise HTTPException(status_code=403, detail="Not authorized to access this sandbox")
+
     if not session.internal_url:
         raise HTTPException(status_code=502, detail="Sandbox app not started")
+
+    # SSRF prevention: ensure internal_url points to localhost or private network
+    if not _is_safe_internal_url(session.internal_url):
+        logger.error(
+            "sandbox_proxy_ssrf_blocked",
+            sandbox_id=sandbox_id,
+            internal_url=session.internal_url,
+        )
+        raise HTTPException(status_code=502, detail="Sandbox URL is not allowed")
 
     # Build target URL
     target_base = session.internal_url.rstrip("/")

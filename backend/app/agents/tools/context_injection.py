@@ -32,6 +32,8 @@ def _get_session_tool_names() -> set[str]:
         _SESSION_TOOLS.update(_browser_tool_names)
         _SESSION_TOOLS.update(_app_builder_tool_names)
         _SESSION_TOOLS.add("invoke_skill")
+        _SESSION_TOOLS.add("execute_code")
+        _SESSION_TOOLS.add("sandbox_file")
 
     return _SESSION_TOOLS
 

@@ -23,7 +23,6 @@ STREAMING_CONFIG: dict[str, bool] = {
     "search_agent": False,
     "search_tools": False,
     # Research subgraph nodes
-    "research_prep": False,
     "research_post": False,
     "init_config": False,
     "collect_sources": False,
@@ -92,6 +91,7 @@ class StreamProcessor:
         self.emitted_image_indices: set[int] = set()
         self.emitted_interrupt_ids: set[str] = set()  # Track emitted HITL interrupts
         self.emitted_skill_output_keys: set[str] = set()  # Track emitted skill_output events
+        self.emitted_terminal_keys: set[str] = set()  # Dedup terminal/workspace events
         self.pending_tool_calls: dict[str, dict] = {}
         self.pending_tool_calls_by_tool: dict[str, list[str]] = {}
         self.node_path: list[str] = []
@@ -139,6 +139,10 @@ class StreamProcessor:
 
         elif event_type == "on_chain_error":
             async for e in self._handle_chain_error(node_name, event):
+                yield e
+
+        elif event_type == "on_custom_event":
+            async for e in self._handle_custom_event(event):
                 yield e
 
     async def _handle_chain_start(self, node_name: str) -> AsyncGenerator[dict[str, Any], None]:
@@ -282,6 +286,38 @@ class StreamProcessor:
             if skill_key in self.emitted_skill_output_keys:
                 return False
             self.emitted_skill_output_keys.add(skill_key)
+
+        # Terminal and workspace event deduplication
+        # These can arrive via multiple paths: custom event (real-time),
+        # tool_end JSON extraction, and chain_end state extraction.
+        if event_type in (
+            "terminal_command",
+            "terminal_output",
+            "terminal_error",
+            "terminal_complete",
+            "workspace_update",
+            "browser_stream",
+        ):
+            # Build a content-based dedup key
+            if event_type == "terminal_command":
+                key = f"tcmd:{e.get('command', '')}"
+            elif event_type == "terminal_output":
+                key = f"tout:{e.get('content', '')[:200]}"
+            elif event_type == "terminal_error":
+                key = f"terr:{e.get('content', '')[:200]}"
+            elif event_type == "terminal_complete":
+                key = f"tcmp:{e.get('exit_code', '')}"
+            elif event_type == "workspace_update":
+                key = f"ws:{e.get('operation', '')}:{e.get('path', '')}"
+            elif event_type == "browser_stream":
+                key = f"bs:{e.get('stream_url', '')}"
+            else:
+                key = ""
+
+            if key and key in self.emitted_terminal_keys:
+                return False
+            if key:
+                self.emitted_terminal_keys.add(key)
 
         # Interrupt deduplication (HITL events)
         if event_type == "interrupt":
@@ -498,33 +534,15 @@ class StreamProcessor:
                 status="completed",
             )
 
-        # Extract events from skill invocation output (for streaming to frontend)
+        # Extract skill_output from invoke_skill results (for frontend preview URLs etc.)
+        # Note: stage/terminal/browser_stream events are dispatched in real-time via
+        # dispatch_custom_event and handled in _handle_custom_event — not extracted here.
         if tool_name == "invoke_skill" and output:
             try:
                 import json
 
                 parsed = json.loads(output)
                 if isinstance(parsed, dict):
-                    # Forward stage events from skill execution
-                    if "events" in parsed:
-                        skill_events = parsed.get("events", [])
-                        logger.info(
-                            "invoke_skill_events_extracted",
-                            skill_id=parsed.get("skill_id"),
-                            event_count=len(skill_events),
-                            event_types=[e.get("type") for e in skill_events if isinstance(e, dict)],
-                        )
-                        for evt in skill_events:
-                            if isinstance(evt, dict) and self._should_emit_subevent(
-                                evt, tool_name
-                            ):
-                                logger.debug(
-                                    "yielding_skill_event",
-                                    event_type=evt.get("type"),
-                                    skill_id=parsed.get("skill_id"),
-                                )
-                                yield evt
-
                     # Emit skill_output event for frontend to extract preview URLs etc.
                     if parsed.get("success") and parsed.get("output"):
                         skill_id = parsed.get("skill_id", "")
@@ -669,6 +687,42 @@ class StreamProcessor:
                 tool_call_id = tool_queue.pop(0)
 
         return tool_call_id or str(run_id) if run_id else str(uuid.uuid4())
+
+    async def _handle_custom_event(
+        self, event: dict
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Handle custom events dispatched via dispatch_custom_event from within tools.
+
+        This enables real-time streaming of skill events (terminal, stage,
+        workspace_update, browser_stream) instead of waiting for the entire
+        tool to complete and extracting them from the JSON result.
+        """
+        event_name = event.get("name", "")
+        if event_name != "skill_event":
+            return
+
+        data = event.get("data")
+        if not isinstance(data, dict):
+            return
+
+        event_type = data.get("type")
+        if event_type not in (
+            "stage",
+            "terminal_command",
+            "terminal_output",
+            "terminal_error",
+            "terminal_complete",
+            "browser_stream",
+            "workspace_update",
+        ):
+            return
+
+        if self._should_emit_subevent(data, "skill_event"):
+            logger.debug(
+                "custom_skill_event_emitted",
+                event_type=event_type,
+            )
+            yield data
 
     async def _handle_chain_error(
         self, node_name: str, event: dict

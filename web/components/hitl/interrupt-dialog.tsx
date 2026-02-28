@@ -420,7 +420,7 @@ export function InterruptDialog({ interrupt, onRespond, onCancel }: InterruptDia
         <>
             {/* Backdrop - higher z-index to be above everything */}
             <div
-                className="fixed inset-0 bg-black/50 z-[100] animate-in fade-in duration-200"
+                className="fixed inset-0 bg-black/40 z-[100] animate-in fade-in duration-200"
                 onClick={onCancel}
             />
 

@@ -230,7 +230,7 @@ function ResearchBrowserStreamIframe({ stream }: { stream: ComputerStreamInfo })
 
     return (
         <div className="p-3">
-            <div className="rounded-lg overflow-hidden border border-border bg-black">
+            <div className="rounded-lg overflow-hidden border border-border bg-terminal-bg">
                 <iframe
                     src={streamUrl}
                     className="w-full h-[400px]"

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import {
   ExternalLink,
@@ -13,6 +13,19 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+/**
+ * Validate that a URL is safe for use in iframes and window.open.
+ * Only allows http: and https: protocols, rejecting javascript:, data:, blob:, etc.
+ */
+function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 interface AppPreviewPanelProps {
   previewUrl: string;
@@ -36,6 +49,13 @@ export function AppPreviewPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const handleRefresh = useCallback(() => {
     setIsLoading(true);
@@ -46,27 +66,24 @@ export function AppPreviewPanel({
     try {
       await navigator.clipboard.writeText(previewUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
-      const textArea = document.createElement("textarea");
-      textArea.value = previewUrl;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      // Silently fail - navigator.clipboard is supported in all modern browsers
     }
   }, [previewUrl]);
 
   const handleOpenExternal = useCallback(() => {
-    window.open(previewUrl, "_blank", "noopener,noreferrer");
+    if (isSafeUrl(previewUrl)) {
+      window.open(previewUrl, "_blank", "noopener,noreferrer");
+    }
   }, [previewUrl]);
 
   const handleIframeLoad = useCallback(() => {
     setIsLoading(false);
   }, []);
+
+  const safeUrl = isSafeUrl(previewUrl);
 
   // Extract display URL (remove protocol for display)
   const displayUrl = previewUrl.replace(/^https?:\/\//, "");
@@ -76,8 +93,8 @@ export function AppPreviewPanel({
       className={cn(
         "rounded-lg border border-border/80 bg-card overflow-hidden flex flex-col",
         isFullscreen
-          ? "fixed inset-4 z-50 shadow-sm"
-          : "w-full h-[400px]",
+          ? "fixed inset-0 md:inset-4 z-50 shadow-sm pt-safe pb-safe"
+          : "w-full h-[300px] md:h-[400px]",
         className
       )}
     >
@@ -174,20 +191,26 @@ export function AppPreviewPanel({
         )}
 
         {/* Iframe */}
-        <iframe
-          key={iframeKey}
-          src={previewUrl}
-          className="w-full h-full border-0"
-          onLoad={handleIframeLoad}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-          title={t("appPreview")}
-        />
+        {safeUrl ? (
+          <iframe
+            key={iframeKey}
+            src={previewUrl}
+            className="w-full h-full border-0"
+            onLoad={handleIframeLoad}
+            sandbox="allow-scripts allow-forms allow-popups allow-modals"
+            title={t("appPreview")}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+            Invalid URL
+          </div>
+        )}
       </div>
 
       {/* Fullscreen backdrop */}
       {isFullscreen && (
         <div
-          className="fixed inset-0 bg-black/50 -z-10"
+          className="fixed inset-0 bg-black/40 -z-10"
           onClick={() => setIsFullscreen(false)}
         />
       )}
@@ -211,20 +234,32 @@ export function InlineAppPreview({
   const t = useTranslations("appPreview");
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const inlineCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (inlineCopyTimerRef.current) clearTimeout(inlineCopyTimerRef.current);
+    };
+  }, []);
 
   const handleCopyUrl = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(previewUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (inlineCopyTimerRef.current) clearTimeout(inlineCopyTimerRef.current);
+      inlineCopyTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
     }
   }, [previewUrl]);
 
   const handleOpenExternal = useCallback(() => {
-    window.open(previewUrl, "_blank", "noopener,noreferrer");
+    if (isSafeUrl(previewUrl)) {
+      window.open(previewUrl, "_blank", "noopener,noreferrer");
+    }
   }, [previewUrl]);
+
+  const safeUrl = isSafeUrl(previewUrl);
 
   // Extract display URL
   const displayUrl = previewUrl.replace(/^https?:\/\//, "");
@@ -295,13 +330,13 @@ export function InlineAppPreview({
       </div>
 
       {/* Expandable preview */}
-      {expanded && (
+      {expanded && safeUrl && (
         <div className="border-t border-border/60">
           <div className="h-[300px] bg-background">
             <iframe
               src={previewUrl}
               className="w-full h-full border-0"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+              sandbox="allow-scripts allow-forms allow-popups allow-modals"
               title={t("appPreview")}
             />
           </div>

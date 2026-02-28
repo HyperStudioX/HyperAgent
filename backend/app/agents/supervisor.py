@@ -1,6 +1,7 @@
 """Supervisor/orchestrator for the multi-agent system with handoff support."""
 
 import asyncio
+import uuid
 from typing import Any, AsyncGenerator, Literal
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -9,21 +10,17 @@ from langgraph.graph import END, StateGraph
 from app.agents.routing import route_query
 from app.agents.state import (
     AgentType,
-    ChatOutput,
-    DataOutput,
     ErrorOutput,
     ResearchPostOutput,
-    ResearchPrepOutput,
     RouterOutput,
     SupervisorState,
+    TaskOutput,
 )
-from app.agents.subagents.chat import chat_subgraph
-from app.agents.subagents.data import data_subgraph
 from app.agents.subagents.research import research_subgraph
+from app.agents.subagents.task import task_subgraph
 from app.agents.tools.handoff import (
     HANDOFF_MATRIX,
     MAX_HANDOFFS,
-    HandoffInfo,
     build_query_with_context,
     can_handoff,
     update_handoff_history,
@@ -59,10 +56,10 @@ async def router_node(state: SupervisorState) -> RouterOutput:
         if not query:
             logger.warning("router_empty_query")
             return RouterOutput(
-                selected_agent=AgentType.CHAT.value,
-                routing_reason="Empty query - defaulting to chat",
+                selected_agent=AgentType.TASK.value,
+                routing_reason="Empty query - defaulting to task",
                 routing_confidence=1.0,
-                active_agent=AgentType.CHAT.value,
+                active_agent=AgentType.TASK.value,
                 events=[
                     {
                         "type": "validation",
@@ -74,7 +71,7 @@ async def router_node(state: SupervisorState) -> RouterOutput:
         # Check if there's a pending handoff - use that instead of routing
         pending_handoff = state.get("pending_handoff")
         if pending_handoff:
-            target_agent = pending_handoff.get("target_agent", "chat")
+            target_agent = pending_handoff.get("target_agent", "task")
             logger.info(
                 "routing_from_handoff",
                 target=target_agent,
@@ -100,19 +97,19 @@ async def router_node(state: SupervisorState) -> RouterOutput:
         result = await route_query(state)
 
         # Set active_agent from routing
-        selected_agent = result.get("selected_agent", "chat")
+        selected_agent = result.get("selected_agent", "task")
         result["active_agent"] = selected_agent
 
         return RouterOutput(**result)
 
     except Exception as e:
         logger.error("router_node_failed", error=str(e))
-        # Default to chat on routing failure
+        # Default to task on routing failure
         return RouterOutput(
-            selected_agent=AgentType.CHAT.value,
-            routing_reason=f"Routing error: {str(e)}",
+            selected_agent=AgentType.TASK.value,
+            routing_reason="Routing error occurred",
             routing_confidence=0.0,
-            active_agent=AgentType.CHAT.value,
+            active_agent=AgentType.TASK.value,
             events=[
                 {
                     "type": "error",
@@ -123,14 +120,17 @@ async def router_node(state: SupervisorState) -> RouterOutput:
         )
 
 
-async def chat_node(state: SupervisorState) -> ChatOutput | ErrorOutput:
-    """Execute the chat subagent.
+async def task_node(state: SupervisorState, config: dict | None = None) -> TaskOutput | ErrorOutput:
+    """Execute the task subagent.
 
     Args:
         state: Current supervisor state
+        config: LangGraph runnable config (callbacks, metadata) — passed through
+                so that custom events dispatched inside tools propagate to the
+                supervisor's astream_events stream.
 
     Returns:
-        ChatOutput with response, events, and potential handoff
+        TaskOutput with response, events, and potential handoff
     """
     try:
         # Build input state with handoff context if present
@@ -146,77 +146,44 @@ async def chat_node(state: SupervisorState) -> ChatOutput | ErrorOutput:
             "system_prompt": state.get("system_prompt"),
             "provider": state.get("provider"),
             "model": state.get("model"),
+            "tier": state.get("tier"),
             "shared_memory": state.get("shared_memory") or {},
+            "locale": state.get("locale", "en"),
         }
 
-        # Invoke chat subgraph with timeout
+        # Invoke task subgraph with timeout
+        # Pass config so callbacks (dispatch_custom_event) propagate for real-time streaming
         from app.config import settings
 
         timeout = getattr(settings, "subgraph_timeout", DEFAULT_SUBGRAPH_TIMEOUT)
+        # App builder needs more time (plan + scaffold + N file generations + server start)
+        mode = state.get("mode")
+        if mode == "app":
+            timeout = max(timeout, 600)
         async with asyncio.timeout(timeout):
-            result = await chat_subgraph.ainvoke(input_state)
+            result = await task_subgraph.ainvoke(input_state, config=config)
 
-        output: ChatOutput = {
+        output: TaskOutput = {
             "response": result.get("response", ""),
             "events": result.get("events", []),
         }
 
-        _process_handoff(output, state, result.get("pending_handoff"), "chat")
+        _process_handoff(output, state, result.get("pending_handoff"), "task")
 
         return output
 
     except asyncio.TimeoutError:
-        logger.error("chat_node_timeout", task_id=state.get("task_id"))
+        logger.error("task_node_timeout", task_id=state.get("task_id"))
         return ErrorOutput(
             response="I'm sorry, the request took too long to process. Please try again with a simpler query.",
-            events=[{"type": "error", "node": "chat", "error": "Timeout"}],
+            events=[{"type": "error", "node": "task", "error": "Timeout"}],
             has_error=True,
         )
     except Exception as e:
-        logger.error("chat_node_failed", error=str(e), task_id=state.get("task_id"))
+        logger.error("task_node_failed", error=str(e), task_id=state.get("task_id"))
         return ErrorOutput(
-            response=f"I encountered an error while processing your request: {str(e)}",
-            events=[{"type": "error", "node": "chat", "error": str(e)}],
-            has_error=True,
-        )
-
-
-async def research_prep_node(state: SupervisorState) -> ResearchPrepOutput | ErrorOutput:
-    """Prepare state for research subgraph execution.
-
-    Transforms the query with handoff context and ensures all required
-    fields are set before the research subgraph runs.
-
-    Args:
-        state: Current supervisor state
-
-    Returns:
-        ResearchPrepOutput with transformed query and research configuration
-    """
-    try:
-        depth = state.get("depth", ResearchDepth.FAST)
-        scenario = state.get("scenario", ResearchScenario.ACADEMIC)
-
-        # Transform query with handoff context
-        transformed_query = _build_query_with_context(state)
-
-        logger.info(
-            "research_prep_started",
-            depth=depth.value if isinstance(depth, ResearchDepth) else depth,
-            scenario=scenario.value if isinstance(scenario, ResearchScenario) else scenario,
-        )
-
-        return ResearchPrepOutput(
-            query=transformed_query,
-            depth=depth,
-            scenario=scenario,
-        )
-
-    except Exception as e:
-        logger.error("research_prep_failed", error=str(e))
-        return ErrorOutput(
-            response=f"Failed to prepare research: {str(e)}",
-            events=[{"type": "error", "node": "research_prep", "error": str(e)}],
+            response="I encountered an error while processing your request. Please try again.",
+            events=[{"type": "error", "node": "task", "error": str(e)}],
             has_error=True,
         )
 
@@ -253,7 +220,7 @@ async def research_post_node(state: SupervisorState) -> ResearchPostOutput | Err
         logger.info(
             "research_post_completed",
             has_findings=bool(shared_memory.get("research_findings")),
-            has_handoff=bool(handoff),
+            has_handoff=bool(state.get("pending_handoff")),
         )
 
         return output
@@ -261,74 +228,11 @@ async def research_post_node(state: SupervisorState) -> ResearchPostOutput | Err
     except Exception as e:
         logger.error("research_post_failed", error=str(e))
         return ErrorOutput(
-            response=f"Failed to process research results: {str(e)}",
+            response="Failed to process research results. Please try again.",
             events=[{"type": "error", "node": "research_post", "error": str(e)}],
             has_error=True,
         )
 
-
-async def data_node(state: SupervisorState) -> DataOutput | ErrorOutput:
-    """Execute the data analysis subagent.
-
-    Args:
-        state: Current supervisor state
-
-    Returns:
-        DataOutput with analysis results, events, and potential handoff
-    """
-    try:
-        logger.info("data_analysis_started", query=state.get("query", "")[:50])
-
-        input_state = {
-            "query": _build_query_with_context(state),
-            "messages": state.get("messages") or [],
-            "data_source": state.get("data_source", ""),
-            "attachment_ids": state.get("attachment_ids") or [],
-            "user_id": state.get("user_id"),
-            "task_id": state.get("task_id"),
-            "provider": state.get("provider"),
-            "model": state.get("model"),
-            "shared_memory": state.get("shared_memory") or {},
-        }
-
-        # Invoke data subgraph with timeout
-        from app.config import settings
-
-        timeout = getattr(settings, "subgraph_timeout", DEFAULT_SUBGRAPH_TIMEOUT)
-        async with asyncio.timeout(timeout):
-            result = await data_subgraph.ainvoke(input_state)
-
-        output: DataOutput = {
-            "response": result.get("response", ""),
-            "events": result.get("events", []),
-        }
-
-        # Update shared memory with data analysis artifacts
-        shared_memory = dict(state.get("shared_memory") or {})
-        if result.get("analysis_plan"):
-            shared_memory["data_analysis_plan"] = result.get("analysis_plan", "")
-        if result.get("images"):
-            shared_memory["data_images"] = result.get("images", [])
-        output["shared_memory"] = shared_memory
-
-        _process_handoff(output, state, result.get("pending_handoff"), "data")
-
-        return output
-
-    except asyncio.TimeoutError:
-        logger.error("data_node_timeout", task_id=state.get("task_id"))
-        return ErrorOutput(
-            response="I'm sorry, the data analysis took too long. Please try with a smaller dataset or simpler query.",
-            events=[{"type": "error", "node": "data", "error": "Timeout"}],
-            has_error=True,
-        )
-    except Exception as e:
-        logger.error("data_node_failed", error=str(e), task_id=state.get("task_id"))
-        return ErrorOutput(
-            response=f"I encountered an error during data analysis: {str(e)}",
-            events=[{"type": "error", "node": "data", "error": str(e)}],
-            has_error=True,
-        )
 
 
 def select_agent(state: SupervisorState) -> str:
@@ -340,7 +244,11 @@ def select_agent(state: SupervisorState) -> str:
     Returns:
         Node name to route to
     """
-    selected = state.get("selected_agent", AgentType.CHAT.value)
+    selected = state.get("selected_agent", AgentType.TASK.value)
+    valid_agents = {a.value for a in AgentType}
+    if selected not in valid_agents:
+        logger.warning("invalid_agent_type_defaulting_to_task", selected=selected)
+        return AgentType.TASK.value
     return selected
 
 
@@ -368,7 +276,7 @@ def check_for_handoff(state: SupervisorState) -> Literal["router", "__end__"]:
             return END
 
         # Validate handoff target
-        current_agent = state.get("active_agent", "chat")
+        current_agent = state.get("active_agent", "task")
         allowed_targets = HANDOFF_MATRIX.get(current_agent, [])
         if target not in allowed_targets:
             logger.warning(
@@ -422,7 +330,7 @@ def _can_handoff(state: SupervisorState, target_agent: str) -> bool:
         True if handoff is allowed
     """
     return can_handoff(
-        current_agent=state.get("active_agent") or "chat",
+        current_agent=state.get("active_agent") or "task",
         target_agent=target_agent,
         handoff_count=state.get("handoff_count", 0),
         handoff_history=state.get("handoff_history"),
@@ -451,12 +359,13 @@ def _process_handoff(
         output["handoff_count"] = state.get("handoff_count", 0) + 1
         output["handoff_history"] = update_handoff_history(
             history=list(state.get("handoff_history") or []),
-            source_agent=state.get("active_agent") or "chat",
+            source_agent=state.get("active_agent") or "task",
             handoff=handoff,
         )
     else:
         logger.warning(
-            f"{agent_name}_handoff_blocked",
+            "handoff_blocked",
+            agent_name=agent_name,
             target=handoff.get("target_agent", ""),
         )
         if not output.get("response"):
@@ -466,34 +375,12 @@ def _process_handoff(
             )
 
 
-def _update_handoff_history(
-    output: dict,
-    state: SupervisorState,
-    handoff: HandoffInfo,
-) -> None:
-    """Update handoff history in output.
-
-    Thin wrapper that extracts state fields and delegates to handoff module.
-
-    Args:
-        output: Output dict to update
-        state: Current supervisor state
-        handoff: Handoff info to add
-    """
-    output["handoff_history"] = update_handoff_history(
-        history=list(state.get("handoff_history") or []),
-        source_agent=state.get("active_agent") or "chat",
-        handoff=handoff,
-    )
-
-
 def create_supervisor_graph(checkpointer=None):
     """Create the supervisor graph that orchestrates subagents with handoff support.
 
-    The research agent uses a special pattern with prep/subgraph/post nodes
-    to enable real-time event streaming from the research subgraph's internal
-    nodes (init_config, search_agent, search_tools, etc.) to the supervisor's
-    astream_events output. This allows the sidebar to show real-time progress.
+    The research agent uses a research -> research_post pattern where the
+    research node builds input state with handoff context and invokes the
+    research subgraph, and research_post handles cross-agent state updates.
 
     Args:
         checkpointer: Optional checkpointer for state persistence
@@ -505,13 +392,40 @@ def create_supervisor_graph(checkpointer=None):
 
     # Add nodes
     graph.add_node("router", router_node)
-    graph.add_node("chat", chat_node)
-    graph.add_node("data", data_node)
+    graph.add_node("task", task_node)
 
-    # Research agent uses prep -> subgraph -> post pattern for real-time streaming
-    # Adding the subgraph directly (not wrapped) allows internal events to propagate
-    graph.add_node("research_prep", research_prep_node)
-    graph.add_node("research", research_subgraph)  # Subgraph directly as node
+    # Research node: builds input state with handoff context, then invokes subgraph
+    async def research_node(state: SupervisorState):
+        """Prepare input and invoke research subgraph with timeout."""
+        from app.config import settings
+
+        input_state = {
+            "query": _build_query_with_context(state),
+            "depth": state.get("depth", ResearchDepth.FAST),
+            "scenario": state.get("scenario", ResearchScenario.ACADEMIC),
+            "user_id": state.get("user_id"),
+            "task_id": state.get("task_id"),
+            "provider": state.get("provider"),
+            "model": state.get("model"),
+            "tier": state.get("tier"),
+            "locale": state.get("locale", "en"),
+        }
+
+        timeout = getattr(settings, "subgraph_timeout", DEFAULT_SUBGRAPH_TIMEOUT)
+        try:
+            async with asyncio.timeout(timeout):
+                return await research_subgraph.ainvoke(input_state)
+        except asyncio.TimeoutError:
+            logger.error("research_subgraph_timeout", task_id=state.get("task_id"))
+            return {
+                "response": (
+                    "The research request took too long to process. "
+                    "Please try a narrower topic."
+                ),
+                "events": [{"type": "error", "node": "research", "error": "Timeout"}],
+            }
+
+    graph.add_node("research", research_node)
     graph.add_node("research_post", research_post_node)
 
     # Set entry point
@@ -524,18 +438,16 @@ def create_supervisor_graph(checkpointer=None):
         "router",
         select_agent,
         {
-            AgentType.CHAT.value: "chat",
-            AgentType.RESEARCH.value: "research_prep",  # Route to prep node
-            AgentType.DATA.value: "data",
+            AgentType.TASK.value: "task",
+            AgentType.RESEARCH.value: "research",
         },
     )
 
-    # Research flow: prep -> subgraph -> post
-    graph.add_edge("research_prep", "research")
+    # Research flow: subgraph -> post-processing
     graph.add_edge("research", "research_post")
 
     # After each agent (or research_post), check for handoff or end
-    for agent in ["chat", "research_post", "data"]:
+    for agent in ["task", "research_post"]:
         graph.add_conditional_edges(
             agent,
             check_for_handoff,
@@ -552,29 +464,6 @@ def create_supervisor_graph(checkpointer=None):
 # Factory Functions (for better testability and thread safety)
 # =============================================================================
 
-
-def get_supervisor_graph(checkpointer=None):
-    """Factory function to create supervisor graph with optional checkpointer.
-
-    Use this function instead of the global singleton for better testability
-    and multi-tenant scenarios.
-
-    Args:
-        checkpointer: Optional checkpointer for state persistence.
-                     If None, creates a new MemorySaver.
-
-    Returns:
-        Compiled supervisor graph
-    """
-    if checkpointer is None:
-        checkpointer = MemorySaver()
-    return create_supervisor_graph(checkpointer=checkpointer)
-
-
-# Lazy-initialized global graph (use get_supervisor_graph() for new instances)
-# Note: For testing, use get_supervisor_graph() with a mock checkpointer instead
-_default_checkpointer = MemorySaver()
-supervisor_graph = create_supervisor_graph(checkpointer=_default_checkpointer)
 
 
 class AgentSupervisor:
@@ -618,7 +507,6 @@ class AgentSupervisor:
         Yields:
             Event dictionaries for streaming to clients
         """
-        import uuid
         from app.agents.stream_processor import StreamProcessor
 
         effective_task_id = task_id or str(uuid.uuid4())
@@ -647,7 +535,6 @@ class AgentSupervisor:
         # Using a unique ID per request prevents checkpoint state (like events) from carrying over
         # Conversation history is passed explicitly via messages, not through checkpointing
         from app.config import settings
-        import uuid
 
         run_id = str(uuid.uuid4())  # Unique per request, not conversation
         thread_id = effective_task_id  # Still log with conversation ID
@@ -718,8 +605,6 @@ class AgentSupervisor:
         Returns:
             Final result dictionary with response
         """
-        import uuid
-
         initial_state: SupervisorState = {
             "query": query,
             "mode": mode,

@@ -66,7 +66,7 @@ export const ChatInput = memo(
 
     return (
       <div className={cn("relative", className)}>
-        <div className="relative flex items-end bg-card rounded-xl border border-border focus-within:border-foreground/30 transition-colors">
+        <div className="relative flex items-end bg-card rounded-xl border border-border focus-within:border-primary/40 transition-colors">
           <textarea
             ref={textareaRef}
             value={value}

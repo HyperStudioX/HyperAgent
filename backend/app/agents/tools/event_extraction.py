@@ -101,32 +101,8 @@ def extract_skill_events(
                     sandbox_id=sandbox_id,
                 )
 
-        # Extract terminal and stage events from any skill execution
-        skill_events = parsed.get("events") or []
-        if skill_events:
-            logger.info(
-                "chat_act_node_skill_events",
-                skill_id=skill_id,
-                event_count=len(skill_events),
-                event_types=[e.get("type") for e in skill_events if isinstance(e, dict)],
-            )
-        for skill_event in skill_events:
-            if isinstance(skill_event, dict):
-                event_type = skill_event.get("type")
-                if event_type in (
-                    "terminal_command",
-                    "terminal_output",
-                    "terminal_error",
-                    "terminal_complete",
-                    "stage",
-                    "browser_stream",
-                ):
-                    event_list.append(skill_event)
-                    logger.info(
-                        "skill_event_extracted",
-                        skill_id=skill_id,
-                        event_type=event_type,
-                    )
+        # Note: stage/terminal/browser_stream events are dispatched in real-time
+        # via dispatch_custom_event in invoke_skill — no JSON extraction needed here.
     except Exception as e:
         logger.warning("invoke_skill_event_extraction_failed", error=str(e))
 

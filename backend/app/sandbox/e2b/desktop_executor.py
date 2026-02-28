@@ -315,11 +315,12 @@ class E2BDesktopExecutor(BaseDesktopExecutor):
         if not self.sandbox:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
+        # Sanitize the URL to prevent shell injection when embedded in the script
+        safe_url = shlex.quote(url)
+
         extract_script = f"""
 python3 -c "
-import urllib.request
-import html.parser
-import re
+import sys, urllib.request, html.parser
 
 class TextExtractor(html.parser.HTMLParser):
     def __init__(self):
@@ -345,7 +346,8 @@ class TextExtractor(html.parser.HTMLParser):
         return '\\n'.join(self.text)
 
 try:
-    req = urllib.request.Request('{url}', headers={{'User-Agent': 'Mozilla/5.0'}})
+    target_url = sys.argv[1]
+    req = urllib.request.Request(target_url, headers={{'User-Agent': 'Mozilla/5.0'}})
     with urllib.request.urlopen(req, timeout=20) as response:
         html_content = response.read().decode('utf-8', errors='ignore')
     parser = TextExtractor()
@@ -353,7 +355,7 @@ try:
     print(parser.get_text())
 except Exception as e:
     print(f'Error: {{e}}')
-"
+" {safe_url}
 """
         try:
             stdout, stderr, exit_code = await self.run_command(extract_script, timeout_ms)

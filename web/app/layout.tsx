@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
@@ -22,6 +22,13 @@ const jetbrainsMono = JetBrains_Mono({
     display: "swap",
     variable: "--font-jetbrains-mono",
 });
+
+export const viewport: Viewport = {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 5,
+    viewportFit: 'cover',
+};
 
 export async function generateMetadata(): Promise<Metadata> {
     const t = await getTranslations("metadata");

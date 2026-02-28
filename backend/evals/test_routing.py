@@ -86,8 +86,8 @@ class TestRoutingAccuracy:
         """Test RoutingEvaluator with correct routing."""
         evaluator = RoutingEvaluator()
         result = evaluator.evaluate(
-            expected_agent="chat",
-            actual_agent="chat",
+            expected_agent="task",
+            actual_agent="task",
             query="Hello world",
         )
 
@@ -99,7 +99,7 @@ class TestRoutingAccuracy:
         evaluator = RoutingEvaluator()
         result = evaluator.evaluate(
             expected_agent="research",
-            actual_agent="chat",
+            actual_agent="task",
             query="Write a comprehensive research paper",
         )
 
@@ -110,8 +110,8 @@ class TestRoutingAccuracy:
         """Test RoutingEvaluator is case-insensitive."""
         evaluator = RoutingEvaluator()
         result = evaluator.evaluate(
-            expected_agent="CHAT",
-            actual_agent="chat",
+            expected_agent="TASK",
+            actual_agent="task",
             query="Hello",
         )
 
@@ -144,22 +144,22 @@ class TestRoutingEdgeCases:
 
     @pytest.mark.asyncio
     async def test_empty_query(self, mock_supervisor):
-        """Empty query should default to chat."""
+        """Empty query should default to task."""
         result = await mock_supervisor.route("")
-        assert result["next_agent"] == "chat"
+        assert result["next_agent"] == "task"
 
     @pytest.mark.asyncio
     async def test_ambiguous_query(self, mock_supervisor):
-        """Ambiguous query should route to chat as default."""
+        """Ambiguous query should route to task as default."""
         result = await mock_supervisor.route("help")
-        assert result["next_agent"] == "chat"
+        assert result["next_agent"] == "task"
 
     @pytest.mark.asyncio
     async def test_mixed_signals_query(self, mock_supervisor):
         """Query with mixed signals should pick the dominant one."""
-        # This query mentions research but is really about chat
+        # This query mentions research but is really about task
         result = await mock_supervisor.route("Can you quickly search for information about AI?")
-        assert result["next_agent"] == "chat"
+        assert result["next_agent"] == "task"
 
 
 class TestRoutingSpecificAgents:
@@ -180,8 +180,8 @@ class TestRoutingSpecificAgents:
             assert result["next_agent"] == "research", msg
 
     @pytest.mark.asyncio
-    async def test_data_agent_routing(self, mock_supervisor):
-        """Test queries that should route to data agent."""
+    async def test_data_queries_route_to_task(self, mock_supervisor):
+        """Test queries about data analysis route to task agent (has data_analysis skill)."""
         data_queries = [
             "Analyze this CSV file and create visualizations",
             "Process this Excel spreadsheet and find trends",
@@ -190,18 +190,18 @@ class TestRoutingSpecificAgents:
 
         for query in data_queries:
             result = await mock_supervisor.route(query)
-            assert result["next_agent"] == "data", f"Query should route to data: {query[:50]}..."
+            assert result["next_agent"] == "task", f"Query should route to task: {query[:50]}..."
 
     @pytest.mark.asyncio
-    async def test_chat_agent_routing(self, mock_supervisor):
-        """Test queries that should route to chat agent."""
-        chat_queries = [
+    async def test_task_agent_routing(self, mock_supervisor):
+        """Test queries that should route to task agent."""
+        task_queries = [
             "Hello, how are you?",
             "Generate an image of a sunset",
             "Write a Python function for sorting",
             "What's the weather today?",
         ]
 
-        for query in chat_queries:
+        for query in task_queries:
             result = await mock_supervisor.route(query)
-            assert result["next_agent"] == "chat", f"Query should route to chat: {query[:50]}..."
+            assert result["next_agent"] == "task", f"Query should route to task: {query[:50]}..."

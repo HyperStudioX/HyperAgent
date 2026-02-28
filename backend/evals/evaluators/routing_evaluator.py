@@ -126,7 +126,7 @@ def routing_accuracy_evaluator(
     Returns:
         EvaluationResult for LangSmith
     """
-    expected = example.outputs.get("expected_agent", "chat")
+    expected = example.outputs.get("expected_agent", "task")
     actual = run.outputs.get("routed_agent", run.outputs.get("selected_agent", "unknown"))
 
     evaluator = RoutingEvaluator()

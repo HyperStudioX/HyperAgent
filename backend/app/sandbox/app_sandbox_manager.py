@@ -16,7 +16,7 @@ import re
 import shlex
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from app.core.logging import get_logger
@@ -42,7 +42,7 @@ HEALTH_CHECK_SKIP_SECONDS = 30
 _PACKAGE_NAME_RE = re.compile(r'^[a-zA-Z0-9._-]+([<>=!~]+[a-zA-Z0-9.*]+)?$')
 
 # Shell metacharacters that are not allowed in custom commands
-_SHELL_METACHARACTERS = set(';|&$`')
+_SHELL_METACHARACTERS = set(';|&$`><(){}\n')
 
 # Supported app templates
 # Note: Using vite@5 instead of vite@latest because E2B sandbox has Node.js 20.9.0
@@ -92,11 +92,16 @@ APP_TEMPLATES = {
     },
     "static": {
         "name": "Static HTML",
-        "scaffold_cmd": "mkdir -p app && npx -y serve app",
+        "scaffold_cmd": "mkdir -p app",
         "start_cmd": "npx -y serve app -l 3000 --listen 0.0.0.0",
         "port": 3000,
     },
 }
+
+
+def _utcnow() -> datetime:
+    """Return the current UTC time as a timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 @dataclass
@@ -105,7 +110,7 @@ class AppProcess:
 
     pid: int | None = None
     command: str = ""
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=_utcnow)
     is_running: bool = False
 
 
@@ -117,8 +122,8 @@ class AppSandboxSession:
     session_key: str
     template: str = "react"
     project_dir: str = "/home/user/app"
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_accessed: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utcnow)
+    last_accessed: datetime = field(default_factory=_utcnow)
     timeout: timedelta = field(default_factory=get_default_app_session_timeout)
 
     # Running process info
@@ -139,11 +144,11 @@ class AppSandboxSession:
     @property
     def is_expired(self) -> bool:
         """Check if the session has expired."""
-        return datetime.utcnow() > (self.last_accessed + self.timeout)
+        return datetime.now(timezone.utc) > (self.last_accessed + self.timeout)
 
     def touch(self) -> None:
         """Update last accessed time to prevent expiry."""
-        self.last_accessed = datetime.utcnow()
+        self.last_accessed = datetime.now(timezone.utc)
 
 
 class AppSandboxManager:
@@ -155,20 +160,53 @@ class AppSandboxManager:
     """
 
     _instance: "AppSandboxManager | None" = None
-    _lock: asyncio.Lock = asyncio.Lock()
+    _lock: "asyncio.Lock | None" = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """Lazily create the class-level lock to avoid binding to wrong event loop."""
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     def __init__(self) -> None:
         """Initialize the app sandbox manager."""
         self._sessions: dict[str, AppSandboxSession] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._session_lock = asyncio.Lock()
-        # Port allocation counter for BoxLite host port mapping
-        self._next_host_port_offset: int = 0
+        # Port pool for BoxLite host port mapping (reclaimed on cleanup)
+        self._used_ports: set[int] = set()
         # Metrics counters
         self._total_created: int = 0
         self._total_cleaned: int = 0
         self._total_reused: int = 0
         self._health_check_failures: int = 0
+
+    def _allocate_host_port(self) -> int:
+        """Allocate the lowest available host port for BoxLite.
+
+        Returns:
+            An available host port number.
+
+        Raises:
+            RuntimeError: If no ports are available in the allowed range.
+        """
+        from app.config import settings
+
+        start = settings.boxlite_app_host_port_start
+        max_port = min(start + 1000, 65535)
+        for port in range(start, max_port + 1):
+            if port not in self._used_ports:
+                self._used_ports.add(port)
+                return port
+        raise RuntimeError(
+            f"No available ports in range {start}-{max_port}. "
+            f"{len(self._used_ports)} ports in use."
+        )
+
+    def _release_host_port(self, port: int) -> None:
+        """Release a previously allocated host port back to the pool."""
+        self._used_ports.discard(port)
 
     @classmethod
     def get_instance(cls) -> "AppSandboxManager":
@@ -256,15 +294,18 @@ class AppSandboxManager:
             container_port = int(template_config["port"])
 
             runtime_kwargs: dict[str, Any] = {}
+            allocated_host_port: int | None = None
             if settings.sandbox_provider == "boxlite":
-                host_port = settings.boxlite_app_host_port_start + self._next_host_port_offset
-                self._next_host_port_offset += 1
+                host_port = self._allocate_host_port()
+                allocated_host_port = host_port
                 runtime_kwargs["ports"] = {container_port: host_port}
 
             try:
                 sandbox = await create_app_runtime(**runtime_kwargs)
                 logger.info("app_sandbox_created", sandbox_id=sandbox.sandbox_id)
             except Exception as e:
+                if allocated_host_port is not None:
+                    self._release_host_port(allocated_host_port)
                 logger.error("app_sandbox_creation_failed", error=str(e))
                 raise
 
@@ -398,8 +439,8 @@ class AppSandboxManager:
         if custom_command:
             if any(ch in custom_command for ch in _SHELL_METACHARACTERS):
                 raise ValueError(
-                    f"Custom command contains disallowed shell metacharacters: "
-                    f"avoid using ; | & $ or backticks"
+                    "Custom command contains disallowed shell"
+                    " metacharacters: avoid using ; | & $ or backticks"
                 )
 
         raw_port = port or template_config["port"]
@@ -708,7 +749,8 @@ fi
             full_path = path
         resolved = os.path.normpath(full_path)
         # Ensure the resolved path is within the base directory
-        if not resolved.startswith(os.path.normpath(base_dir) + os.sep) and resolved != os.path.normpath(base_dir):
+        norm_base = os.path.normpath(base_dir)
+        if not resolved.startswith(norm_base + os.sep) and resolved != norm_base:
             raise ValueError(f"Path traversal denied: {path!r} resolves outside {base_dir}")
         return resolved
 
@@ -902,10 +944,11 @@ fi
         Returns:
             AppSandboxSession if found, None otherwise
         """
-        for session in self._sessions.values():
-            if session.sandbox_id == sandbox_id:
-                session.touch()
-                return session
+        async with self._session_lock:
+            for session in self._sessions.values():
+                if session.sandbox_id == sandbox_id:
+                    session.touch()
+                    return session
         return None
 
     async def get_session(
@@ -948,7 +991,11 @@ fi
 
         # Skip health check if last successful check was recent
         now = time.monotonic()
-        if session.last_health_check > 0 and (now - session.last_health_check) < HEALTH_CHECK_SKIP_SECONDS:
+        recently_checked = (
+            session.last_health_check > 0
+            and (now - session.last_health_check) < HEALTH_CHECK_SKIP_SECONDS
+        )
+        if recently_checked:
             return True
 
         try:
@@ -993,30 +1040,47 @@ fi
     async def _cleanup_session_internal(self, session_key: str) -> bool:
         """Internal cleanup method (assumes lock is held).
 
+        Attempts to kill the sandbox first, then removes from the session dict.
+        On kill failure the session is still removed to avoid infinite retry,
+        but an ERROR is logged indicating the sandbox may be leaked.
+
         Args:
             session_key: Session key to clean up
 
         Returns:
             True if session was cleaned up, False if not found
         """
-        session = self._sessions.pop(session_key, None)
-        if session:
-            try:
-                await session.sandbox.kill()
-                self._total_cleaned += 1
-                logger.info(
-                    "app_sandbox_session_cleaned",
-                    session_key=session_key,
-                    sandbox_id=session.sandbox_id,
-                )
-                return True
-            except Exception as e:
-                logger.warning(
-                    "app_sandbox_session_cleanup_failed",
-                    session_key=session_key,
-                    error=str(e),
-                )
-        return False
+        session = self._sessions.get(session_key)
+        if session is None:
+            return False
+
+        # Reclaim the host port allocated for this session (if any)
+        if session.sandbox and hasattr(session.sandbox, '_port_map'):
+            for host_port in getattr(session.sandbox, '_port_map', {}).values():
+                self._release_host_port(host_port)
+
+        try:
+            await session.sandbox.kill()
+            self._total_cleaned += 1
+            logger.info(
+                "app_sandbox_session_cleaned",
+                session_key=session_key,
+                sandbox_id=session.sandbox_id,
+            )
+        except Exception as e:
+            # Still remove from dict to avoid infinite retry, but log at ERROR
+            # level so operators know the sandbox may be leaked.
+            self._total_cleaned += 1
+            logger.error(
+                "app_sandbox_session_cleanup_failed_sandbox_may_be_leaked",
+                session_key=session_key,
+                sandbox_id=session.sandbox_id,
+                error=str(e),
+            )
+        finally:
+            self._sessions.pop(session_key, None)
+
+        return True
 
     async def cleanup_expired(self) -> int:
         """Clean up all expired sessions.
@@ -1054,6 +1118,10 @@ fi
 
         if self._cleanup_task:
             self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
             self._cleanup_task = None
 
         logger.info("app_all_sessions_cleaned", count=cleaned)

@@ -6,8 +6,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
-    conversations, files, health, hitl, projects,
-    query, sandbox, sandbox_proxy, skills, tasks,
+    conversations,
+    files,
+    health,
+    hitl,
+    projects,
+    providers,
+    query,
+    sandbox,
+    sandbox_proxy,
+    skills,
+    tasks,
 )
 from app.config import settings
 from app.core.logging import get_logger, setup_logging
@@ -122,6 +131,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("vision_http_client_close_failed", error=str(e))
 
+    # Close sandbox proxy HTTP client
+    try:
+        from app.api.sandbox_proxy import close_http_client as close_proxy_http_client
+
+        await close_proxy_http_client()
+    except Exception as e:
+        logger.error("sandbox_proxy_http_client_close_failed", error=str(e))
+
     logger.info("application_stopped")
 
 
@@ -133,9 +150,7 @@ app = FastAPI(
 
 # Rate limiting middleware (must be added before CORS)
 # Disabled in development environment
-rate_limit_enabled = (
-    settings.rate_limit_enabled and settings.environment != "development"
-)
+rate_limit_enabled = settings.rate_limit_enabled and settings.environment != "development"
 app.add_middleware(
     RateLimitMiddleware,
     redis_url=settings.redis_url,
@@ -161,6 +176,7 @@ app.include_router(conversations.router, prefix=settings.api_prefix, tags=["conv
 app.include_router(projects.router, prefix=settings.api_prefix, tags=["projects"])
 app.include_router(files.router, prefix=settings.api_prefix, tags=["files"])
 app.include_router(skills.router, prefix=settings.api_prefix, tags=["skills"])
+app.include_router(providers.router, prefix=settings.api_prefix, tags=["providers"])
 app.include_router(hitl.router, prefix=settings.api_prefix, tags=["hitl"])
 app.include_router(sandbox.router, prefix=settings.api_prefix, tags=["sandbox"])
 app.include_router(sandbox_proxy.router, prefix=settings.api_prefix, tags=["sandbox-proxy"])

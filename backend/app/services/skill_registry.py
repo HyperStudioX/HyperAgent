@@ -5,7 +5,14 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
+from app.agents.skills.skill_base import (
+    Skill,
+    SkillContext,
+    SkillMetadata,
+    SkillParameter,
+    SkillState,
+    ToolSkill,
+)
 from app.core.logging import get_logger
 from app.db.models import SkillDefinition
 from app.skills.validator import skill_code_validator
@@ -13,9 +20,39 @@ from app.skills.validator import skill_code_validator
 logger = get_logger(__name__)
 
 
+def _safe_import(
+    name: str,
+    globals_dict: dict[str, Any] | None = None,
+    locals_dict: dict[str, Any] | None = None,
+    fromlist: tuple[str, ...] | list[str] = (),
+    level: int = 0,
+):
+    """Restricted __import__ for dynamic skill execution.
+
+    Only modules explicitly allowed by the skill validator can be imported.
+    """
+    del globals_dict, locals_dict
+    if level != 0:
+        raise ImportError("Relative imports are not allowed in dynamic skills")
+
+    allowed_imports = skill_code_validator.ALLOWED_IMPORTS
+    is_allowed = any(
+        name == allowed or name.startswith(allowed + ".")
+        for allowed in allowed_imports
+    )
+    if not is_allowed:
+        raise ImportError(f"Import not allowed in dynamic skills: {name}")
+
+    return __import__(name, {}, {}, fromlist, level)
+
+
 # Safe builtins for dynamic skill execution
 # Only include functions that are safe and necessary for skill code
 SAFE_BUILTINS = {
+    # Class definition support (required for `class X(...)` in dynamic skills)
+    "__build_class__": __build_class__,
+    "object": object,
+    "type": type,
     # Type constructors
     "bool": bool,
     "int": int,
@@ -71,6 +108,8 @@ SAFE_BUILTINS = {
     "property": property,
     "staticmethod": staticmethod,
     "classmethod": classmethod,
+    # Controlled imports for dynamic skills
+    "__import__": _safe_import,
     # None, True, False are automatically available
 }
 
@@ -79,7 +118,7 @@ def _create_safe_namespace() -> dict[str, Any]:
     """Create a restricted namespace for dynamic skill execution.
 
     This namespace includes only safe operations and explicitly allowed imports.
-    Dangerous operations like exec, eval, open, __import__ are excluded.
+    Dangerous operations like exec, eval, and open are excluded.
 
     Returns:
         Dictionary to use as globals for exec()
@@ -88,6 +127,8 @@ def _create_safe_namespace() -> dict[str, Any]:
         "__builtins__": SAFE_BUILTINS,
         # Skill base classes (required for all skills)
         "Skill": Skill,
+        "ToolSkill": ToolSkill,
+        "SkillContext": SkillContext,
         "SkillMetadata": SkillMetadata,
         "SkillParameter": SkillParameter,
         "SkillState": SkillState,
@@ -183,8 +224,7 @@ class SkillRegistry:
             from app.agents.skills.builtin import (
                 AppBuilderSkill,
                 CodeGenerationSkill,
-                CodeReviewSkill,
-                DataVisualizationSkill,
+                DataAnalysisSkill,
                 ImageGenerationSkill,
                 SlideGenerationSkill,
                 TaskPlanningSkill,
@@ -194,8 +234,7 @@ class SkillRegistry:
             # Register each skill
             for skill_class in [
                 WebResearchSkill,
-                CodeReviewSkill,
-                DataVisualizationSkill,
+                DataAnalysisSkill,
                 ImageGenerationSkill,
                 CodeGenerationSkill,
                 TaskPlanningSkill,
@@ -277,8 +316,8 @@ class SkillRegistry:
             )
             raise ValueError("Source code hash mismatch - possible tampering")
 
-        # Execute source code in restricted namespace with safe builtins only
-        # This prevents access to dangerous functions like exec, eval, open, __import__
+        # Execute source code in restricted namespace with safe builtins only.
+        # __import__ is restricted to validator-approved modules via _safe_import().
         namespace = _create_safe_namespace()
         try:
             # Use compile() first to catch syntax errors with better error messages
@@ -312,7 +351,11 @@ class SkillRegistry:
         # Find and instantiate the skill class
         skill_class = None
         for item in namespace.values():
-            if isinstance(item, type) and issubclass(item, Skill) and item is not Skill:
+            if (
+                isinstance(item, type)
+                and issubclass(item, Skill)
+                and item not in (Skill, ToolSkill)
+            ):
                 skill_class = item
                 break
 
@@ -445,6 +488,9 @@ class SkillRegistry:
                 existing.metadata_json = skill.metadata.model_dump_json()
                 existing.version = skill.metadata.version
                 existing.description = skill.metadata.description
+                existing.name = skill.metadata.name
+                existing.category = skill.metadata.category
+                existing.author = skill.metadata.author
                 await db.commit()
 
 

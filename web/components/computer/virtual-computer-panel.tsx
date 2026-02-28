@@ -21,6 +21,20 @@ const EMPTY_TIMELINE: TimelineEvent[] = [];
 
 export function VirtualComputerPanel() {
     const t = useTranslations("computer");
+    const getModeAriaLabel = useCallback((mode: ComputerMode) => {
+        switch (mode) {
+            case "terminal":
+                return t("terminal");
+            case "plan":
+                return t("plan");
+            case "browser":
+                return t("browser");
+            case "file":
+                return t("files");
+            default:
+                return mode;
+        }
+    }, [t]);
 
     // Global UI state
     const isOpen = useComputerStore((state) => state.isOpen);
@@ -211,6 +225,12 @@ export function VirtualComputerPanel() {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === "Escape" && isOpen) {
+                // Don't close the panel if a child is in fullscreen mode
+                // (native fullscreen API or CSS-based fullscreen overlays like the browser view)
+                if (document.fullscreenElement) return;
+                const fullscreenOverlay = document.querySelector('.fixed.inset-0.z-\\[100\\]');
+                if (fullscreenOverlay) return;
+
                 handleClose();
             }
         };
@@ -255,7 +275,7 @@ export function VirtualComputerPanel() {
             {/* Mobile backdrop */}
             <div
                 className={cn(
-                    "fixed inset-0 bg-black/20 z-40 lg:hidden transition-opacity",
+                    "fixed inset-0 bg-black/40 z-40 lg:hidden transition-opacity",
                     isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
                 )}
                 onClick={handleClose}
@@ -268,6 +288,7 @@ export function VirtualComputerPanel() {
                     "fixed right-0 top-0 bottom-0 z-50 flex flex-col",
                     "bg-background border-l border-border",
                     "w-full lg:w-auto",
+                    !isDesktop && "pt-safe pb-safe",
                     !isResizing && "transition-transform duration-300",
                     isOpen ? "translate-x-0" : "translate-x-full"
                 )}
@@ -324,7 +345,11 @@ export function VirtualComputerPanel() {
                         fallbackErrorMessage: t("errorBoundary.fallbackMessage"),
                     }}
                 >
-                    <div className="flex-1 overflow-hidden flex flex-col" role="tabpanel" aria-label={activeMode}>
+                    <div
+                        className="flex-1 overflow-hidden flex flex-col"
+                        role="tabpanel"
+                        aria-label={getModeAriaLabel(activeMode)}
+                    >
                         {activeMode === "terminal" && (
                             <ComputerTerminalView
                                 lines={visibleTerminalLines}

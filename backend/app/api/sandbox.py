@@ -3,6 +3,7 @@
 Provides REST endpoints for listing and reading files from sandboxes.
 """
 
+import os
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,6 +17,34 @@ from app.sandbox.file_operations import list_directory, read_file
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/sandbox", tags=["sandbox"])
+
+# Allowed base directory for sandbox file operations
+_SANDBOX_BASE_DIR = "/home/user"
+
+
+def _validate_sandbox_path(path: str) -> str:
+    """Normalize and validate a sandbox file path.
+
+    Ensures the normalized path stays within the allowed sandbox base directory
+    to prevent path traversal attacks.
+
+    Args:
+        path: The raw path from the request
+
+    Returns:
+        The normalized, validated path
+
+    Raises:
+        HTTPException: If the path escapes the sandbox base directory
+    """
+    normalized = os.path.normpath(path)
+    # Enforce canonical boundary check: exact base dir or a child path only.
+    if normalized != _SANDBOX_BASE_DIR and not normalized.startswith(_SANDBOX_BASE_DIR + "/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid path: must be within the sandbox directory",
+        )
+    return normalized
 
 
 def _get_sandbox_runtime(session):
@@ -36,6 +65,7 @@ async def list_sandbox_files(
     ),
     task_id: str = Query(..., description="Task/conversation ID for session lookup"),
     path: str = Query("/home/user", description="Directory path to list"),
+    show_hidden: bool = Query(False, description="Include hidden files (starting with '.')"),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     """List files in a sandbox directory.
@@ -63,8 +93,7 @@ async def list_sandbox_files(
     )
 
     # Validate path to prevent traversal
-    if ".." in path:
-        raise HTTPException(status_code=400, detail="Invalid path")
+    path = _validate_sandbox_path(path)
 
     try:
         # Get the appropriate sandbox manager
@@ -76,11 +105,10 @@ async def list_sandbox_files(
         # Get the existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
         if not session:
-            return {
-                "success": False,
-                "error": f"No active {sandbox_type} sandbox session found",
-                "entries": [],
-            }
+            raise HTTPException(
+                status_code=404,
+                detail=f"No active {sandbox_type} sandbox session found",
+            )
 
         # Get the runtime abstraction
         runtime = _get_sandbox_runtime(session)
@@ -89,18 +117,20 @@ async def list_sandbox_files(
         result = await list_directory(runtime, path)
 
         if not result["success"]:
-            return {
-                "success": False,
-                "error": result.get("error", "Failed to list directory"),
-                "entries": [],
-            }
+            raise HTTPException(
+                status_code=404,
+                detail=result.get("error", "Failed to list directory"),
+            )
 
         # Transform entries to frontend format
         entries = []
         for entry in result.get("entries", []):
-            # Skip hidden files and special entries
             name = entry.get("name", "")
-            if name.startswith(".") or name in (".", ".."):
+            # Always skip . and .. special entries
+            if name in (".", ".."):
+                continue
+            # Skip hidden files unless the client opted in
+            if not show_hidden and name.startswith("."):
                 continue
 
             full_path = f"{path.rstrip('/')}/{name}"
@@ -121,6 +151,8 @@ async def list_sandbox_files(
             "sandbox_id": session.sandbox_id,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("list_sandbox_files_error", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to list sandbox files")
@@ -160,8 +192,7 @@ async def read_sandbox_file(
     )
 
     # Validate path to prevent traversal
-    if ".." in path:
-        raise HTTPException(status_code=400, detail="Invalid path")
+    path = _validate_sandbox_path(path)
 
     try:
         # Get the appropriate sandbox manager

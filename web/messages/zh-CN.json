@@ -14,6 +14,7 @@
         "dark": "深色",
         "language": "语言",
         "preferences": "偏好设置",
+        "provider": "模型提供商",
         "signIn": "登录",
         "signOut": "退出",
         "noConversations": "暂无对话",
@@ -29,11 +30,9 @@
         "all": "全部",
         "task": "任务",
         "research": "研究",
-        "chat": "对话",
         "data": "数据",
         "app": "应用",
         "image": "图片",
-        "writing": "写作",
         "slide": "演示文稿",
         "noResults": "没有找到项目",
         "chatDescription": "快速提问与对话",
@@ -76,8 +75,8 @@
         "deepResearch": "深度研究"
     },
     "agents": {
-        "chat": {
-            "name": "对话",
+        "task": {
+            "name": "任务",
             "description": "快速提问与对话"
         },
         "research": {
@@ -181,6 +180,7 @@
         "copy": "复制",
         "copied": "已复制",
         "regenerate": "重新生成",
+        "viewImage": "查看",
         "connectionError": "无法连接到服务器。请检查后端是否正在运行。",
         "requestCancelled": "请求已被用户取消。",
         "pressEnterToSend": "按 ⌘/Ctrl+Enter 发送",
@@ -263,6 +263,7 @@
                 "app_stop_server": "停止服务器",
                 "app_run_command": "运行命令",
                 "app_get_preview_url": "获取预览链接",
+                "AppPlan": "应用规划",
                 "default": "工具"
             },
             "stages": {
@@ -281,7 +282,7 @@
                     "completed": "移交完成",
                     "failed": "移交失败"
                 },
-                "chat": {
+                "task": {
                     "running": "正在生成回复...",
                     "completed": "回复已生成",
                     "failed": "回复失败"
@@ -763,6 +764,18 @@
             "skill": "技能",
             "browser": "浏览器",
             "step": "步骤"
+        },
+        "planName": {
+            "skillInvocation": "技能调用",
+            "browserAction": "浏览器操作"
+        },
+        "planAction": {
+            "invokingSkill": "正在调用技能：{skill}",
+            "callingTool": "正在调用工具：{tool}",
+            "navigatingTo": "正在导航到：{target}",
+            "clicking": "正在点击：{target}",
+            "typing": "正在输入：\"{text}\"",
+            "browserAction": "正在执行浏览器操作"
         },
         "planInProgress": "进行中...",
         "planProgress": "{completed}/{total} 已完成",

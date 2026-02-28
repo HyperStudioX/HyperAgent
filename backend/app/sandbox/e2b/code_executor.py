@@ -386,13 +386,3 @@ async def execute_python_with_data(
         return result
 
 
-# Global singleton instance for reuse (optional)
-_executor_instance: E2BSandboxExecutor | None = None
-
-
-def get_e2b_executor() -> E2BSandboxExecutor:
-    """Get or create global E2B executor instance."""
-    global _executor_instance
-    if _executor_instance is None:
-        _executor_instance = E2BSandboxExecutor()
-    return _executor_instance

@@ -1,6 +1,5 @@
 """Agent tools for the multi-agent system."""
 
-from app.agents.tools.code_execution import execute_code, execute_code_with_context
 from app.agents.tools.browser_use import (
     browser_click,
     browser_get_stream_url,
@@ -10,16 +9,7 @@ from app.agents.tools.browser_use import (
     browser_scroll,
     browser_type,
 )
-from app.sandbox import (
-    DesktopSandboxManager,
-    DesktopSandboxSession,
-    get_desktop_sandbox_manager,
-    ExecutionSandboxManager,
-    ExecutionSandboxSession,
-    get_execution_sandbox_manager,
-    sandbox_file,
-    sandbox_file_with_context,
-)
+from app.agents.tools.code_execution import execute_code, execute_code_with_context
 from app.agents.tools.handoff import (
     AGENT_DESCRIPTIONS,
     # Constants
@@ -31,8 +21,6 @@ from app.agents.tools.handoff import (
     # Types
     HandoffInfo,
     HandoffInput,
-    # Manager class
-    HandoffManager,
     SharedAgentMemory,
     build_query_with_context,
     # Handoff validation and routing
@@ -48,12 +36,12 @@ from app.agents.tools.handoff import (
     update_handoff_history,
 )
 from app.agents.tools.image_generation import generate_image
-from app.agents.tools.slide_generation import generate_slides
 from app.agents.tools.react_tool import (
     ReActLoopConfig,
     ReActLoopResult,
     ToolExecutionError,
     build_ai_message_from_chunks,
+    deduplicate_tool_messages,
     estimate_message_tokens,
     execute_react_loop,
     execute_tool_calls,
@@ -77,6 +65,17 @@ from app.agents.tools.registry import (
     register_tool,
     unregister_tool,
 )
+from app.agents.tools.slide_generation import generate_slides
+from app.agents.tools.tool_pipeline import (
+    CanonicalToolHooks,
+    ResearchToolHooks,
+    TaskToolHooks,
+    ToolExecutionContext,
+    ToolExecutionHooks,
+    ToolExecutionResult,
+    execute_tool,
+    execute_tools_batch,
+)
 from app.agents.tools.validators import (
     FileOperationOutput,
     ValidationResult,
@@ -92,6 +91,16 @@ from app.agents.tools.validators import (
 )
 from app.agents.tools.vision import analyze_image
 from app.agents.tools.web_search import parse_search_results, web_search
+from app.sandbox import (
+    DesktopSandboxManager,
+    DesktopSandboxSession,
+    ExecutionSandboxManager,
+    ExecutionSandboxSession,
+    get_desktop_sandbox_manager,
+    get_execution_sandbox_manager,
+    sandbox_file,
+    sandbox_file_with_context,
+)
 
 __all__ = [
     # Core tools
@@ -144,8 +153,6 @@ __all__ = [
     "can_handoff",
     "update_handoff_history",
     "build_query_with_context",
-    # Handoff manager
-    "HandoffManager",
     # Registry
     "ToolCategory",
     "TOOL_CATALOG",
@@ -177,6 +184,7 @@ __all__ = [
     "execute_tool_calls",
     "is_transient_error",
     "build_ai_message_from_chunks",
+    "deduplicate_tool_messages",
     # ReAct loop utilities
     "ReActLoopConfig",
     "ReActLoopResult",
@@ -185,4 +193,13 @@ __all__ = [
     "estimate_message_tokens",
     "truncate_messages_to_budget",
     "truncate_tool_result",
+    # Tool pipeline (shared execution infrastructure)
+    "ToolExecutionContext",
+    "ToolExecutionResult",
+    "ToolExecutionHooks",
+    "execute_tool",
+    "execute_tools_batch",
+    "TaskToolHooks",
+    "ResearchToolHooks",
+    "CanonicalToolHooks",
 ]

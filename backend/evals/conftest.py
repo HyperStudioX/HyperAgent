@@ -64,23 +64,23 @@ def mock_router_llm() -> MockRouterLLM:
         r"research.*paper.*citations|20.*page|30\+.*citations": "research",
         r"peer.*reviewed|scholarly.*articles": "research",
         r"multi.*source.*analysis|multiple.*source.*synthesis": "research",
-        # Data patterns (check before chat to catch data-specific queries)
-        r"csv.*file|excel.*file|spreadsheet": "data",
-        r"analyze.*csv|analyze.*excel|analyze.*data": "data",
-        r"process.*excel|process.*csv": "data",
-        r"statistical.*analysis|statistics.*on.*dataset": "data",
-        r"data.*visualization|create.*dashboard|quarterly.*breakdown": "data",
-        r"calculate.*correlations|find.*patterns.*data": "data",
-        # Chat patterns (catch-all for remaining)
-        r"hello|hi|how are you": "chat",
-        r"what is|explain|tell me about": "chat",
-        r"generate.*image|create.*picture|draw": "chat",
-        r"write.*code|write.*function|write.*class": "chat",
-        r"review.*code|check.*code": "chat",
-        r"write.*email|write.*article|write.*blog": "chat",
-        r"weather|news|search": "chat",
-        r"go to|navigate|browse|click|fill.*form": "chat",
-        r"translate|times|simple": "chat",
+        # Data patterns (routed to task agent which has data_analysis skill)
+        r"csv.*file|excel.*file|spreadsheet": "task",
+        r"analyze.*csv|analyze.*excel|analyze.*data": "task",
+        r"process.*excel|process.*csv": "task",
+        r"statistical.*analysis|statistics.*on.*dataset": "task",
+        r"data.*visualization|create.*dashboard|quarterly.*breakdown": "task",
+        r"calculate.*correlations|find.*patterns.*data": "task",
+        # Task patterns (catch-all for remaining general-purpose queries)
+        r"hello|hi|how are you": "task",
+        r"what is|explain|tell me about": "task",
+        r"generate.*image|create.*picture|draw": "task",
+        r"write.*code|write.*function|write.*class": "task",
+        r"review.*code|check.*code": "task",
+        r"write.*email|write.*article|write.*blog": "task",
+        r"weather|news|search": "task",
+        r"go to|navigate|browse|click|fill.*form": "task",
+        r"translate|times|simple": "task",
     }
     return MockRouterLLM(routing_map=routing_map)
 
@@ -116,18 +116,6 @@ def mock_chat_llm() -> MockChatModel:
                 }
             ],
         ),
-        # Code review
-        MockResponse(
-            pattern=r"review.*code|check.*(?:code|function).*(?:bugs|style|issues|practices)",
-            response="I'll review that code.",
-            tool_calls=[
-                {
-                    "name": "invoke_skill",
-                    "args": {"skill_id": "code_review", "params": {"code": "code"}},
-                    "id": "call_review_1",
-                }
-            ],
-        ),
         # Web research
         MockResponse(
             pattern=r"research.*trends|find.*news|search.*recent",
@@ -140,14 +128,14 @@ def mock_chat_llm() -> MockChatModel:
                 }
             ],
         ),
-        # Data visualization
+        # Data analysis
         MockResponse(
             pattern=r"create.*chart|generate.*chart|bar chart|pie chart",
             response="I'll create that visualization.",
             tool_calls=[
                 {
                     "name": "invoke_skill",
-                    "args": {"skill_id": "data_visualization", "params": {"data": "data"}},
+                    "args": {"skill_id": "data_analysis", "params": {"query": "chart"}},
                     "id": "call_viz_1",
                 }
             ],
@@ -244,13 +232,13 @@ def mock_supervisor(mock_router_llm: MockRouterLLM):
             try:
                 parsed = json.loads(content)
                 return {
-                    "next_agent": parsed.get("agent", "chat"),
+                    "next_agent": parsed.get("agent", "task"),
                     "confidence": parsed.get("confidence", 0.8),
                     "reason": parsed.get("reason", ""),
                 }
             except json.JSONDecodeError:
                 return {
-                    "next_agent": "chat",
+                    "next_agent": "task",
                     "confidence": 0.5,
                     "reason": "Parse error",
                 }

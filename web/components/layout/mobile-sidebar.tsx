@@ -181,7 +181,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
             {isOpen && (
                 <div
                     className={cn(
-                        "fixed inset-0 bg-black/50 z-40 md:hidden",
+                        "fixed inset-0 bg-black/40 z-40 md:hidden",
                         "transition-opacity duration-200",
                         "touch-none",
                         isOpen ? "opacity-100" : "opacity-0"

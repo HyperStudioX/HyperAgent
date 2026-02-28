@@ -1,10 +1,9 @@
 """Image Generation Skill for creating AI-generated images."""
 
 import base64
+from typing import Any
 
-from langgraph.graph import END, StateGraph
-
-from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
+from app.agents.skills.skill_base import SkillContext, SkillMetadata, SkillParameter, ToolSkill
 from app.ai.image import image_generation_service
 from app.core.logging import get_logger
 from app.services.file_storage import file_storage_service
@@ -12,7 +11,7 @@ from app.services.file_storage import file_storage_service
 logger = get_logger(__name__)
 
 
-class ImageGenerationSkill(Skill):
+class ImageGenerationSkill(ToolSkill):
     """Generates AI images from text descriptions."""
 
     metadata = SkillMetadata(
@@ -100,120 +99,95 @@ class ImageGenerationSkill(Skill):
         tags=["image", "creative", "generation", "ai-art"],
     )
 
-    def create_graph(self) -> StateGraph:
-        """Create the LangGraph subgraph for image generation."""
-        graph = StateGraph(SkillState)
+    async def execute(self, params: dict[str, Any], context: SkillContext) -> dict[str, Any]:
+        """Generate images from prompt."""
+        prompt = params["prompt"]
+        size = params.get("size", "1024x1024")
+        n = int(params.get("n", 1))
+        model = params.get("model")
+        quality = params.get("quality", "standard")
+        user_id = context.user_id
 
-        async def generate_node(state: SkillState) -> dict:
-            """Generate images from prompt."""
-            prompt = state["input_params"]["prompt"]
-            size = state["input_params"].get("size", "1024x1024")
-            n = int(state["input_params"].get("n", 1))
-            model = state["input_params"].get("model")
-            quality = state["input_params"].get("quality", "standard")
-            user_id = state.get("user_id")
+        logger.info(
+            "image_generation_skill_generating",
+            prompt=prompt[:100],
+            size=size,
+            n=n,
+            model=model,
+            user_id=user_id,
+        )
 
-            logger.info(
-                "image_generation_skill_generating",
-                prompt=prompt[:100],
-                size=size,
-                n=n,
-                model=model,
-                user_id=user_id,
-            )
+        # Generate images using the image generation service
+        results = await image_generation_service.generate_image(
+            prompt=prompt,
+            size=size,
+            n=n,
+            model=model,
+            quality=quality,
+        )
 
-            try:
-                # Generate images using the image generation service
-                results = await image_generation_service.generate_image(
-                    prompt=prompt,
-                    size=size,
-                    n=n,
-                    model=model,
-                    quality=quality,
+        if not results:
+            raise ValueError("No images generated")
+
+        # Save images to storage and format output
+        images = []
+        for i, result in enumerate(results):
+            image_data: dict[str, Any] = {
+                "base64_data": result.base64_data,
+                "index": i,
+            }
+
+            # Save to storage if user_id is available
+            if user_id:
+                try:
+                    # Decode base64 to bytes
+                    image_bytes = base64.b64decode(result.base64_data)
+
+                    # Save to storage
+                    storage_result = await file_storage_service.save_generated_image(
+                        image_data=image_bytes,
+                        user_id=user_id,
+                        content_type="image/png",
+                        metadata={
+                            "prompt": prompt,
+                            "model": model or "default",
+                            "size": size,
+                            "index": i,
+                        },
+                    )
+
+                    # Add storage information to output
+                    image_data["url"] = storage_result["url"]
+                    image_data["storage_key"] = storage_result["storage_key"]
+
+                    logger.info(
+                        "image_saved_to_storage",
+                        storage_key=storage_result["storage_key"],
+                        user_id=user_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "image_storage_failed",
+                        error=str(e),
+                        index=i,
+                    )
+                    # Continue without storage - base64 data is still available
+            else:
+                logger.warning(
+                    "image_not_saved_no_user_id",
+                    index=i,
                 )
 
-                if not results:
-                    return {
-                        "error": "No images generated",
-                        "iterations": state["iterations"] + 1,
-                    }
+            images.append(image_data)
 
-                # Save images to storage and format output
-                images = []
-                for i, result in enumerate(results):
-                    image_data = {
-                        "base64_data": result.base64_data,
-                        "index": i,
-                    }
+        logger.info(
+            "image_generation_skill_completed",
+            prompt=prompt[:50],
+            image_count=len(images),
+        )
 
-                    # Save to storage if user_id is available
-                    if user_id:
-                        try:
-                            # Decode base64 to bytes
-                            image_bytes = base64.b64decode(result.base64_data)
-
-                            # Save to storage
-                            storage_result = await file_storage_service.save_generated_image(
-                                image_data=image_bytes,
-                                user_id=user_id,
-                                content_type="image/png",
-                                metadata={
-                                    "prompt": prompt,
-                                    "model": model or "default",
-                                    "size": size,
-                                    "index": i,
-                                },
-                            )
-
-                            # Add storage information to output
-                            image_data["url"] = storage_result["url"]
-                            image_data["storage_key"] = storage_result["storage_key"]
-
-                            logger.info(
-                                "image_saved_to_storage",
-                                storage_key=storage_result["storage_key"],
-                                user_id=user_id,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "image_storage_failed",
-                                error=str(e),
-                                index=i,
-                            )
-                            # Continue without storage - base64 data is still available
-                    else:
-                        logger.warning(
-                            "image_not_saved_no_user_id",
-                            index=i,
-                        )
-
-                    images.append(image_data)
-
-                logger.info(
-                    "image_generation_skill_completed",
-                    prompt=prompt[:50],
-                    image_count=len(images),
-                )
-
-                return {
-                    "output": {
-                        "images": images,
-                        "prompt": prompt,
-                        "count": len(images),
-                    },
-                    "iterations": state["iterations"] + 1,
-                }
-
-            except Exception as e:
-                logger.error("image_generation_skill_failed", error=str(e))
-                return {
-                    "error": f"Image generation failed: {str(e)}",
-                    "iterations": state["iterations"] + 1,
-                }
-
-        # Build graph
-        graph.add_node("generate", generate_node)
-        graph.set_entry_point("generate")
-        graph.add_edge("generate", END)
-
-        return graph.compile()
+        return {
+            "images": images,
+            "prompt": prompt,
+            "count": len(images),
+        }

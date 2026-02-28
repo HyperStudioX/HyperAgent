@@ -177,9 +177,9 @@ class MockRouterLLM(MockChatModel):
             responses=responses,
             default_response=json.dumps(
                 {
-                    "agent": "chat",
+                    "agent": "task",
                     "confidence": 0.8,
-                    "reason": "Default routing to chat",
+                    "reason": "Default routing to task",
                 }
             ),
         )

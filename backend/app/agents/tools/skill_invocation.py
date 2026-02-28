@@ -3,8 +3,9 @@
 import json
 from typing import Any
 
+from langchain_core.callbacks import dispatch_custom_event
 from langchain_core.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.logging import get_logger
 from app.services.skill_executor import skill_executor
@@ -13,23 +14,26 @@ from app.services.skill_registry import skill_registry
 logger = get_logger(__name__)
 
 
+def _remove_internal_fields(schema: dict[str, Any]) -> dict[str, Any]:
+    """Remove user_id and task_id from JSON schema so the LLM cannot see or set them."""
+    props = schema.get("properties", {})
+    props.pop("user_id", None)
+    props.pop("task_id", None)
+    required = schema.get("required", [])
+    schema["required"] = [r for r in required if r not in ("user_id", "task_id")]
+    return schema
+
+
 class InvokeSkillInput(BaseModel):
     """Input schema for skill invocation tool."""
+
+    model_config = ConfigDict(json_schema_extra=_remove_internal_fields)
 
     skill_id: str = Field(description="The ID of the skill to invoke (e.g., 'web_research')")
     params: dict[str, Any] = Field(description="Input parameters required by the skill")
     # Context fields (injected by agent, not provided by LLM)
-    # These are excluded from the JSON schema so the LLM doesn't see them
-    user_id: str | None = Field(
-        default=None,
-        description="User ID for session management (internal use only)",
-        json_schema_extra={"exclude": True},
-    )
-    task_id: str | None = Field(
-        default=None,
-        description="Task ID for session management (internal use only)",
-        json_schema_extra={"exclude": True},
-    )
+    user_id: str | None = Field(default=None, exclude=True)
+    task_id: str | None = Field(default=None, exclude=True)
 
 
 @tool(args_schema=InvokeSkillInput)
@@ -49,7 +53,7 @@ async def invoke_skill(
     the skill registry.
 
     Args:
-        skill_id: The ID of the skill (e.g., 'web_research', 'code_review')
+        skill_id: The ID of the skill (e.g., 'web_research', 'code_generation')
         params: Input parameters required by the skill (varies per skill)
 
     Returns:
@@ -86,10 +90,28 @@ async def invoke_skill(
             }
         )
 
+    # Validate required tools are available
+    if skill.metadata.required_tools:
+        from app.agents.tools.registry import get_all_tools
+
+        known = {t.name for t in get_all_tools()}
+        missing = [t for t in skill.metadata.required_tools if t not in known]
+        if missing:
+            logger.warning(
+                "skill_required_tools_missing",
+                skill_id=skill_id,
+                missing_tools=missing,
+            )
+            return json.dumps(
+                {
+                    "error": f"Skill '{skill_id}' requires unavailable tools: {missing}",
+                    "skill_id": skill_id,
+                }
+            )
+
     try:
         output = None
         error = None
-        collected_events: list[dict] = []  # Collect events for streaming
         effective_user_id = user_id or "anonymous"
 
         async for event in skill_executor.execute_skill(
@@ -113,9 +135,16 @@ async def invoke_skill(
                 "terminal_error",
                 "terminal_complete",
                 "browser_stream",
+                "workspace_update",
             ):
-                # Collect stage, terminal, and browser_stream events for streaming to frontend
-                collected_events.append(event)
+                # Dispatch in real-time via LangChain callback system
+                # so the stream processor can yield them immediately
+                try:
+                    dispatch_custom_event(
+                        "skill_event", data=event
+                    )
+                except Exception:
+                    pass  # Don't block on dispatch failure
 
         if error:
             logger.error("skill_execution_error", skill_id=skill_id, error=error)
@@ -123,7 +152,6 @@ async def invoke_skill(
                 {
                     "error": error,
                     "skill_id": skill_id,
-                    "events": collected_events,  # Include events even on error
                 }
             )
 
@@ -136,21 +164,11 @@ async def invoke_skill(
             output_keys=list(output.keys()) if isinstance(output, dict) else None,
         )
 
-        # Log collected events for debugging
-        if collected_events:
-            logger.info(
-                "skill_invocation_returning_events",
-                skill_id=skill_id,
-                event_count=len(collected_events),
-                event_types=[e.get("type") for e in collected_events if isinstance(e, dict)],
-            )
-
         return json.dumps(
             {
                 "skill_id": skill_id,
                 "output": output,
                 "success": True,
-                "events": collected_events,  # Include collected stage events
             },
             indent=2,
         )

@@ -19,9 +19,12 @@ import {
     AppWindow,
     ImageIcon,
     Presentation,
+    ChevronDown,
+    Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
 import { useComputerStore } from "@/lib/stores/computer-store";
 import { usePreviewStore } from "@/lib/stores/preview-store";
@@ -169,6 +172,8 @@ export function ChatInterface() {
     const searchParams = useSearchParams();
     const { status: sessionStatus } = useSession();
     const locale = useLocale();
+    const { provider: selectedProvider, tier, setTier } = useSettingsStore();
+    const tSettings = useTranslations("settings");
     const t = useTranslations("home");
     const tAgents = useTranslations("agents");
     const tResearch = useTranslations("research");
@@ -208,6 +213,8 @@ export function ChatInterface() {
     const [showResearchSubmenu, setShowResearchSubmenu] = useState(false);
     const [submenuPosition, setSubmenuPosition] = useState<{ x: 'left' | 'right'; y: 'top' | 'bottom' }>({ x: 'right', y: 'bottom' });
     const submenuRef = useRef<HTMLDivElement>(null);
+    const [showModelMenu, setShowModelMenu] = useState(false);
+    const modelMenuRef = useRef<HTMLDivElement>(null);
     const [streamingContent, setStreamingContent] = useState("");
     const [streamingEvents, setStreamingEvents] = useState<TimestampedEvent[]>([]);
     const [streamingSources, setStreamingSources] = useState<Source[]>([]);
@@ -315,6 +322,9 @@ export function ChatInterface() {
         const handleClickOutside = (event: MouseEvent) => {
             if (researchRef.current && !researchRef.current.contains(event.target as Node)) {
                 setShowResearchSubmenu(false);
+            }
+            if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) {
+                setShowModelMenu(false);
             }
         };
         document.addEventListener("mousedown", handleClickOutside);
@@ -613,11 +623,11 @@ export function ChatInterface() {
         // Clear inline streaming state
         setStreamingEvents([]);
         setStreamingSources([]);
-        setStreamingAgentType("chat");
+        setStreamingAgentType("task");
 
         let conversationId = activeConversationId;
-        if (!conversationId || activeConversation?.type !== "chat") {
-            conversationId = await createConversation("chat");
+        if (!conversationId || activeConversation?.type !== "task") {
+            conversationId = await createConversation("task");
         }
 
         // Get conversation messages for context BEFORE adding the new message
@@ -651,7 +661,7 @@ export function ChatInterface() {
         streamingStartTimeRef.current = new Date();
 
         // Start agent progress for sidebar visibility
-        startAgentProgress(conversationId, "chat");
+        startAgentProgress(conversationId, "task");
 
         // Add initial thinking event immediately for instant feedback
         const thinkingEvent: AgentEvent = {
@@ -699,7 +709,9 @@ export function ChatInterface() {
                 signal: abortControllerRef.current.signal,
                 body: JSON.stringify({
                     message: userMessage,
-                    mode: "chat",
+                    mode: "task",
+                    ...(selectedProvider !== "auto" && { provider: selectedProvider }),
+                    ...(tier !== "auto" && { tier }),
                     attachment_ids: combinedAttachmentIds,
                     // Always send conversation_id (even for local conversations) to enable sandbox reuse
                     // Backend uses it as task_id for e2b sandbox session management
@@ -1075,6 +1087,8 @@ export function ChatInterface() {
                 body: JSON.stringify({
                     message: userMessage,
                     mode: agentType,
+                    ...(selectedProvider !== "auto" && { provider: selectedProvider }),
+                    ...(tier !== "auto" && { tier }),
                     attachment_ids: combinedAttachmentIds,
                     // Always send conversation_id (even for local conversations) to enable sandbox reuse
                     // Backend uses it as task_id for e2b sandbox session management
@@ -1560,7 +1574,64 @@ export function ChatInterface() {
                                             disabled={isProcessing || isUploading}
                                         />
                                     </div>
-                                    <p className="text-xs text-muted-foreground">
+
+                                    {/* Model tier selector */}
+                                    <div ref={modelMenuRef} className="relative">
+                                        <button
+                                            onClick={() => setShowModelMenu(!showModelMenu)}
+                                            className={cn(
+                                                "flex items-center gap-1 px-2 py-1 rounded-md",
+                                                "text-xs font-medium transition-colors",
+                                                "cursor-pointer",
+                                                "hover:bg-secondary",
+                                                tier !== "auto"
+                                                    ? "text-foreground"
+                                                    : "text-muted-foreground"
+                                            )}
+                                        >
+                                            <Sparkles className="w-3.5 h-3.5" />
+                                            <span>{tier === "auto" ? tSettings("autoTier") : tier.charAt(0).toUpperCase() + tier.slice(1)}</span>
+                                            <ChevronDown className="w-3 h-3" />
+                                        </button>
+
+                                        {showModelMenu && (
+                                            <div className="absolute bottom-full left-0 mb-1 z-50 bg-card border border-border rounded-lg shadow-lg w-[220px]">
+                                                <div className="px-3 py-2 border-b border-border">
+                                                    <span className="text-xs font-medium text-muted-foreground">
+                                                        {tSettings("modelTier")}
+                                                    </span>
+                                                </div>
+                                                <div className="p-1">
+                                                    {(["auto", "max", "pro", "flash"] as const).map((tierOption) => (
+                                                        <button
+                                                            key={tierOption}
+                                                            onClick={() => {
+                                                                setTier(tierOption);
+                                                                setShowModelMenu(false);
+                                                            }}
+                                                            className={cn(
+                                                                "w-full px-2.5 py-2 flex flex-col items-start rounded-md transition-colors",
+                                                                "cursor-pointer",
+                                                                "hover:bg-accent",
+                                                                tier === tierOption
+                                                                    ? "bg-primary/10 text-foreground"
+                                                                    : "text-muted-foreground"
+                                                            )}
+                                                        >
+                                                            <span className="text-xs font-medium">
+                                                                {tierOption === "auto" ? tSettings("autoTier") : tierOption.charAt(0).toUpperCase() + tierOption.slice(1)}
+                                                            </span>
+                                                            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                                                {tSettings(`tierDescription.${tierOption}`)}
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <p className="text-xs text-muted-foreground hidden md:block">
                                         {attachments.length > 0
                                             ? tChat("filesAttached", { count: attachments.length })
                                             : tChat("pressEnterToSend")}

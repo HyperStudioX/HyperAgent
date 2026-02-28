@@ -34,6 +34,7 @@ class BoxLiteRuntime:
         self._id = f"boxlite-{uuid.uuid4().hex[:12]}"
         # Maps guest port -> host port
         self._port_map: dict[int, int] = port_map or {}
+        self._killed: bool = False
 
     @property
     def sandbox_id(self) -> str:
@@ -142,7 +143,23 @@ class BoxLiteRuntime:
                 timeout=30,
             )
             if result.exit_code != 0:
-                raise FileNotFoundError(f"Failed to read {path}: {result.stderr}")
+                # Fallback: use python3 if the base64 CLI is not available
+                logger.debug(
+                    "boxlite_base64_cmd_failed_trying_python_fallback",
+                    path=path,
+                    stderr=result.stderr,
+                )
+                py_cmd = (
+                    "import base64, sys; sys.stdout.write("
+                    "base64.b64encode(open(sys.argv[1],'rb')"
+                    ".read()).decode())"
+                )
+                result = await self.run_command(
+                    f'python3 -c "{py_cmd}" {shlex.quote(path)}',
+                    timeout=30,
+                )
+                if result.exit_code != 0:
+                    raise FileNotFoundError(f"Failed to read {path}: {result.stderr}")
             return base64.b64decode(result.stdout.strip())
         else:
             result = await self.run_command(
@@ -158,12 +175,15 @@ class BoxLiteRuntime:
         path: str,
         content: bytes | str,
     ) -> None:
-        """Write content to a file via exec."""
-        # Ensure parent directory exists
-        parent_dir = "/".join(path.split("/")[:-1])
-        if parent_dir:
-            await self.run_command(f"mkdir -p {shlex.quote(parent_dir)}", timeout=10)
+        """Write content to a file via exec.
 
+        Note: parent directory creation is NOT handled here because the
+        caller (file_operations.write_file) already runs ``mkdir -p``
+        before invoking this method.  Keeping it only in the caller
+        avoids a redundant round-trip and keeps the logic in one place
+        (the caller must do it anyway for E2B which does not auto-create
+        parent directories).
+        """
         if isinstance(content, bytes):
             # Binary write via base64 pipe using printf to avoid echo length limits
             encoded = base64.b64encode(content).decode("ascii")
@@ -190,21 +210,43 @@ class BoxLiteRuntime:
         if port in self._port_map:
             host_port = self._port_map[port]
         else:
-            # If no explicit mapping, assume identity mapping
+            # If no explicit mapping, assume identity mapping.
+            # This likely means the port was not published when the container
+            # was created, so the returned URL will probably not be reachable.
+            logger.warning(
+                "boxlite_port_not_mapped_using_identity_fallback",
+                sandbox_id=self._id,
+                guest_port=port,
+                available_mappings=self._port_map,
+            )
             host_port = port
 
         return f"http://localhost:{host_port}"
 
     async def kill(self) -> None:
-        """Stop and remove the BoxLite container."""
+        """Stop and remove the BoxLite container.
+
+        Uses shutdown() first for a clean stop, falling back to __aexit__
+        if shutdown raises. A _killed flag prevents double-cleanup.
+        """
+        if self._killed:
+            return
+        self._killed = True
+
         try:
-            # Use async context manager exit for proper cleanup.
-            # SimpleBox.shutdown() has a bug (calls self._box.shutdown()
-            # on the native Box which doesn't have that method).
-            await self._box.__aexit__(None, None, None)
+            await self._box.shutdown()
             logger.info("boxlite_sandbox_stopped", sandbox_id=self._id)
-        except Exception as e:
-            logger.warning("boxlite_sandbox_stop_failed", sandbox_id=self._id, error=str(e))
+        except Exception as shutdown_err:
+            logger.debug(
+                "boxlite_shutdown_failed_trying_aexit",
+                sandbox_id=self._id,
+                error=str(shutdown_err),
+            )
+            try:
+                await self._box.__aexit__(None, None, None)
+                logger.info("boxlite_sandbox_stopped_via_aexit", sandbox_id=self._id)
+            except Exception as e:
+                logger.warning("boxlite_sandbox_stop_failed", sandbox_id=self._id, error=str(e))
 
     @property
     def raw_box(self) -> "boxlite.SimpleBox":

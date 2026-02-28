@@ -16,8 +16,8 @@ from typing import Any, Callable, TypeVar
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
-from app.core.logging import get_logger
 from app.ai.llm import extract_text_from_content
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -783,7 +783,7 @@ def _get_agent_react_configs() -> dict[str, ReActLoopConfig]:
     from app.config import settings
 
     return {
-        "chat": ReActLoopConfig(
+        "task": ReActLoopConfig(
             max_iterations=settings.react_max_iterations,
             handoff_behavior="immediate",
             truncate_tool_results=True,
@@ -792,7 +792,7 @@ def _get_agent_react_configs() -> dict[str, ReActLoopConfig]:
             max_parallel_tools=5,
         ),
         "data": ReActLoopConfig(
-            max_iterations=max(3, settings.react_max_iterations - 2),  # Slightly lower for data agent
+            max_iterations=max(5, settings.react_max_iterations),  # Enough for generate→execute→fix cycles
             handoff_behavior="deferred",
             truncate_tool_results=True,
             tool_result_max_chars=2000,
@@ -825,7 +825,7 @@ def get_react_config(agent_type: str) -> ReActLoopConfig:
     """Get the ReAct loop configuration for a specific agent type.
 
     Args:
-        agent_type: The agent type (chat, research, data)
+        agent_type: The agent type (task, research, data)
 
     Returns:
         ReActLoopConfig for the specified agent type, or default if not found
@@ -858,6 +858,48 @@ def estimate_message_tokens(message: BaseMessage) -> int:
     return len(content) // 4 + 1
 
 
+def _snap_to_tool_pair_boundary(messages: list[BaseMessage], split_index: int) -> int:
+    """Adjust a split index so it doesn't orphan ToolMessages from their AIMessage.
+
+    A valid boundary must not:
+    - Place an AIMessage with tool_calls in the dropped portion while its
+      ToolMessage responses are in the kept portion (or vice versa).
+
+    We scan forward from the proposed split to find a clean boundary where:
+    - The message at split_index is NOT a ToolMessage (which would be orphaned
+      from its AIMessage in the dropped portion)
+    - The message just before split_index is NOT an AIMessage with tool_calls
+      (whose ToolMessage responses would be in the kept portion)
+
+    Args:
+        messages: The message list being split
+        split_index: Proposed split point (messages[:split_index] dropped,
+                     messages[split_index:] kept)
+
+    Returns:
+        Adjusted split index that respects tool call/result pairing
+    """
+    if split_index <= 0 or split_index >= len(messages):
+        return split_index
+
+    # Scan backward: if the message at split_index is a ToolMessage, we need
+    # to include its parent AIMessage in the kept portion too.
+    while split_index > 0 and isinstance(messages[split_index], ToolMessage):
+        split_index -= 1
+
+    # Now check: if the message just before split_index is an AIMessage with
+    # tool_calls, its ToolMessages would be in the kept portion but the AIMessage
+    # would be dropped. Include it in the kept portion.
+    if (
+        split_index > 0
+        and isinstance(messages[split_index - 1], AIMessage)
+        and getattr(messages[split_index - 1], "tool_calls", None)
+    ):
+        split_index -= 1
+
+    return split_index
+
+
 def truncate_messages_to_budget(
     messages: list[BaseMessage],
     max_tokens: int = 100000,
@@ -868,6 +910,8 @@ def truncate_messages_to_budget(
 
     Preserves system messages (if preserve_system=True) and the most recent
     N messages (preserve_recent). Drops oldest non-system messages first.
+    Respects tool call/result pairing so that AIMessages with tool_calls are
+    never separated from their corresponding ToolMessages.
 
     Args:
         messages: List of messages to potentially truncate
@@ -897,9 +941,19 @@ def truncate_messages_to_budget(
         else:
             other_messages.append(msg)
 
-    # Preserve the most recent messages
-    preserved_recent = other_messages[-preserve_recent:] if len(other_messages) > preserve_recent else other_messages
-    droppable = other_messages[:-preserve_recent] if len(other_messages) > preserve_recent else []
+    # Compute split point and snap to a tool-pair-safe boundary
+    raw_split = len(other_messages) - preserve_recent
+    if raw_split <= 0:
+        return messages, False
+
+    split_index = _snap_to_tool_pair_boundary(other_messages, raw_split)
+
+    # Preserve the most recent messages (after snapping)
+    if split_index < len(other_messages):
+        preserved_recent = other_messages[split_index:]
+    else:
+        preserved_recent = other_messages
+    droppable = other_messages[:split_index] if split_index > 0 else []
 
     # Calculate tokens for preserved messages
     preserved_tokens = sum(estimate_message_tokens(m) for m in system_messages + preserved_recent)
@@ -940,7 +994,9 @@ def truncate_messages_to_budget(
 def truncate_tool_result(content: str, max_chars: int = 2000) -> str:
     """Truncate a tool result to stay within character limit.
 
-    Tries to preserve the beginning and end of the content.
+    For JSON content, attempts structural truncation (removing inner array
+    elements) before falling back to character-level truncation.  For
+    non-JSON content, preserves the beginning and end.
 
     Args:
         content: Tool result content to truncate
@@ -952,12 +1008,119 @@ def truncate_tool_result(content: str, max_chars: int = 2000) -> str:
     if len(content) <= max_chars:
         return content
 
-    # Keep first 60% and last 30% of the budget, with 10% for truncation message
+    # Attempt JSON-aware truncation for JSON content
+    stripped = content.strip()
+    if stripped.startswith(("{", "[")):
+        try:
+            data = json.loads(stripped)
+            result = _truncate_json_structure(data, max_chars)
+            if result is not None:
+                return result
+        except (json.JSONDecodeError, ValueError):
+            pass  # Fall through to character-level truncation
+
+    # Character-level fallback: keep first 60% and last 30%, 10% for msg
     head_budget = int(max_chars * 0.6)
     tail_budget = int(max_chars * 0.3)
-    truncation_msg = f"\n\n... [truncated {len(content) - head_budget - tail_budget} characters] ...\n\n"
+    dropped = len(content) - head_budget - tail_budget
+    truncation_msg = f"\n\n... [truncated {dropped} characters] ...\n\n"
 
     return content[:head_budget] + truncation_msg + content[-tail_budget:]
+
+
+def _truncate_json_structure(data: Any, max_chars: int) -> str | None:
+    """Attempt to truncate a JSON structure by removing inner array elements.
+
+    Finds the largest array in the top-level structure and progressively
+    removes elements from the middle until the result fits within max_chars.
+
+    Args:
+        data: Parsed JSON data
+        max_chars: Maximum characters for the output
+
+    Returns:
+        Truncated JSON string, or None if structural truncation isn't feasible
+    """
+    # Find the target array to truncate
+    target_array = None
+    if isinstance(data, list):
+        target_array = data
+    elif isinstance(data, dict):
+        # Find the largest list value in the top-level dict
+        best_key = None
+        best_len = 0
+        for key, value in data.items():
+            if isinstance(value, list) and len(value) > best_len:
+                best_key = key
+                best_len = len(value)
+        if best_key is not None and best_len > 2:
+            target_array = data[best_key]
+
+    if target_array is None or len(target_array) <= 2:
+        return None
+
+    # Binary search for the number of elements we can keep
+    original_len = len(target_array)
+    low, high = 2, original_len
+    best_result = None
+
+    while low <= high:
+        mid = (low + high) // 2
+        # Keep first half and last half of the allowed count
+        keep_head = mid // 2
+        keep_tail = mid - keep_head
+        truncated = (
+            target_array[:keep_head]
+            + [f"... ({original_len - mid} items truncated) ..."]
+            + target_array[-keep_tail:]
+        )
+
+        # Temporarily replace and serialize
+        original_contents = target_array[:]
+        target_array[:] = truncated
+        try:
+            result = json.dumps(data, default=str, ensure_ascii=False)
+        finally:
+            target_array[:] = original_contents
+
+        if len(result) <= max_chars:
+            best_result = result
+            low = mid + 1  # Try keeping more
+        else:
+            high = mid - 1  # Try keeping fewer
+
+    return best_result
+
+
+def deduplicate_tool_messages(messages: list) -> list:
+    """Remove duplicate ToolMessages with the same tool_call_id.
+
+    The Anthropic API requires exactly one tool_result per tool_use.
+    This ensures we don't have duplicates which cause API errors.
+
+    Args:
+        messages: List of LangChain messages
+
+    Returns:
+        Deduplicated list of messages
+    """
+    seen_tool_call_ids: set[str] = set()
+    result = []
+
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            tool_call_id = msg.tool_call_id
+            if tool_call_id in seen_tool_call_ids:
+                logger.warning(
+                    "duplicate_tool_message_removed",
+                    tool_call_id=tool_call_id,
+                    tool_name=getattr(msg, "name", "unknown"),
+                )
+                continue
+            seen_tool_call_ids.add(tool_call_id)
+        result.append(msg)
+
+    return result
 
 
 # Tools that require sequential execution due to side effects or special handling
@@ -983,6 +1146,9 @@ async def _execute_single_tool(
 ) -> tuple[ToolMessage, bool]:
     """Execute a single tool and return the result message.
 
+    Delegates to the shared tool execution pipeline via execute_tool()
+    with CanonicalToolHooks for image/browser post-processing.
+
     Args:
         tool: The tool to execute
         tool_name: Name of the tool
@@ -997,105 +1163,26 @@ async def _execute_single_tool(
     Returns:
         Tuple of (ToolMessage, is_error)
     """
-    if on_tool_call:
-        on_tool_call(tool_name, tool_args, tool_call_id)
+    from app.agents.tools.tool_pipeline import (
+        CanonicalToolHooks,
+        ToolExecutionContext,
+        execute_tool,
+    )
 
-    try:
-        result = await execute_tool_with_retry(
-            tool,
-            tool_args,
-            max_retries=config.max_retries_per_tool,
-            base_delay=config.retry_base_delay,
-        )
-
-        # Post-process result based on tool type
-        llm_result = result
-
-        # Special handling for generate_image
-        if tool_name == "generate_image" and result:
-            try:
-                parsed = json.loads(result)
-                if parsed.get("success") and parsed.get("images"):
-                    from app.agents.utils import extract_and_add_image_events
-                    start_index = len([e for e in events if e.get("type") == "image"])
-                    extract_and_add_image_events(result, events, start_index=start_index)
-
-                    image_count = len(parsed["images"])
-                    if on_token:
-                        placeholders = "\n\n" + "\n\n".join(
-                            f"![generated-image:{start_index + i}]"
-                            for i in range(image_count)
-                        ) + "\n\n"
-                        on_token(placeholders)
-
-                    llm_result = json.dumps({
-                        "success": True,
-                        "message": f"Generated {image_count} image(s). Displayed to user.",
-                        "count": image_count,
-                    })
-            except Exception as e:
-                logger.warning("generate_image_result_processing_error", error=str(e))
-
-        # Special handling for invoke_skill image generation
-        if tool_name == "invoke_skill" and result:
-            try:
-                parsed = json.loads(result)
-                if parsed.get("skill_id") == "image_generation":
-                    output = parsed.get("output") or {}
-                    images = output.get("images") or []
-                    if images:
-                        from app.agents.utils import extract_and_add_image_events
-                        start_index = len([e for e in events if e.get("type") == "image"])
-                        extract_and_add_image_events(
-                            json.dumps({"success": True, "images": images}),
-                            events,
-                            start_index=start_index,
-                        )
-                        image_count = len(images)
-                        if on_token:
-                            placeholders = "\n\n" + "\n\n".join(
-                                f"![generated-image:{start_index + i}]"
-                                for i in range(image_count)
-                            ) + "\n\n"
-                            on_token(placeholders)
-                        llm_result = json.dumps({
-                            "success": True,
-                            "message": f"Generated {image_count} image(s). Displayed to user.",
-                            "count": image_count,
-                        })
-            except Exception as e:
-                logger.warning("invoke_skill_image_result_processing_error", error=str(e))
-
-        # Special handling for browser_navigate: remove screenshot, keep content
-        if tool_name == "browser_navigate" and result:
-            try:
-                parsed = json.loads(result)
-                if parsed.get("success") and parsed.get("screenshot") and parsed.get("content"):
-                    llm_result = json.dumps({
-                        "success": True,
-                        "url": parsed.get("url", ""),
-                        "content": parsed.get("content", ""),
-                        "content_length": parsed.get("content_length", 0),
-                        "sandbox_id": parsed.get("sandbox_id", ""),
-                    })
-            except Exception as e:
-                logger.warning("browser_navigate_result_processing_error", error=str(e))
-
-        # Truncate result if configured
-        if config.truncate_tool_results and llm_result:
-            llm_result = truncate_tool_result(llm_result, config.tool_result_max_chars)
-
-        if on_tool_result:
-            on_tool_result(tool_name, llm_result[:500] if llm_result else "", tool_call_id)
-
-        return ToolMessage(content=llm_result, tool_call_id=tool_call_id, name=tool_name), False
-
-    except Exception as e:
-        error_msg = f"Error invoking tool {tool_name}: {e}"
-        is_transient = isinstance(e, ToolExecutionError) and e.is_transient
-        log_event = "react_loop_tool_error" if isinstance(e, ToolExecutionError) else "react_loop_unexpected_tool_error"
-        logger.error(log_event, tool=tool_name, error=str(e), is_transient=is_transient)
-        return ToolMessage(content=error_msg, tool_call_id=tool_call_id, name=tool_name), True
+    hooks = CanonicalToolHooks(
+        on_tool_call=on_tool_call,
+        on_tool_result=on_tool_result,
+        on_token=on_token,
+        all_events=events,
+    )
+    ctx = ToolExecutionContext(
+        tool_name=tool_name,
+        tool_args=tool_args,
+        tool_call_id=tool_call_id,
+        tool=tool,
+    )
+    result = await execute_tool(ctx, hooks=hooks, config=config, use_retry=True)
+    return result.message, result.is_error
 
 
 async def _execute_tools_parallel(
@@ -1240,8 +1327,8 @@ async def _execute_tools_parallel(
         # Pre-execution: For browser_navigate, get stream URL first
         if tool_name == "browser_navigate" and on_browser_stream:
             try:
-                from app.sandbox import get_desktop_sandbox_manager
                 from app.agents import events as agent_events
+                from app.sandbox import get_desktop_sandbox_manager
 
                 manager = get_desktop_sandbox_manager()
                 user_id = tool_args.get("user_id")
@@ -1329,6 +1416,7 @@ async def execute_react_loop(
     on_token: Callable[[str], None] | None = None,
     extra_tool_args: dict[str, Any] | None = None,
     on_browser_stream: Callable[[str, str, str | None], None] | None = None,
+    tool_hooks: Any | None = None,
 ) -> ReActLoopResult:
     """Execute a unified ReAct loop with tool calling and retry support.
 
@@ -1354,6 +1442,8 @@ async def execute_react_loop(
         on_token: Callback for each streamed token (token_content)
         extra_tool_args: Additional arguments to inject into all tool calls (e.g., user_id, task_id)
         on_browser_stream: Callback when browser stream is ready (stream_url, sandbox_id, auth_key)
+        tool_hooks: Optional ToolExecutionHooks instance for custom tool execution behavior.
+            When provided, used instead of creating CanonicalToolHooks from flat callbacks.
 
     Returns:
         ReActLoopResult with updated messages and metadata
@@ -1402,8 +1492,29 @@ async def execute_react_loop(
                 response = await llm_with_tools.ainvoke(messages)
                 response_chunks = [response]
         except Exception as e:
-            logger.error("react_loop_llm_error", error=str(e), iteration=tool_iterations)
-            raise
+            # Providers with "thinking" mode (e.g. DeepSeek, Kimi) require
+            # reasoning_content on every assistant message with tool_calls.
+            # ThinkingAwareChatOpenAI patches the payload when its flag is
+            # set. If not pre-configured, detect it here and enable the
+            # patch, then retry.
+            if "reasoning_content" in str(e):
+                logger.info("react_loopthinking_mode")
+                inner_llm = getattr(llm_with_tools, "bound", llm_with_tools)
+                if hasattr(inner_llm, "thinking_mode"):
+                    inner_llm.thinking_mode = True
+                if config.enable_streaming:
+                    async for chunk in llm_with_tools.astream(messages):
+                        response_chunks.append(chunk)
+                        if on_token and hasattr(chunk, "content") and chunk.content:
+                            content = extract_text_from_content(chunk.content)
+                            if content:
+                                on_token(content)
+                else:
+                    response = await llm_with_tools.ainvoke(messages)
+                    response_chunks = [response]
+            else:
+                logger.error("react_loop_llm_error", error=str(e), iteration=tool_iterations)
+                raise
 
         # Build AI message from chunks
         ai_message = build_ai_message_from_chunks(response_chunks, query)

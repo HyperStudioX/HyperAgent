@@ -359,7 +359,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
       {showAddItems && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
-            className="absolute inset-0 bg-black/50"
+            className="absolute inset-0 bg-black/40"
             onClick={() => setShowAddItems(false)}
             aria-hidden="true"
           />

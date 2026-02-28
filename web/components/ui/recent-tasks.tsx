@@ -19,7 +19,6 @@ import {
   Check,
   ImageIcon,
   AppWindow,
-  PenLine,
   Presentation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,28 +31,25 @@ export type RecentItem =
   | { type: "task"; data: ResearchTask };
 
 // Filter types
-type FilterType = "all" | ConversationType | "task";
+type FilterType = "all" | ConversationType;
 
 const CONVERSATION_TYPE_ICONS: Record<ConversationType, React.ReactNode> = {
-  chat: <MessageCircle className="w-4 h-4" />,
+  task: <MessageCircle className="w-4 h-4" />,
   research: <Search className="w-4 h-4" />,
   data: <BarChart3 className="w-4 h-4" />,
   app: <AppWindow className="w-4 h-4" />,
   image: <ImageIcon className="w-4 h-4" />,
-  writing: <PenLine className="w-4 h-4" />,
   slide: <Presentation className="w-4 h-4" />,
 };
 
 const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   all: <ListFilter className="w-3.5 h-3.5" />,
-  chat: <MessageCircle className="w-3.5 h-3.5" />,
+  task: <MessageCircle className="w-3.5 h-3.5" />,
   research: <Search className="w-3.5 h-3.5" />,
   data: <BarChart3 className="w-3.5 h-3.5" />,
   app: <AppWindow className="w-3.5 h-3.5" />,
   image: <ImageIcon className="w-3.5 h-3.5" />,
-  writing: <PenLine className="w-3.5 h-3.5" />,
   slide: <Presentation className="w-3.5 h-3.5" />,
-  task: <Search className="w-3.5 h-3.5" />,
 };
 
 // Group items by time period
@@ -200,14 +196,12 @@ export function RecentTasks({
 
   const filterLabels: Record<FilterType, string> = {
     all: t("all") || "All",
-    chat: t("chat"),
+    task: t("task") || "Task",
     research: t("research"),
     data: t("data"),
     app: t("app") || "App",
     image: t("image") || "Image",
-    writing: t("writing") || "Writing",
     slide: t("slide") || "Slides",
-    task: t("task") || "Task",
   };
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -239,10 +233,10 @@ export function RecentTasks({
               <button
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
                 className={cn(
-                  "flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs font-medium transition-colors",
+                  "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors",
                   isFilterOpen || activeFilter !== "all"
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
                 )}
               >
                 {FILTER_ICONS[activeFilter]}
@@ -266,8 +260,8 @@ export function RecentTasks({
                       className={cn(
                         "w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors text-left",
                         activeFilter === filter
-                          ? "bg-secondary text-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent"
                       )}
                     >
                       {FILTER_ICONS[filter]}
@@ -412,7 +406,7 @@ function RecentItemRow({
   // Get type icon (always show type, not status)
   const typeIcon = isTask
     ? <Search className="w-4 h-4" />
-    : CONVERSATION_TYPE_ICONS[conversationType || "chat"];
+    : CONVERSATION_TYPE_ICONS[conversationType || "task"];
 
   // Get status indicator for tasks
   const getStatusIndicator = () => {
@@ -434,15 +428,15 @@ function RecentItemRow({
       className={cn(
         "group relative flex items-center gap-3 px-2.5 py-2.5 rounded-lg cursor-pointer transition-colors",
         isActive
-          ? "bg-secondary text-foreground"
-          : "hover:bg-secondary/50"
+          ? "bg-accent text-accent-foreground"
+          : "hover:bg-accent"
       )}
       onClick={onClick}
     >
       {/* Type Icon Container */}
       <div className={cn(
         "flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
-        isActive ? "bg-muted" : "bg-secondary group-hover:bg-muted"
+        isActive ? "bg-secondary" : "bg-muted group-hover:bg-secondary"
       )}>
         <span className={cn(
           "transition-colors",

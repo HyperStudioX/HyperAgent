@@ -28,6 +28,7 @@ class SkillExecutor:
         agent_type: str,
         task_id: str | None = None,
         db: AsyncSession | None = None,
+        invocation_depth: int = 0,
     ) -> AsyncGenerator[dict, None]:
         """Execute a skill and stream events.
 
@@ -103,6 +104,7 @@ class SkillExecutor:
                 # Execution context - allows skills to share sandbox sessions with agents
                 "user_id": user_id,
                 "task_id": task_id,
+                "invocation_depth": invocation_depth,
             }
 
             # Add pending_events for skills that emit stage events during execution
@@ -124,11 +126,20 @@ class SkillExecutor:
                             if not isinstance(node_state, dict):
                                 continue
 
-                            # Emit any pending events from this state
+                            # AUTO: emit stage:running for this node
+                            yield events.stage(
+                                name=f"skill_{skill_id}:{node_name}",
+                                description=f"Running {node_name}",
+                                status="running",
+                            )
+
+                            # Relay custom pending_events (AppBuilder etc.)
                             pending_events = node_state.get("pending_events", [])
                             new_events = pending_events[emitted_event_count:]
                             if new_events:
-                                event_types = [e.get("type") for e in new_events if isinstance(e, dict)]
+                                event_types = [
+                                    e.get("type") for e in new_events if isinstance(e, dict)
+                                ]
                                 logger.info(
                                     "skill_executor_yielding_events",
                                     skill_id=skill_id,
@@ -144,6 +155,21 @@ class SkillExecutor:
                             if final_state is None:
                                 final_state = dict(initial_state)
                             final_state.update(node_state)
+
+                            # AUTO: emit stage:completed or stage:failed for this node
+                            node_error = node_state.get("error")
+                            if node_error:
+                                yield events.stage(
+                                    name=f"skill_{skill_id}:{node_name}",
+                                    description=f"Failed {node_name}: {str(node_error)[:100]}",
+                                    status="failed",
+                                )
+                            else:
+                                yield events.stage(
+                                    name=f"skill_{skill_id}:{node_name}",
+                                    description=f"Completed {node_name}",
+                                    status="completed",
+                                )
 
             except TimeoutError:
                 raise Exception(

@@ -2,7 +2,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.ai.model_tiers import ModelTier
 
 
 class MessageRole(str, Enum):
@@ -17,16 +19,8 @@ class LLMProvider(str, Enum):
     GEMINI = "gemini"
 
 
-class ModelTier(str, Enum):
-    """Model tiers for different task complexities."""
-
-    MAX = "max"
-    PRO = "pro"
-    FLASH = "flash"
-
-
 class QueryMode(str, Enum):
-    CHAT = "chat"
+    TASK = "task"
     RESEARCH = "research"
     DATA = "data"
     APP = "app"
@@ -55,9 +49,20 @@ class ChatRequest(BaseModel):
 
     message: str
     conversation_id: str | None = None
-    provider: LLMProvider = LLMProvider.ANTHROPIC
+    provider: str | None = None
     model: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
+
+    @field_validator("provider")
+    @classmethod
+    def check_provider(cls, v: str | None) -> str | None:
+        if v is None or v == "auto":
+            return None
+        from app.core.provider_registry import provider_registry
+
+        if not provider_registry.is_known(v):
+            raise ValueError(f"Unknown provider: {v}")
+        return v
 
 
 class ChatResponse(BaseModel):
@@ -66,7 +71,7 @@ class ChatResponse(BaseModel):
     id: str
     content: str
     model: str
-    provider: LLMProvider
+    provider: str
     tokens: int | None = None
 
 
@@ -156,17 +161,28 @@ class UnifiedQueryRequest(BaseModel):
     """Unified request for both chat and research modes."""
 
     message: str
-    mode: QueryMode = QueryMode.CHAT
+    mode: QueryMode = QueryMode.TASK
     scenario: ResearchScenario | None = None
     depth: ResearchDepth = ResearchDepth.FAST
     conversation_id: str | None = None
     task_id: str | None = None  # Optional task ID for research mode (frontend-generated)
-    provider: LLMProvider = LLMProvider.ANTHROPIC
+    provider: str | None = None
     model: str | None = None
     tier: ModelTier | None = None  # Optional tier override
     history: list[ChatMessage] = Field(default_factory=list)
     attachment_ids: list[str] = Field(default_factory=list)
     locale: str = Field(default="en", description="User's preferred language (e.g., 'en', 'zh-CN')")
+
+    @field_validator("provider")
+    @classmethod
+    def check_provider(cls, v: str | None) -> str | None:
+        if v is None or v == "auto":
+            return None
+        from app.core.provider_registry import provider_registry
+
+        if not provider_registry.is_known(v):
+            raise ValueError(f"Unknown provider: {v}")
+        return v
 
 
 class UnifiedQueryResponse(BaseModel):
@@ -177,12 +193,12 @@ class UnifiedQueryResponse(BaseModel):
     task_id: str | None = None
     content: str | None = None
     model: str
-    provider: LLMProvider
+    provider: str
 
 
 # Conversation Schemas
 class ConversationType(str, Enum):
-    CHAT = "chat"
+    TASK = "task"
     RESEARCH = "research"
     DATA = "data"
     APP = "app"
@@ -242,7 +258,7 @@ class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
 
     title: str
-    type: ConversationType = ConversationType.CHAT
+    type: ConversationType = ConversationType.TASK
 
 
 class UpdateConversationRequest(BaseModel):

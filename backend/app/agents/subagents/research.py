@@ -1,5 +1,6 @@
 """Research subagent for multi-step deep research tasks with tool calling and handoff support."""
 
+import threading
 from typing import Literal
 
 from langchain_core.messages import (
@@ -9,8 +10,9 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode
 
+from app.agents import events
+from app.agents.hitl.interrupt_manager import get_interrupt_manager
 from app.agents.prompts import (
     get_analysis_prompt,
     get_report_prompt,
@@ -20,24 +22,38 @@ from app.agents.prompts import (
 from app.agents.scenarios import get_scenario_config
 from app.agents.state import ResearchState
 from app.agents.tools import (
-    parse_search_results,
+    get_react_config,
     get_tools_for_agent,
 )
-from app.agents.tools.context_injection import inject_tool_context
-from app.agents.utils import (
-    extract_and_add_image_events,
-    create_stage_event,
-    create_error_event,
-    create_tool_call_event,
-    create_tool_result_event,
+from app.agents.tools.react_tool import truncate_messages_to_budget
+from app.agents.tools.tool_pipeline import (
+    ResearchToolHooks,
+    ToolExecutionContext,
+    execute_tool,
+    execute_tools_batch,
 )
-from app.agents import events
+from app.ai.llm import extract_text_from_content, llm_service
 from app.core.logging import get_logger
-from app.models.schemas import LLMProvider, ResearchDepth, ResearchScenario
-from app.ai.llm import llm_service, extract_text_from_content
+from app.config import settings
+from app.guardrails.scanners.output_scanner import output_scanner
+from app.models.schemas import ResearchDepth, ResearchScenario
 from app.services.search import SearchResult
 
 logger = get_logger(__name__)
+
+# Module-level caches for research tools (computed once, thread-safe)
+_cached_research_tools: list | None = None
+_research_cache_lock = threading.Lock()
+
+
+def _get_cached_research_tools() -> list:
+    """Get the research tools list, computing and caching on first call (thread-safe)."""
+    global _cached_research_tools
+    if _cached_research_tools is None:
+        with _research_cache_lock:
+            if _cached_research_tools is None:
+                _cached_research_tools = get_tools_for_agent("research", include_handoffs=True)
+    return _cached_research_tools
 
 # Depth-based configuration
 DEPTH_CONFIG = {
@@ -93,7 +109,10 @@ async def init_config_node(state: ResearchState) -> dict:
         "report_structure": config["report_structure"],
         "depth_config": depth_config,
         "lc_messages": [
-            SystemMessage(content=search_prompt),
+            SystemMessage(
+                content=search_prompt,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(content=f"Research topic: {state.get('query') or ''}"),
         ],
         "sources": [],
@@ -104,7 +123,7 @@ async def init_config_node(state: ResearchState) -> dict:
                 depth=depth.value if isinstance(depth, ResearchDepth) else depth,
                 scenario=scenario.value if isinstance(scenario, ResearchScenario) else scenario,
             ),
-            create_stage_event("search", "Searching for sources...", "running"),
+            events.stage("search", "Searching for sources...", "running"),
         ],
     }
 
@@ -121,7 +140,29 @@ async def search_agent_node(state: ResearchState) -> dict:
     lc_messages = state.get("lc_messages") or []
     depth_config = state.get("depth_config") or {}
     tool_iterations = state.get("tool_iterations") or 0
+    consecutive_errors = state.get("consecutive_errors") or 0
     max_searches = depth_config.get("max_searches", 5)
+
+    # Circuit breaker: stop if too many consecutive tool errors
+    react_config = get_react_config("research")
+    if consecutive_errors >= react_config.max_consecutive_errors:
+        logger.warning(
+            "research_consecutive_errors_limit",
+            consecutive_errors=consecutive_errors,
+            max=react_config.max_consecutive_errors,
+        )
+        return {
+            "lc_messages": lc_messages,
+            "search_complete": True,
+            "events": [
+                events.stage(
+                    "search",
+                    f"Stopped after {consecutive_errors} consecutive errors. "
+                    "Proceeding with available sources.",
+                    "completed",
+                )
+            ],
+        }
 
     deferred_handoff = state.get("deferred_handoff")
     if deferred_handoff:
@@ -159,7 +200,7 @@ async def search_agent_node(state: ResearchState) -> dict:
             "lc_messages": lc_messages,
             "search_complete": True,
             "events": [
-                create_stage_event(
+                events.stage(
                     "search",
                     f"Reached maximum searches ({max_searches}). Proceeding with available sources.",
                     "completed",
@@ -169,28 +210,29 @@ async def search_agent_node(state: ResearchState) -> dict:
 
     event_list = []
 
-    # Get all tools for research agent (includes browser, search, image, handoffs)
-    all_tools = get_tools_for_agent("research", include_handoffs=True)
+    # Get all tools for research agent (cached, includes browser, search, image, handoffs)
+    all_tools = _get_cached_research_tools()
 
     # Get LLM with tools bound
-    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    provider = state.get("provider")
     tier = state.get("tier")
     model = state.get("model")
     llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
     llm_with_tools = llm.bind_tools(all_tools)
 
+    # Truncate messages to stay within token budget
+    react_config = get_react_config("research")
+    lc_messages, was_truncated = truncate_messages_to_budget(
+        lc_messages,
+        max_tokens=react_config.max_message_tokens,
+        preserve_recent=react_config.preserve_recent_messages,
+    )
+    if was_truncated:
+        logger.info("research_messages_truncated_for_budget")
+
     try:
         response = await llm_with_tools.ainvoke(lc_messages)
         lc_messages = lc_messages + [response]
-
-        # Check if search is complete
-        if response.content and "SEARCH_COMPLETE" in response.content:
-            logger.info("search_phase_complete", tool_iterations=tool_iterations)
-            return {
-                "lc_messages": lc_messages,
-                "search_complete": True,
-                "events": event_list,
-            }
 
         # Track and log tool calls
         if response.tool_calls:
@@ -225,8 +267,8 @@ async def search_agent_node(state: ResearchState) -> dict:
                     pending_tools=[tc.get("name") for tc in other_tool_calls],
                 )
 
-                # Increment search count for non-handoff tool calls only
-                tool_iterations += len(other_tool_calls)
+                # Increment iteration count (one iteration, regardless of tool call count)
+                tool_iterations += 1
                 for tool_call in other_tool_calls:
                     valid_tool_names = [tool.name for tool in all_tools]
                     if tool_call["name"] not in valid_tool_names:
@@ -236,7 +278,7 @@ async def search_agent_node(state: ResearchState) -> dict:
                             allowed=valid_tool_names,
                         )
                         continue
-                    event_list.append(create_tool_call_event(
+                    event_list.append(events.tool_call(
                         tool_call["name"],
                         tool_call["args"],
                         tool_call.get("id"),
@@ -283,8 +325,8 @@ async def search_agent_node(state: ResearchState) -> dict:
                     "pending_handoff": pending_handoff,
                 }
 
-            # No handoff - process all tool calls normally
-            tool_iterations += len(response.tool_calls)
+            # No handoff - process all tool calls normally (one iteration)
+            tool_iterations += 1
             for tool_call in response.tool_calls:
                 # Validate tool name
                 valid_tool_names = [tool.name for tool in all_tools]
@@ -296,7 +338,7 @@ async def search_agent_node(state: ResearchState) -> dict:
                     )
                     continue
 
-                event_list.append(create_tool_call_event(
+                event_list.append(events.tool_call(
                     tool_call["name"],
                     tool_call["args"],
                     tool_call.get("id"),
@@ -326,12 +368,20 @@ async def search_agent_node(state: ResearchState) -> dict:
         return {
             "lc_messages": lc_messages,
             "search_complete": True,
-            "events": [create_error_event("search", str(e), f"Search error: {str(e)}")],
+            "events": [
+                events.error(
+                    error_msg=str(e), name="search",
+                    description=f"Search error: {str(e)}",
+                )
+            ],
         }
 
 
 async def search_tools_node(state: ResearchState) -> dict:
     """Execute search tool calls and collect results.
+
+    Uses the shared tool execution pipeline via execute_tools_batch
+    with ResearchToolHooks for source parsing.
 
     Args:
         state: Current research state with pending tool calls
@@ -339,70 +389,160 @@ async def search_tools_node(state: ResearchState) -> dict:
     Returns:
         Dict with tool results and collected sources
     """
-    lc_messages = state.get("lc_messages", [])
+    lc_messages = list(state.get("lc_messages", []))
     sources = list(state.get("sources", []))
     user_id = state.get("user_id")
     task_id = state.get("task_id")
 
-    event_list = []
+    event_list: list[dict] = []
 
     # Get the last AI message with tool calls
     last_message = lc_messages[-1] if lc_messages else None
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {"lc_messages": lc_messages, "events": event_list}
 
-    # Inject context (user_id/task_id) into tool args that need session management
-    effective_message = last_message
-    if user_id or task_id:
-        updated_tool_calls = []
-        for tool_call in last_message.tool_calls:
-            tool_name = tool_call.get("name") or ""
-            tool_args = tool_call.get("args") or {}
-            original_args = tool_args
-            tool_args = dict(tool_args)
-            inject_tool_context(tool_name, tool_args, user_id, task_id)
-            if tool_args != original_args:
-                tool_call = {**tool_call, "args": tool_args}
-            updated_tool_calls.append(tool_call)
-        effective_message = AIMessage(
-            content=last_message.content,
-            tool_calls=updated_tool_calls,
+    # Build tool map from cached research tools
+    all_tools = _get_cached_research_tools()
+    tool_map = {tool.name: tool for tool in all_tools}
+    react_config = get_react_config("research")
+
+    from app.agents.hitl.tool_risk import requires_approval
+
+    def hitl_check(tool_name: str) -> bool:
+        # invoke_skill is routed through the HITL partition so per-skill checks
+        # can run in hook-level logic.
+        return tool_name == "invoke_skill" or requires_approval(
+            tool_name,
+            auto_approve_tools=state.get("auto_approve_tools", []),
+            hitl_enabled=state.get("hitl_enabled", True),
+            risk_threshold=settings.hitl_default_risk_threshold,
         )
 
-    # Get all tools for research agent (includes browser, search, image, handoffs)
-    all_tools = get_tools_for_agent("research", include_handoffs=True)
+    hooks = ResearchToolHooks(state=state)
+    tool_messages, batch_events, error_count, pending_interrupt = await execute_tools_batch(
+        tool_calls=last_message.tool_calls,
+        tool_map=tool_map,
+        config=react_config,
+        hooks=hooks,
+        user_id=user_id,
+        task_id=task_id,
+        hitl_partition=True,
+        hitl_check=hitl_check,
+    )
 
-    # Execute tools
-    tool_executor = ToolNode(all_tools)
-    tool_results = await tool_executor.ainvoke({"messages": [effective_message]})
+    sources.extend(hooks.collected_sources)
+    lc_messages.extend(tool_messages)
+    event_list.extend(batch_events)
 
-    # Process results
-    for msg in tool_results.get("messages", []):
-        lc_messages = lc_messages + [msg]
-        if isinstance(msg, ToolMessage):
-            # Emit tool result event
-            event_list.append(create_tool_result_event(msg.name, msg.content, msg.tool_call_id))
+    # Circuit breaker: track consecutive errors
+    consecutive_errors = state.get("consecutive_errors") or 0
+    total_tool_count = len(last_message.tool_calls)
+    if error_count == total_tool_count and total_tool_count > 0:
+        consecutive_errors += 1
+    else:
+        consecutive_errors = 0
 
-            # Parse structured results from tool output (web_search results)
-            new_sources = parse_search_results(msg.content)
-            sources.extend(new_sources)
+    logger.info(
+        "search_tools_executed",
+        new_sources=len(sources),
+        consecutive_errors=consecutive_errors,
+        pending_interrupt=bool(pending_interrupt),
+    )
 
-            # Emit source events
-            for source in new_sources:
-                event_list.append(events.source(
-                    title=source.title,
-                    url=source.url,
-                    snippet=source.snippet,
-                    relevance_score=source.relevance_score,
-                ))
-
-    logger.info("search_tools_executed", new_sources=len(sources))
-
-    return {
+    result = {
         "lc_messages": lc_messages,
         "sources": sources,
         "events": event_list,
+        "consecutive_errors": consecutive_errors,
     }
+    if pending_interrupt:
+        result["pending_interrupt"] = pending_interrupt
+    return result
+
+
+def should_wait_or_search(state: ResearchState) -> Literal["wait_interrupt", "search_agent"]:
+    """Decide whether to wait for user approval or continue searching."""
+    if state.get("pending_interrupt"):
+        return "wait_interrupt"
+    return "search_agent"
+
+
+async def wait_interrupt_node(state: ResearchState) -> dict:
+    """Wait for and process HITL responses for research tool approvals."""
+    pending = state.get("pending_interrupt")
+    if not pending:
+        return {"pending_interrupt": None}
+
+    interrupt_id = pending.get("interrupt_id")
+    thread_id = pending.get("thread_id", "default")
+    tool_call_id = pending.get("tool_call_id")
+    tool_name = pending.get("tool_name", "")
+    tool_args = dict(pending.get("tool_args", {}) or {})
+    user_id = state.get("user_id")
+    task_id = state.get("task_id")
+
+    lc_messages = list(state.get("lc_messages", []))
+    event_list: list[dict] = []
+    all_tools = _get_cached_research_tools()
+    tool_map = {tool.name: tool for tool in all_tools}
+    auto_approve_tools = list(state.get("auto_approve_tools", []))
+    interrupt_manager = get_interrupt_manager()
+
+    try:
+        response = await interrupt_manager.wait_for_response(
+            thread_id=thread_id,
+            interrupt_id=interrupt_id,
+            timeout_seconds=settings.hitl_decision_timeout,
+        )
+        action = response.get("action", "deny")
+
+        if action in ("approve", "approve_always"):
+            if action == "approve_always" and tool_name not in auto_approve_tools:
+                auto_approve_tools.append(tool_name)
+
+            react_config = get_react_config("research")
+            ctx = ToolExecutionContext(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                tool_call_id=tool_call_id,
+                tool=tool_map.get(tool_name),
+                user_id=user_id,
+                task_id=task_id,
+            )
+            hooks = ResearchToolHooks(state=state, skip_before_execution=True)
+            exec_result = await execute_tool(ctx, hooks=hooks, config=react_config)
+            if exec_result.message:
+                result_str = exec_result.message.content
+            else:
+                result_str = "Tool execution returned no result."
+            event_list.extend(exec_result.events)
+        elif action == "deny":
+            result_str = f"User denied execution of {tool_name}. The tool was not executed."
+        else:
+            result_str = f"Unsupported approval action: {action}. Tool not executed."
+    except TimeoutError:
+        result_str = "Approval timed out. Tool not executed."
+    except Exception as e:
+        logger.error("research_wait_interrupt_error", error=str(e), interrupt_id=interrupt_id)
+        result_str = f"Error while waiting for approval: {e}"
+
+    lc_messages.append(
+        ToolMessage(
+            content=result_str,
+            tool_call_id=tool_call_id,
+            name=tool_name,
+        )
+    )
+    event_list.append(events.tool_result(tool_name, result_str, tool_id=tool_call_id))
+
+    result = {
+        "lc_messages": lc_messages,
+        "events": event_list,
+        "pending_interrupt": None,
+    }
+    if auto_approve_tools != state.get("auto_approve_tools", []):
+        result["auto_approve_tools"] = auto_approve_tools
+    return result
 
 
 def should_continue_search(state: ResearchState) -> Literal["tools", "collect"]:
@@ -443,7 +583,7 @@ async def collect_sources_node(state: ResearchState) -> dict:
     """
     sources = state.get("sources", [])
 
-    event_list = [create_stage_event(
+    event_list = [events.stage(
         "search",
         f"Found {len(sources)} sources",
         "completed",
@@ -484,13 +624,13 @@ async def analyze_node(state: ResearchState) -> dict:
     system_prompt = state.get("system_prompt") or ""
     depth_config = state.get("depth_config") or {}
 
-    event_list = [create_stage_event(
+    event_list = [events.stage(
         "analyze",
         f"Analyzing sources ({depth_config.get('analysis_detail', 'thorough')})...",
         "running",
     )]
 
-    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    provider = state.get("provider")
     tier = state.get("tier")
     model = state.get("model")
     llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
@@ -507,13 +647,13 @@ async def analyze_node(state: ResearchState) -> dict:
             SystemMessage(content=system_prompt),
             HumanMessage(content=analysis_prompt),
         ])
-        analysis_text = response.content
+        analysis_text = extract_text_from_content(response.content)
         logger.info("analysis_completed", query=query[:50])
     except Exception as e:
         logger.error("analysis_failed", error=str(e))
         analysis_text = f"Analysis of '{query}' based on {len(sources)} sources."
 
-    event_list.append(create_stage_event("analyze", "Source analysis complete", "completed"))
+    event_list.append(events.stage("analyze", "Source analysis complete", "completed"))
 
     result = {
         "analysis": analysis_text,
@@ -545,9 +685,9 @@ async def synthesize_node(state: ResearchState) -> dict:
     analysis_text = state.get("analysis") or ""
     system_prompt = state.get("system_prompt") or ""
 
-    event_list = [create_stage_event("synthesize", "Synthesizing findings...", "running")]
+    event_list = [events.stage("synthesize", "Synthesizing findings...", "running")]
 
-    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    provider = state.get("provider")
     tier = state.get("tier")
     model = state.get("model")
     llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
@@ -561,13 +701,13 @@ async def synthesize_node(state: ResearchState) -> dict:
             SystemMessage(content=system_prompt),
             HumanMessage(content=synthesis_prompt),
         ])
-        synthesis_text = response.content
+        synthesis_text = extract_text_from_content(response.content)
         logger.info("synthesis_completed", query=query[:50])
     except Exception as e:
         logger.error("synthesis_failed", error=str(e))
         synthesis_text = analysis_text
 
-    event_list.append(create_stage_event("synthesize", "Synthesis complete", "completed"))
+    event_list.append(events.stage("synthesize", "Synthesis complete", "completed"))
 
     return {
         "synthesis": synthesis_text,
@@ -602,7 +742,7 @@ async def write_node(state: ResearchState) -> dict:
     report_structure = state.get("report_structure") or []
     depth_config = state.get("depth_config") or {}
 
-    event_list = [create_stage_event("write", "Writing research report...", "running")]
+    event_list = [events.stage("write", "Writing research report...", "running")]
 
     # Use synthesis if available, otherwise analysis
     combined_findings = synthesis if synthesis else analysis
@@ -618,7 +758,7 @@ async def write_node(state: ResearchState) -> dict:
         locale=locale,
     )
 
-    provider = state.get("provider") or LLMProvider.ANTHROPIC
+    provider = state.get("provider")
     tier = state.get("tier")
     model = state.get("model")
     llm = llm_service.choose_llm_for_task("research", provider=provider, tier_override=tier, model_override=model)
@@ -640,11 +780,28 @@ async def write_node(state: ResearchState) -> dict:
         logger.error("report_generation_failed", error=str(e))
         event_list.append(events.token(f"\n\nError generating report: {str(e)}"))
 
-    event_list.append(create_stage_event("write", "Report complete", "completed"))
+    # Apply output guardrails to the full report
+    report_text = "".join(report_chunks)
+    scan_result = await output_scanner.scan(report_text, query)
+    if scan_result.blocked:
+        logger.warning(
+            "research_output_guardrail_blocked",
+            violations=[v.value for v in scan_result.violations],
+            reason=scan_result.reason,
+        )
+        report_text = (
+            "I apologize, but the research report could not be delivered due to content policy. "
+            "Please try a different research topic."
+        )
+    elif scan_result.sanitized_content:
+        logger.info("research_output_guardrail_sanitized")
+        report_text = scan_result.sanitized_content
+
+    event_list.append(events.stage("write", "Report complete", "completed"))
 
     return {
         "report_chunks": report_chunks,
-        "response": "".join(report_chunks),
+        "response": report_text,
         "events": event_list,
     }
 
@@ -692,6 +849,7 @@ def create_research_graph() -> StateGraph:
     graph.add_node("init_config", init_config_node)
     graph.add_node("search_agent", search_agent_node)
     graph.add_node("search_tools", search_tools_node)
+    graph.add_node("wait_interrupt", wait_interrupt_node)
     graph.add_node("collect_sources", collect_sources_node)
     graph.add_node("analyze", analyze_node)
     graph.add_node("synthesize", synthesize_node)
@@ -712,7 +870,15 @@ def create_research_graph() -> StateGraph:
             "collect": "collect_sources",
         },
     )
-    graph.add_edge("search_tools", "search_agent")
+    graph.add_conditional_edges(
+        "search_tools",
+        should_wait_or_search,
+        {
+            "wait_interrupt": "wait_interrupt",
+            "search_agent": "search_agent",
+        },
+    )
+    graph.add_edge("wait_interrupt", "search_agent")
 
     # Analysis pipeline
     graph.add_edge("collect_sources", "analyze")

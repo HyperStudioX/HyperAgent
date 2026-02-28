@@ -17,6 +17,70 @@ import {
 import { useTranslations } from "next-intl";
 import type { PlanItem } from "@/lib/stores/computer-store";
 
+/**
+ * A grouped plan item that collapses consecutive items with the same name+type.
+ */
+interface GroupedPlanItem {
+    /** Use the first item's id as group key */
+    id: string;
+    type: PlanItem["type"];
+    name: string;
+    /** Number of items collapsed into this group */
+    count: number;
+    /** Aggregated status: running if any is running, failed if any failed, else completed */
+    status: PlanItem["status"];
+    /** Earliest timestamp in the group */
+    startTimestamp: number;
+    /** Latest timestamp in the group (used for duration calculation) */
+    lastTimestamp: number;
+    /** Description from the first item */
+    description?: string;
+    /** All individual items in this group (for potential expansion) */
+    items: PlanItem[];
+}
+
+/**
+ * Group consecutive plan items that share the same name and type.
+ * Non-consecutive duplicates are NOT merged — only adjacent runs are collapsed.
+ */
+function groupConsecutivePlanItems(items: PlanItem[]): GroupedPlanItem[] {
+    if (items.length === 0) return [];
+
+    const groups: GroupedPlanItem[] = [];
+    let current: GroupedPlanItem | null = null;
+
+    for (const item of items) {
+        if (current && current.name === item.name && current.type === item.type) {
+            // Extend the current group
+            current.count += 1;
+            current.items.push(item);
+            current.lastTimestamp = item.timestamp;
+            // Aggregate status: running wins over completed, failed wins over all
+            if (item.status === "failed") {
+                current.status = "failed";
+            } else if (item.status === "running" && current.status !== "failed") {
+                current.status = "running";
+            }
+        } else {
+            // Start a new group
+            current = {
+                id: item.id,
+                type: item.type,
+                name: item.name,
+                count: 1,
+                status: item.status,
+                startTimestamp: item.timestamp,
+                lastTimestamp: item.timestamp,
+                description: item.description,
+                items: [item],
+            };
+            groups.push(current);
+        }
+    }
+
+    return groups;
+}
+
 interface ComputerPlanViewProps {
     items: PlanItem[];
     className?: string;
@@ -33,6 +97,11 @@ function getTypeIcon(type: PlanItem["type"]) {
         default:
             return Wrench;
     }
+}
+
+function renderTypeIcon(type: PlanItem["type"], className: string) {
+    const Icon = getTypeIcon(type);
+    return <Icon className={className} />;
 }
 
 /* Semantic plan-type colors - intentionally using distinct colors per type for visual differentiation */
@@ -76,6 +145,104 @@ function getTypeLabelKey(type: PlanItem["type"]): string {
     }
 }
 
+function safeTranslateTool(
+    tTools: ReturnType<typeof useTranslations>,
+    toolKey: string
+): string | null {
+    if (!toolKey) return null;
+    try {
+        const translated = tTools(toolKey as never);
+        if (!translated || translated === toolKey) return null;
+        return translated;
+    } catch {
+        return null;
+    }
+}
+
+function getDisplayName(
+    group: GroupedPlanItem,
+    t: ReturnType<typeof useTranslations>,
+    tTools: ReturnType<typeof useTranslations>
+): string {
+    const rawName = group.name || "";
+
+    if (group.type === "tool") {
+        return (
+            safeTranslateTool(tTools, rawName) ||
+            safeTranslateTool(tTools, "default") ||
+            rawName
+        );
+    }
+
+    if (group.type === "skill") {
+        return (
+            safeTranslateTool(tTools, `skill_${rawName}`) ||
+            safeTranslateTool(tTools, rawName) ||
+            t("planName.skillInvocation")
+        );
+    }
+
+    if (group.type === "browser") {
+        return (
+            safeTranslateTool(tTools, `browser_${rawName}`) ||
+            t("planName.browserAction")
+        );
+    }
+
+    return rawName || t("planType.step");
+}
+
+function getDisplayDescription(
+    group: GroupedPlanItem,
+    t: ReturnType<typeof useTranslations>,
+    tTools: ReturnType<typeof useTranslations>
+): string | undefined {
+    const rawName = group.name || "";
+    const translatedName = getDisplayName(group, t, tTools);
+    const rawDescription = group.description?.trim();
+
+    // Backward compatibility for older persisted English descriptions
+    if (rawDescription) {
+        const invokeMatch = rawDescription.match(/^Invoking skill:\s*(.+)$/i);
+        if (invokeMatch) {
+            return t("planAction.invokingSkill", { skill: invokeMatch[1] });
+        }
+        const callToolMatch = rawDescription.match(/^Calling tool:\s*(.+)$/i);
+        if (callToolMatch) {
+            const translatedTool =
+                safeTranslateTool(tTools, callToolMatch[1]) || callToolMatch[1];
+            return t("planAction.callingTool", { tool: translatedTool });
+        }
+        const navigateMatch = rawDescription.match(/^Navigating to:\s*(.+)$/i);
+        if (navigateMatch) {
+            return t("planAction.navigatingTo", { target: navigateMatch[1] });
+        }
+        const clickMatch = rawDescription.match(/^Clicking:\s*(.+)$/i);
+        if (clickMatch) {
+            return t("planAction.clicking", { target: clickMatch[1] });
+        }
+        const typeMatch = rawDescription.match(/^Typing:\s*\"(.+)\"$/i);
+        if (typeMatch) {
+            return t("planAction.typing", { text: typeMatch[1] });
+        }
+        return rawDescription;
+    }
+
+    if (group.type === "skill") {
+        return t("planAction.invokingSkill", { skill: translatedName });
+    }
+    if (group.type === "tool") {
+        return t("planAction.callingTool", { tool: translatedName });
+    }
+    if (group.type === "browser") {
+        return t("planAction.browserAction");
+    }
+    if (rawName) {
+        return translatedName;
+    }
+    return undefined;
+}
+
 function formatDuration(startMs: number, endMs: number | undefined, t: (key: string, params?: Record<string, string | number | Date>) => string): string {
     const elapsed = (endMs || Date.now()) - startMs;
     if (elapsed < 1000) return t("duration.lessThanSecond");
@@ -115,38 +282,43 @@ function StatusIndicator({ status, type }: { status: PlanItem["status"]; type: P
 }
 
 function TimelineItem({
-    item,
+    group,
     isLast,
-    nextItemTimestamp,
+    nextGroupTimestamp,
 }: {
-    item: PlanItem;
+    group: GroupedPlanItem;
     isLast: boolean;
-    nextItemTimestamp?: number;
+    nextGroupTimestamp?: number;
 }) {
     const t = useTranslations("computer");
+    const tTools = useTranslations("chat.agent.tools");
     const [expanded, setExpanded] = useState(false);
     const [, setTick] = useState(0);
-    const TypeIcon = getTypeIcon(item.type);
+    const displayName = useMemo(() => getDisplayName(group, t, tTools), [group, t, tTools]);
+    const displayDescription = useMemo(
+        () => getDisplayDescription(group, t, tTools),
+        [group, t, tTools]
+    );
 
     // Tick every second for running items to update duration
     useEffect(() => {
-        if (item.status !== "running") return;
+        if (group.status !== "running") return;
         const interval = setInterval(() => setTick((t) => t + 1), 1000);
         return () => clearInterval(interval);
-    }, [item.status]);
+    }, [group.status]);
 
-    const endTime = item.status === "running" ? undefined : nextItemTimestamp || item.timestamp;
+    const endTime = group.status === "running" ? undefined : nextGroupTimestamp || group.lastTimestamp;
 
     return (
-        <div className="relative flex gap-3 group">
+        <div className="relative flex gap-3 group/timeline">
             {/* Timeline line */}
             {!isLast && (
                 <div
                     className={cn(
                         "absolute left-[9px] top-6 bottom-0 w-px",
-                        item.status === "completed"
+                        group.status === "completed"
                             ? "bg-green-500/20 dark:bg-green-400/20"
-                            : item.status === "failed"
+                            : group.status === "failed"
                               ? "bg-destructive/20"
                               : "bg-border/50"
                     )}
@@ -155,49 +327,56 @@ function TimelineItem({
 
             {/* Status dot */}
             <div className="flex-shrink-0 pt-0.5 z-[1]">
-                <StatusIndicator status={item.status} type={item.type} />
+                <StatusIndicator status={group.status} type={group.type} />
             </div>
 
             {/* Content */}
             <div
                 className={cn(
                     "flex-1 min-w-0 pb-4",
-                    item.description && "cursor-pointer"
+                    displayDescription && "cursor-pointer"
                 )}
-                onClick={() => item.description && setExpanded(!expanded)}
+                onClick={() => displayDescription && setExpanded(!expanded)}
             >
                 {/* Header row */}
                 <div className="flex items-center gap-2 min-h-[20px]">
                     <div className={cn(
                         "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium leading-none",
-                        getTypeBgColor(item.type),
-                        getTypeColor(item.type)
+                        getTypeBgColor(group.type),
+                        getTypeColor(group.type)
                     )}>
-                        <TypeIcon className="w-2.5 h-2.5" />
-                        <span>{t(getTypeLabelKey(item.type))}</span>
+                        {renderTypeIcon(group.type, "w-2.5 h-2.5")}
+                        <span>{t(getTypeLabelKey(group.type))}</span>
                     </div>
 
                     <span className={cn(
                         "text-sm truncate",
-                        item.status === "completed" && "text-foreground/80",
-                        item.status === "failed" && "text-destructive",
-                        item.status === "running" && "text-foreground font-medium"
+                        group.status === "completed" && "text-foreground/80",
+                        group.status === "failed" && "text-destructive",
+                        group.status === "running" && "text-foreground font-medium"
                     )}>
-                        {item.name}
+                        {displayName}
                     </span>
+
+                    {/* Count badge for grouped items */}
+                    {group.count > 1 && (
+                        <span className="text-[10px] tabular-nums font-medium text-muted-foreground/60 bg-muted/60 px-1.5 py-0.5 rounded-full leading-none flex-shrink-0">
+                            ×{group.count}
+                        </span>
+                    )}
 
                     {/* Duration */}
                     <div className="flex items-center gap-1 ml-auto flex-shrink-0">
                         <Clock className="w-3 h-3 text-muted-foreground/50" />
                         <span className={cn(
                             "text-[11px] tabular-nums text-muted-foreground/60",
-                            item.status === "running" && "text-muted-foreground"
+                            group.status === "running" && "text-muted-foreground"
                         )}>
-                            {formatDuration(item.timestamp, endTime, t)}
+                            {formatDuration(group.startTimestamp, endTime, t)}
                         </span>
                     </div>
 
-                    {item.description && (
+                    {displayDescription && (
                         <ChevronDown className={cn(
                             "w-3 h-3 text-muted-foreground/40 transition-transform flex-shrink-0",
                             expanded && "rotate-180"
@@ -206,20 +385,19 @@ function TimelineItem({
                 </div>
 
                 {/* Running pulse indicator */}
-                {/* Semantic status indicator - colors match plan type for visual consistency */}
-                {item.status === "running" && (
+                {group.status === "running" && (
                     <div className="mt-1.5 flex items-center gap-1.5">
                         <span className="relative flex h-1.5 w-1.5">
                             <span className={cn(
                                 "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                                item.type === "tool" ? "bg-blue-500" :
-                                item.type === "skill" ? "bg-purple-500" :
+                                group.type === "tool" ? "bg-blue-500" :
+                                group.type === "skill" ? "bg-purple-500" :
                                 "bg-orange-500"
                             )} />
                             <span className={cn(
                                 "relative inline-flex rounded-full h-1.5 w-1.5",
-                                item.type === "tool" ? "bg-blue-500" :
-                                item.type === "skill" ? "bg-purple-500" :
+                                group.type === "tool" ? "bg-blue-500" :
+                                group.type === "skill" ? "bg-purple-500" :
                                 "bg-orange-500"
                             )} />
                         </span>
@@ -228,9 +406,9 @@ function TimelineItem({
                 )}
 
                 {/* Expandable description */}
-                {item.description && expanded && (
+                {displayDescription && expanded && (
                     <div className="mt-2 text-xs text-muted-foreground/80 leading-relaxed bg-muted/30 rounded px-2.5 py-2 border border-border/30">
-                        {item.description}
+                        {displayDescription}
                     </div>
                 )}
             </div>
@@ -244,6 +422,9 @@ export function ComputerPlanView({
 }: ComputerPlanViewProps) {
     const t = useTranslations("computer");
     const bottomRef = useRef<HTMLDivElement>(null);
+
+    // Group consecutive items with the same name+type to reduce visual clutter
+    const groupedItems = useMemo(() => groupConsecutivePlanItems(items), [items]);
 
     const completedCount = useMemo(() => items.filter((i) => i.status === "completed").length, [items]);
     const failedCount = useMemo(() => items.filter((i) => i.status === "failed").length, [items]);
@@ -301,19 +482,19 @@ export function ComputerPlanView({
 
                 {/* Timeline content */}
                 <div className="px-4 pt-3 pb-2">
-                    {items.length === 0 ? (
+                    {groupedItems.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-muted-foreground">
                             <ListChecks className="w-8 h-8 mb-3 opacity-30" />
                             <p className="text-sm">{t("noPlanItems")}</p>
                             <p className="text-xs mt-1 opacity-70">{t("planItemsWillAppear")}</p>
                         </div>
                     ) : (
-                        items.map((item, index) => (
+                        groupedItems.map((group, index) => (
                             <TimelineItem
-                                key={item.id}
-                                item={item}
-                                isLast={index === items.length - 1}
-                                nextItemTimestamp={items[index + 1]?.timestamp}
+                                key={group.id}
+                                group={group}
+                                isLast={index === groupedItems.length - 1}
+                                nextGroupTimestamp={groupedItems[index + 1]?.startTimestamp}
                             />
                         ))
                     )}

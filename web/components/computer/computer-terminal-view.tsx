@@ -57,7 +57,7 @@ function CopyButton({ text }: { text: string }) {
                             "p-1 rounded transition-colors",
                             "opacity-0 group-hover:opacity-100",
                             "text-terminal-output/50 hover:text-terminal-fg",
-                            "hover:bg-white/10"
+                            "hover:bg-accent"
                         )}
                         aria-label={t("copyCommand")}
                     >
@@ -180,7 +180,7 @@ export function ComputerTerminalView({
             <div
                 className={cn(
                     "flex items-center justify-between px-3 h-8 shrink-0",
-                    "border-b border-white/[0.06]"
+                    "border-b border-border"
                 )}
             >
                 <div className="flex items-center gap-2 min-w-0">
@@ -197,8 +197,8 @@ export function ComputerTerminalView({
                                     onClick={() => setWordWrap((v) => !v)}
                                     className={cn(
                                         "p-1 rounded transition-colors",
-                                        "text-terminal-output/50 hover:text-terminal-fg hover:bg-white/10",
-                                        wordWrap && "text-terminal-fg bg-white/10"
+                                        "text-terminal-output/50 hover:text-terminal-fg hover:bg-accent",
+                                        wordWrap && "text-terminal-fg bg-accent"
                                     )}
                                     aria-label={t("wordWrap")}
                                 >
@@ -219,7 +219,7 @@ export function ComputerTerminalView({
                                         onClick={onClear}
                                         className={cn(
                                             "p-1 rounded transition-colors",
-                                            "text-terminal-output/50 hover:text-terminal-fg hover:bg-white/10"
+                                            "text-terminal-output/50 hover:text-terminal-fg hover:bg-accent"
                                         )}
                                         aria-label={t("clearTerminal")}
                                     >
@@ -255,7 +255,7 @@ export function ComputerTerminalView({
                         visibleLines.map((line) => (
                             <div
                                 key={line.id}
-                                className="py-0.5 hover:bg-white/5 transition-colors rounded px-1 -mx-1"
+                                className="py-0.5 hover:bg-accent/50 transition-colors rounded px-1 -mx-1"
                             >
                                 <TerminalLineContent
                                     line={line}

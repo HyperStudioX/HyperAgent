@@ -58,7 +58,7 @@ class WebResearchSkill(Skill):
                 },
             },
         },
-        required_tools=["web_search"],
+        required_tools=[],
         max_iterations=3,
         tags=["research", "web", "search"],
     )

@@ -78,6 +78,66 @@ def get_tool_risk_level(tool_name: str) -> ToolRiskLevel:
         return ToolRiskLevel.LOW
 
 
+def get_skill_risk_level(skill_id: str) -> ToolRiskLevel:
+    """Infer risk level for a skill from its required tool surface.
+
+    If the skill cannot be resolved, treat it as HIGH risk to fail closed.
+    """
+    try:
+        from app.services.skill_registry import skill_registry
+
+        skill = skill_registry.get_skill(skill_id)
+        if not skill:
+            return ToolRiskLevel.HIGH
+
+        explicit_risk = getattr(skill.metadata, "risk_level", None)
+        if explicit_risk in ("low", "medium", "high"):
+            return ToolRiskLevel(explicit_risk)
+
+        required_tools = skill.metadata.required_tools or []
+        if not required_tools:
+            return ToolRiskLevel.LOW
+
+        has_medium = False
+        for tool_name in required_tools:
+            level = get_tool_risk_level(tool_name)
+            if level == ToolRiskLevel.HIGH:
+                return ToolRiskLevel.HIGH
+            if level == ToolRiskLevel.MEDIUM:
+                has_medium = True
+        return ToolRiskLevel.MEDIUM if has_medium else ToolRiskLevel.LOW
+    except Exception:
+        # Fail closed on lookup/parsing issues.
+        return ToolRiskLevel.HIGH
+
+
+def requires_approval_for_skill(
+    skill_id: str,
+    auto_approve_tools: list[str] | None = None,
+    hitl_enabled: bool = True,
+    risk_threshold: Literal["high", "medium", "all"] = "high",
+) -> bool:
+    """Check if invoking a skill should require user approval."""
+    if not hitl_enabled:
+        return False
+
+    # Support both coarse and fine-grained auto-approval.
+    # - "invoke_skill" approves all skills
+    # - "invoke_skill:<skill_id>" approves one specific skill
+    approved = set(auto_approve_tools or [])
+    if "invoke_skill" in approved or f"invoke_skill:{skill_id}" in approved:
+        return False
+
+    risk_level = get_skill_risk_level(skill_id)
+
+    if risk_threshold == "high":
+        return risk_level == ToolRiskLevel.HIGH
+    elif risk_threshold == "medium":
+        return risk_level in (ToolRiskLevel.HIGH, ToolRiskLevel.MEDIUM)
+    else:  # "all"
+        return True
+
+
 def requires_approval(
     tool_name: str,
     auto_approve_tools: list[str] | None = None,

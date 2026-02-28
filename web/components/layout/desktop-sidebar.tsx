@@ -171,8 +171,8 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
             className={cn(
                 "hidden md:flex",
                 "h-full flex-col relative",
-                "border-r border-border overflow-hidden z-20",
-                "bg-card",
+                "border-r border-sidebar-border overflow-hidden z-20",
+                "bg-sidebar",
                 !isResizing && "transition-opacity duration-150",
                 !desktopSidebarOpen && "w-0 opacity-0 border-r-0 pointer-events-none",
                 className
@@ -184,7 +184,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
             aria-label="Main navigation"
         >
             {/* Header */}
-            <div className="h-14 px-4 flex items-center justify-between border-b border-border">
+            <div className="h-14 px-4 flex items-center justify-between border-b border-sidebar-border">
                 <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 flex items-center justify-center">
                         <Image
@@ -221,7 +221,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                 />
             </div>
 
-            <div className="mx-3 border-t border-border/50" />
+            <div className="mx-3 border-t border-sidebar-border" />
 
             {/* Skills Link */}
             <div className="px-3 pt-2 pb-1">
@@ -230,8 +230,8 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                     className={cn(
                         "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                         pathname === "/skills"
-                            ? "bg-secondary text-foreground"
-                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                     )}
                 >
                     <Sparkles className="w-4 h-4" />
@@ -246,8 +246,8 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                     className={cn(
                         "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                         pathname === "/projects" || pathname?.startsWith("/projects/")
-                            ? "bg-secondary text-foreground"
-                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                     )}
                 >
                     <FolderOpen className="w-4 h-4" />
@@ -255,7 +255,7 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                 </button>
             </div>
 
-            <div className="mx-3 border-t border-border/50" />
+            <div className="mx-3 border-t border-sidebar-border" />
 
             {/* Recent Items */}
             {hasHydrated && (

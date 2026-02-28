@@ -27,12 +27,8 @@ logger = get_logger(__name__)
 
 # Agent type values (string literals to avoid circular imports with state.py)
 # These should match the values in app.agents.state.AgentType
-AGENT_CHAT = "chat"
+AGENT_TASK = "task"
 AGENT_RESEARCH = "research"
-AGENT_CODE = "code"  # DEPRECATED: Kept for backward compatibility only
-AGENT_WRITING = "writing"  # DEPRECATED: Kept for backward compatibility only
-AGENT_DATA = "data"
-AGENT_IMAGE = "image"  # DEPRECATED: Kept for backward compatibility only
 
 
 # =============================================================================
@@ -65,14 +61,6 @@ class SharedAgentMemory(TypedDict, total=False):
     code_language: str
     execution_results: str
 
-    # Writing artifacts from writing agent
-    writing_outline: str
-    writing_draft: str
-
-    # Data analysis artifacts from data agent
-    data_analysis_plan: str
-    data_images: list[dict[str, str]]
-
     # General context that any agent can add
     additional_context: str
 
@@ -98,24 +86,17 @@ class HandoffInput(BaseModel):
 MAX_HANDOFFS = 3
 
 # Define which agents can delegate to which other agents
-# Note: CODE, WRITING, IMAGE agents are deprecated - now handled by chat agent with skills
 HANDOFF_MATRIX: dict[str, list[str]] = {
-    AGENT_CHAT: [
+    AGENT_TASK: [
         AGENT_RESEARCH,
-        AGENT_DATA,
     ],
-    AGENT_RESEARCH: [
-        AGENT_DATA,
-    ],
-    AGENT_DATA: [],
+    AGENT_RESEARCH: [],
 }
 
 # Agent descriptions for handoff tool docstrings
-# Note: CODE, WRITING, IMAGE are deprecated - chat handles these via skills
 AGENT_DESCRIPTIONS: dict[str, str] = {
-    AGENT_CHAT: "General conversation, Q&A, writing, images, code, and general tasks (has skills for all these)",
+    AGENT_TASK: "General-purpose task handling: Q&A, images, code, writing, data analysis, and more (has skills for all these)",
     AGENT_RESEARCH: "In-depth web research, analysis, and comprehensive reports",
-    AGENT_DATA: "Data analysis, CSV/JSON processing, statistics, visualization",
 }
 
 # Shared memory context budget configuration
@@ -129,10 +110,6 @@ SHARED_MEMORY_PRIORITIES = {
     "generated_code": 3,         # High priority - code artifacts
     "code_language": 1,          # Low priority - just metadata
     "execution_results": 2,      # Medium priority - results
-    "writing_outline": 2,        # Medium priority
-    "writing_draft": 3,          # High priority - main content
-    "data_analysis_plan": 2,     # Medium priority
-    "data_images": 1,    # Low priority - large binary data
     "additional_context": 2,     # Medium priority
 }
 
@@ -197,7 +174,7 @@ def get_handoff_tools_for_agent(agent_type: str) -> list[BaseTool]:
     """Get all handoff tools available for a specific agent.
 
     Args:
-        agent_type: The agent type (e.g., "chat", "research")
+        agent_type: The agent type (e.g., "task", "research")
 
     Returns:
         List of handoff tools the agent can use
@@ -513,14 +490,6 @@ def build_query_with_context(
             context_parts.append(
                 f"Execution results:\n{truncated_memory['execution_results']}"
             )
-        if truncated_memory.get("writing_draft"):
-            context_parts.append(
-                f"Writing draft from previous agent:\n{truncated_memory['writing_draft']}"
-            )
-        if truncated_memory.get("data_analysis_plan"):
-            context_parts.append(
-                f"Data analysis plan:\n{truncated_memory['data_analysis_plan']}"
-            )
         if truncated_memory.get("additional_context"):
             context_parts.append(truncated_memory["additional_context"])
 
@@ -529,117 +498,3 @@ def build_query_with_context(
 
     return result
 
-
-# =============================================================================
-# Handoff Manager Class
-# =============================================================================
-
-
-class HandoffManager:
-    """Manages handoff state and prevents infinite loops.
-
-    Tracks visited agents and enforces maximum handoff depth to prevent
-    agents from bouncing tasks back and forth infinitely.
-    """
-
-    def __init__(self, max_handoffs: int = MAX_HANDOFFS):
-        """Initialize the handoff manager.
-
-        Args:
-            max_handoffs: Maximum number of handoffs allowed per request
-        """
-        self.max_handoffs = max_handoffs
-        self.handoff_count = 0
-        self.visited_agents: list[str] = []
-        self.handoff_history: list[dict[str, Any]] = []
-
-    def can_handoff(self, source_agent: str, target_agent: str) -> bool:
-        """Check if a handoff from source to target is allowed.
-
-        Args:
-            source_agent: Current agent
-            target_agent: Target agent for handoff
-
-        Returns:
-            True if handoff is allowed
-        """
-        # Check max handoffs
-        if self.handoff_count >= self.max_handoffs:
-            logger.warning(
-                "max_handoffs_reached",
-                count=self.handoff_count,
-                max=self.max_handoffs,
-            )
-            return False
-
-        # Check if target is in allowed list
-        allowed_targets = HANDOFF_MATRIX.get(source_agent, [])
-        if target_agent not in allowed_targets:
-            logger.warning(
-                "handoff_not_allowed",
-                source=source_agent,
-                target=target_agent,
-                allowed=allowed_targets,
-            )
-            return False
-
-        # Prevent immediate back-and-forth (A -> B -> A)
-        if len(self.visited_agents) >= 2:
-            if self.visited_agents[-2] == target_agent:
-                logger.warning(
-                    "handoff_loop_detected",
-                    history=self.visited_agents,
-                    target=target_agent,
-                )
-                return False
-
-        return True
-
-    def record_handoff(
-        self,
-        source_agent: str,
-        target_agent: str,
-        task_description: str,
-        context: str = "",
-    ) -> None:
-        """Record a handoff for tracking.
-
-        Args:
-            source_agent: Agent handing off
-            target_agent: Agent receiving the task
-            task_description: Description of delegated task
-            context: Additional context
-        """
-        self.handoff_count += 1
-        self.visited_agents.append(target_agent)
-        self.handoff_history.append({
-            "from": source_agent,
-            "to": target_agent,
-            "task": task_description,
-            "context": context,
-        })
-        logger.info(
-            "handoff_recorded",
-            count=self.handoff_count,
-            history=[h["to"] for h in self.handoff_history],
-        )
-
-    def get_handoff_summary(self) -> str:
-        """Get a summary of all handoffs that occurred.
-
-        Returns:
-            Human-readable summary of handoff chain
-        """
-        if not self.handoff_history:
-            return "No handoffs occurred."
-
-        parts = []
-        for i, h in enumerate(self.handoff_history, 1):
-            parts.append(f"{i}. {h['from']} → {h['to']}: {h['task'][:50]}...")
-        return "\n".join(parts)
-
-    def reset(self) -> None:
-        """Reset the handoff state for a new request."""
-        self.handoff_count = 0
-        self.visited_agents = []
-        self.handoff_history = []

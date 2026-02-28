@@ -8,7 +8,7 @@ Refer to these docs for detailed guidelines:
 
 - `docs/Development.md` — Setup, tech stack, project structure, and API reference
 - `docs/Design-Style-Guide.md` — UI components, semantic color tokens, typography, and design patterns
-- `docs/Agent-System-Design.md` — Multi-agent architecture and skills system
+- `docs/Agent-System-Design.md` — Multi-agent architecture, skills, guardrails, HITL
 - `docs/Agent-Evals-Design.md` — Agent evaluation framework and testing
 
 ## Development Commands
@@ -75,26 +75,22 @@ make queue-test    # Submit a test task to verify worker
 - **API Proxy**: `/api/v1/*` routes proxy to backend at `NEXT_PUBLIC_API_URL` (default: http://localhost:8080)
 
 ### State Management
-Two Zustand stores with persistence to localStorage:
+Zustand stores with persistence to localStorage:
 
-1. **Chat Store** (`lib/stores/chat-store.ts`)
-   - Manages conversations (chat & research types)
-   - Messages with streaming support
-   - Active conversation tracking
-   - Hydration state to prevent SSR mismatches
+1. **Chat Store** (`lib/stores/chat-store.ts`) — Conversations, messages, streaming, API sync
+2. **Task Store** (`lib/stores/task-store.ts`) — Research tasks with scenarios (academic, market, technical, news)
+3. **Computer Store** (`lib/stores/computer-store.ts`) — Virtual computer panel: terminal, browser, file viewer, plan view (per-conversation state)
+4. **Agent Progress Store** (`lib/stores/agent-progress-store.ts`) — Real-time agent event tracking, sources, stages
+5. **Settings Store** (`lib/stores/settings-store.ts`) — Provider, tier, custom model selection
+6. **Preview Store** (`lib/stores/preview-store.ts`) — File/slide preview panel
+7. **Sidebar Store** (`lib/stores/sidebar-store.ts`) — Sidebar open/close state
 
-2. **Task Store** (`lib/stores/task-store.ts`)
-   - Research tasks with 4 scenarios: academic, market, technical, news
-   - Task lifecycle: pending → running → completed/failed
-   - Steps tracking (search, analyze, synthesize, write)
-   - Sources and results management
-
-**Important**: Both stores use `hasHydrated` flag. Always check hydration before rendering items to prevent SSR/client mismatches.
+**Important**: Chat and Task stores use `hasHydrated` flag. Always check hydration before rendering store-dependent UI to prevent SSR/client mismatches.
 
 ### Design System
 - **Theme**: Warm stone (light) / Refined ink (dark) with auto mode following system preference
-- **Typography**: System fonts (SF Pro, Segoe UI, etc.) for body, system monospace for code - no external font loading
-- **Color System**: HSL-based CSS variables in `app/globals.css`
+- **Typography**: Plus Jakarta Sans (display), JetBrains Mono (code) via `next/font/google`, system font fallbacks
+- **Color System**: OKLCH-based CSS variables in `app/globals.css` for theme colors, HSL for semantic colors (success, warning, info)
 - **Theme Hook**: `lib/hooks/use-theme.ts` returns `theme` (preference: auto/light/dark), `resolvedTheme` (actual: light/dark), and `setTheme`
 - **Icons**: Lucide React
 - **UI Components**: Radix UI primitives + custom components in `components/ui/`
@@ -104,18 +100,37 @@ Two Zustand stores with persistence to localStorage:
 ```
 components/
 ├── layout/
-│   ├── main-layout.tsx      # Root layout with sidebar
-│   └── sidebar.tsx           # Navigation, recent tasks, user menu, preferences
+│   ├── main-layout.tsx          # Root layout with sidebar + right panels
+│   ├── desktop-sidebar.tsx      # Desktop sidebar wrapper
+│   └── mobile-sidebar.tsx       # Mobile sidebar with swipe-to-close
 ├── ui/
-│   ├── recent-tasks.tsx      # Unified timeline for conversations & tasks
-│   ├── preferences-panel.tsx # Theme (auto/light/dark) & language selector
-│   └── ...                   # Reusable UI primitives
+│   ├── recent-tasks.tsx         # Unified timeline (conversations + tasks)
+│   ├── preferences-panel.tsx    # Theme + language selector
+│   ├── task-progress-panel.tsx  # Research task progress
+│   ├── task-plan-panel.tsx      # Task planning steps with complexity
+│   ├── app-preview-panel.tsx    # Inline web app preview (iframe)
+│   ├── computer-viewer.tsx      # Computer panel embedding
+│   └── ...                      # Radix-based primitives (button, input, select, etc.)
 ├── query/
-│   └── unified-interface.tsx # Main chat/research interface
-├── chat/                     # Chat-specific components
-├── task/                     # Research task components
+│   └── chat-interface.tsx       # Main chat/research interface with SSE streaming
+├── chat/
+│   ├── message-bubble.tsx       # Message rendering (markdown, code, images, artifacts)
+│   ├── chat-input.tsx           # Input with file upload, voice recording
+│   └── file-upload-button.tsx   # Drag-and-drop file uploads
+├── computer/
+│   ├── virtual-computer-panel.tsx  # Right panel with terminal/browser/file/plan modes
+│   ├── computer-terminal-view.tsx  # Shell output rendering
+│   ├── computer-browser-view.tsx   # Sandbox browser stream viewer
+│   └── ...                         # File viewer, plan view, playback controls
+├── artifacts/
+│   └── artifacts-preview-panel.tsx # File/slide preview with download
+├── hitl/
+│   └── interrupt-dialog.tsx     # HITL approval/decision/input dialogs
+├── task/                        # Research task components
+├── projects/                    # Project management UI
+├── skills/                      # Skill cards and forms
 └── auth/
-    └── user-menu.tsx         # Authentication UI
+    └── user-menu.tsx            # Authentication UI
 ```
 
 ### Key Patterns
@@ -125,20 +140,17 @@ components/
 - Groups by time: Today, Yesterday, This Week, Earlier
 - Type indicator badges: Chat vs Research
 - Status indicators for tasks: running (spinner), completed (check), failed (alert)
+- Lazy rendering: initial 30 items, loads 20 more via IntersectionObserver
 
 **Translations**:
 - Messages in `messages/en.json` and `messages/zh-CN.json`
 - Access via `useTranslations("namespace")` hook
-- Common namespaces: sidebar, home, research, task, chat
+- Common namespaces: sidebar, home, research, task, chat, agents, computer, preview
 
 **Authentication**:
 - NextAuth with Google OAuth
 - Config in `lib/auth/config.ts`
 - Environment variables: `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-
-**Images**:
-- Remote patterns allow `lh3.googleusercontent.com`
-- Use `unoptimized` prop for user avatars to bypass private IP blocking
 
 ## Important Implementation Notes
 
@@ -176,26 +188,45 @@ if (!hasHydrated) return null; // or loading state
 
 ### Multi-Agent System
 
-HyperAgent uses a **simplified hybrid architecture** combining agents and skills:
+HyperAgent uses a **hybrid architecture** with two agents:
 
-**Primary Agent:**
-- **Chat Agent** - Handles 80%+ of requests with skills (images, writing, code, etc.)
+**Task Agent** (`backend/app/agents/subagents/task.py`):
+- General-purpose ReAct loop with tool calling
+- Handles ~80% of requests: chat, data analysis, app building, image generation, slide creation, browser automation
+- Dedicated mode bypass: app/image/slide modes directly invoke corresponding skills without LLM routing
+- Supports planned execution via `task_planning` skill
 
-**Specialized Agents:**
-- **Research Agent** - Deep, comprehensive research workflows only
-- **Data Agent** - Data analytics and visualization only
-- **Computer Agent** - Browser automation only
+**Research Agent** (`backend/app/agents/subagents/research.py`):
+- Multi-step research: search → analyze → synthesize → write report
+- Used for deep research requiring 10+ sources
 
-**Skills System:**
-The Chat agent has access to composable skills:
-- `image_generation` - AI image generation (Gemini/DALL-E)
-- `code_generation` - Generate code snippets
-- `code_review` - Review code for bugs/style/security
-- `web_research` - Focused web research with summarization
-- `data_visualization` - Generate visualization code
-- `slide_generation` - Create PPTX presentations
+**Supervisor** (`backend/app/agents/supervisor.py`):
+- Routes queries to Task or Research agent
+- Manages agent handoff (Task → Research, max 3 per request)
+- Handles event streaming and state management
 
-Skills are LangGraph subgraphs that agents invoke as tools using `invoke_skill` and `list_skills`.
+**Skills System** (7 builtin skills):
+- `image_generation` — AI image generation (Gemini/DALL-E)
+- `code_generation` — Generate code snippets
+- `web_research` — Focused web research with summarization
+- `data_analysis` — Full data analysis with planning, code execution, and summarization
+- `slide_generation` — Create PPTX presentations
+- `app_builder` — Build web apps with live preview (planning uses MAX tier, codegen uses PRO)
+- `task_planning` — Analyze complex tasks and create execution plans
+
+Skills are LangGraph subgraphs invoked as tools using `invoke_skill` and `list_skills`.
+
+**LLM Providers:**
+- Built-in: Anthropic, OpenAI, Gemini
+- Custom: Any OpenAI-compatible API (DeepSeek, Kimi, Qwen, MiniMax, Ollama, etc.) via `CUSTOM_PROVIDERS` env var
+- Three-tier model routing: MAX (best quality), PRO (balanced), FLASH (fast/cheap)
+- Per-tier provider overrides: `MAX_MODEL_PROVIDER`, `PRO_MODEL_PROVIDER`, `FLASH_MODEL_PROVIDER`
+- Thinking mode: `ThinkingAwareChatOpenAI` in `backend/app/ai/thinking.py` handles `reasoning_content` for thinking-mode providers
+
+**Sandbox Providers:**
+- **E2B** — Cloud sandboxes for code execution, browser automation, app hosting (requires `E2B_API_KEY`)
+- **BoxLite** — Local Docker-based sandboxes (requires Docker)
+- Configured via `SANDBOX_PROVIDER` env var (`e2b` or `boxlite`)
 
 **Context Compression:**
 - LLM-based summarization for long conversations
@@ -205,35 +236,60 @@ Skills are LangGraph subgraphs that agents invoke as tools using `invoke_skill` 
 
 **Safety Guardrails:**
 Comprehensive safety scanning at multiple integration points:
-- **Input Scanner** - Prompt injection, jailbreak detection (`backend/app/guardrails/scanners/input_scanner.py`)
-- **Output Scanner** - Toxicity, PII, harmful content (`backend/app/guardrails/scanners/output_scanner.py`)
-- **Tool Scanner** - URL validation, code safety (`backend/app/guardrails/scanners/tool_scanner.py`)
+- **Input Scanner** — Prompt injection, jailbreak detection (`backend/app/guardrails/scanners/input_scanner.py`)
+- **Output Scanner** — Toxicity, PII, harmful content (`backend/app/guardrails/scanners/output_scanner.py`)
+- **Tool Scanner** — URL validation, code safety (`backend/app/guardrails/scanners/tool_scanner.py`)
 
 Configuration via environment variables:
-- `GUARDRAILS_ENABLED` - Master toggle (default: true)
-- `GUARDRAILS_VIOLATION_ACTION` - block, warn, or log (default: block)
+- `GUARDRAILS_ENABLED` — Master toggle (default: true)
+- `GUARDRAILS_VIOLATION_ACTION` — block, warn, or log (default: block)
+
+**Human-in-the-Loop (HITL):**
+- Redis pub/sub for real-time interrupt lifecycle
+- Three types: APPROVAL, DECISION, INPUT
+- `ask_user` tool available to all agents
+- Configurable timeouts (120s approval, 300s decision)
 
 See `docs/Agent-System-Design.md` for detailed architecture documentation.
 
 ### API Endpoints
 
 **Core:**
-- `POST /api/v1/query` - Main query endpoint (SSE streaming)
-- `POST /api/v1/chat` - Chat completions
-- `POST /api/v1/research` - Research task creation
-- `GET /api/v1/research/:id` - Research task status
-
-**Skills:**
-- `GET /api/v1/skills` - List available skills
-- `GET /api/v1/skills/:id` - Get skill details
+- `POST /api/v1/query` — Main query endpoint (SSE streaming)
+- `POST /api/v1/query/stream` — Streaming query endpoint
 
 **Conversations:**
-- `GET /api/v1/conversations` - List conversations
-- `POST /api/v1/conversations` - Create conversation
-- `GET /api/v1/conversations/:id` - Get conversation details
+- `GET /api/v1/conversations` — List conversations
+- `POST /api/v1/conversations` — Create conversation
+- `GET /api/v1/conversations/:id` — Get conversation details
+- `POST /api/v1/conversations/:id/generate-title` — Generate title
+
+**Tasks:**
+- `GET /api/v1/tasks` — List research tasks
+- `POST /api/v1/tasks` — Create research task
+- `GET /api/v1/tasks/:id` — Get task status
+
+**Skills:**
+- `GET /api/v1/skills` — List available skills
+- `GET /api/v1/skills/:id` — Get skill details
 
 **Files:**
-- `POST /api/v1/files/upload` - Upload files
-- `GET /api/v1/files/download/:key` - Download files
+- `POST /api/v1/files/upload` — Upload files
+- `GET /api/v1/files/download/:key` — Download files
+- `GET /api/v1/files/generated/:path` — Get generated files
+
+**Sandbox:**
+- `GET /api/v1/sandbox/app/:sandbox_id/*` — App preview proxy
+- `GET /api/v1/sandbox/files/content` — File content from sandbox
+
+**HITL:**
+- `POST /api/v1/hitl/respond/:threadId` — Submit interrupt response
+- `GET /api/v1/hitl/pending/:threadId` — Get pending interrupts
+
+**Providers:**
+- `GET /api/v1/providers` — List available LLM providers
+
+**Health:**
+- `GET /api/v1/health` — Health check
 
 Ensure backend is running on port 8080 or configure `NEXT_PUBLIC_API_URL`.

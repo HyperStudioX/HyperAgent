@@ -24,7 +24,7 @@ const HIDDEN_STAGES = new Set(["thinking", "routing"]);
 
 // Known stage names for translation
 const KNOWN_STAGES = [
-    "handoff", "chat", "analyze", "search", "tool", "write", "synthesize",
+    "handoff", "task", "analyze", "search", "tool", "write", "synthesize",
     "research", "plan", "generate", "execute", "summarize", "finalize",
     "outline", "data", "source", "code_result", "config", "search_tools",
     "collect", "report", "thinking", "routing", "refine", "present",
@@ -203,28 +203,14 @@ function getStageDescription(
 
     if (agentType === "image") {
         if (stageName === "analyze" || stageName === "generate") {
-            try {
-                const key = `${stageName}_image.${status}` as Parameters<typeof tStages>[0];
-                const translated = tStages(key);
-                if (translated && translated !== key && !translated.includes(`${stageName}_image`)) {
-                    return translated;
-                }
-            } catch {
-                // Fall through
-            }
+            const translated = tryTranslate(tStages, `${stageName}_image.${status}`, `${stageName}_image`);
+            if (translated) return translated;
         }
     }
 
     if (KNOWN_STAGES.includes(stageName)) {
-        try {
-            const key = `${stageName}.${status}` as Parameters<typeof tStages>[0];
-            const translated = tStages(key);
-            if (translated && translated.trim() && translated !== key && !translated.startsWith("chat.agent.stages")) {
-                return translated;
-            }
-        } catch {
-            // Fall through
-        }
+        const translated = tryTranslate(tStages, `${stageName}.${status}`, "chat.agent.stages");
+        if (translated && translated.trim()) return translated;
     }
 
     // Check if description matches "Executing {tool}" pattern and translate it
@@ -232,40 +218,59 @@ function getStageDescription(
         const executingMatch = stage.description.match(/^Executing (.+)$/i);
         if (executingMatch && t && tTools) {
             const toolNameRaw = executingMatch[1];
-            // Convert tool name to key format (e.g., "Image Generation" -> "image_generation")
-            // Handle both regular tools and skill tools
-            let toolKey = toolNameRaw.toLowerCase().replace(/\s+/g, "_");
-            
-            // Check if it's a skill (starts with skill_ prefix in translations)
+            const toolKey = toolNameRaw.toLowerCase().replace(/\s+/g, "_");
             const skillKey = `skill_${toolKey}`;
             let translatedToolName = toolNameRaw; // Fallback to original
-            
-            // Try to translate as skill first
-            try {
-                const skillTranslated = tTools(skillKey as Parameters<typeof tTools>[0]);
-                if (skillTranslated && !skillTranslated.includes("chat.agent.tools")) {
-                    translatedToolName = skillTranslated;
-                } else {
-                    // Try as regular tool
-                    const toolTranslated = getToolDisplayName(toolKey, tTools);
-                    if (toolTranslated && toolTranslated !== toolKey) {
-                        translatedToolName = toolTranslated;
-                    }
+
+            // Try to translate as skill first, then as regular tool
+            const skillTranslated = tryTranslate(tTools, skillKey, "chat.agent.tools");
+            if (skillTranslated) {
+                translatedToolName = skillTranslated;
+            } else {
+                const toolTranslated = getToolDisplayName(toolKey, tTools);
+                if (toolTranslated && toolTranslated !== toolKey) {
+                    translatedToolName = toolTranslated;
                 }
-            } catch {
-                // Fall through
             }
-            
+
             // Use the translation system for "Executing {tool}"
-            try {
-                return t("executing", { tool: translatedToolName });
-            } catch {
-                // Fall through to return original description
+            const hasExecutingKey = t && typeof t.has === "function" && t.has("executing" as Parameters<typeof t.has>[0]);
+            if (hasExecutingKey) {
+                try {
+                    return t("executing", { tool: translatedToolName });
+                } catch {
+                    // Fall through
+                }
             }
         }
         return stage.description;
     }
     return stageName.charAt(0).toUpperCase() + stageName.slice(1).replace(/_/g, " ");
+}
+
+/**
+ * Safely try to translate a key using next-intl, avoiding MISSING_MESSAGE console errors.
+ * Returns the translated string if the key exists, otherwise undefined.
+ */
+function tryTranslate(
+    t: ReturnType<typeof useTranslations>,
+    key: string,
+    namespace?: string
+): string | undefined {
+    try {
+        // Use .has() to check existence before translating (avoids console error)
+        if (typeof t.has === "function" && !t.has(key as Parameters<typeof t.has>[0])) {
+            return undefined;
+        }
+        const translated = t(key as Parameters<typeof t>[0]);
+        // Double-check the result doesn't contain the namespace path (fallback indicator)
+        if (translated && (!namespace || !translated.includes(namespace))) {
+            return translated;
+        }
+    } catch {
+        // Fall through
+    }
+    return undefined;
 }
 
 function getToolDisplayName(
@@ -276,16 +281,9 @@ function getToolDisplayName(
     // Special case: for invoke_skill, show the skill name instead
     if (toolName === "invoke_skill" && skillId) {
         // Try to get translation for the skill
-        const skillToolKey = `skill_${skillId}`;
         if (tTools) {
-            try {
-                const translated = tTools(skillToolKey as Parameters<typeof tTools>[0]);
-                if (translated && !translated.includes("chat.agent.tools")) {
-                    return translated;
-                }
-            } catch {
-                // Fall through
-            }
+            const translated = tryTranslate(tTools, `skill_${skillId}`, "chat.agent.tools");
+            if (translated) return translated;
         }
         // Fallback: format the skill_id nicely
         return skillId
@@ -296,14 +294,8 @@ function getToolDisplayName(
     }
 
     if (tTools) {
-        try {
-            const translated = tTools(toolName as Parameters<typeof tTools>[0]);
-            if (translated && !translated.includes("chat.agent.tools")) {
-                return translated;
-            }
-        } catch {
-            // Fall through
-        }
+        const translated = tryTranslate(tTools, toolName, "chat.agent.tools");
+        if (translated) return translated;
     }
 
     return toolName

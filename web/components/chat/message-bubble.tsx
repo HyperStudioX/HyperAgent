@@ -111,6 +111,19 @@ interface AppPreview {
 }
 
 /**
+ * Validate that a URL uses a safe protocol (http/https only).
+ * Rejects javascript:, data:, blob:, and other dangerous protocols to prevent stored XSS.
+ */
+function isSafePreviewUrl(url: string): boolean {
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Extract app preview URLs from tool results (app_start_server or app_builder skill)
  */
 function extractAppPreviews(events: (TimestampedEvent | AgentEvent)[]): AppPreview[] {
@@ -129,7 +142,7 @@ function extractAppPreviews(events: (TimestampedEvent | AgentEvent)[]): AppPrevi
 
                 // Direct app-related tool results
                 if (toolName === "app_start_server" || toolName === "app_get_preview_url") {
-                    if (parsed.preview_url && typeof parsed.preview_url === "string") {
+                    if (parsed.preview_url && typeof parsed.preview_url === "string" && isSafePreviewUrl(parsed.preview_url)) {
                         previews.push({
                             url: parsed.preview_url,
                             template: parsed.template as string | undefined,
@@ -140,7 +153,7 @@ function extractAppPreviews(events: (TimestampedEvent | AgentEvent)[]): AppPrevi
                 // invoke_skill tool result for app_builder skill
                 if (toolName === "invoke_skill" && parsed.skill_id === "app_builder" && parsed.output) {
                     const output = parsed.output as Record<string, unknown>;
-                    if (output.preview_url && typeof output.preview_url === "string") {
+                    if (output.preview_url && typeof output.preview_url === "string" && isSafePreviewUrl(output.preview_url)) {
                         previews.push({
                             url: output.preview_url,
                             template: output.template as string | undefined,
@@ -157,7 +170,7 @@ function extractAppPreviews(events: (TimestampedEvent | AgentEvent)[]): AppPrevi
             const skillEvent = event as AgentEvent;
             if (skillEvent.skill_id === "app_builder" && skillEvent.output) {
                 const output = skillEvent.output as Record<string, unknown>;
-                if (output.preview_url && typeof output.preview_url === "string") {
+                if (output.preview_url && typeof output.preview_url === "string" && isSafePreviewUrl(output.preview_url)) {
                     previews.push({
                         url: output.preview_url,
                         template: output.template as string | undefined,
@@ -169,7 +182,7 @@ function extractAppPreviews(events: (TimestampedEvent | AgentEvent)[]): AppPrevi
         // browser_stream events from app sandbox (persisted after streaming)
         if (event.type === "browser_stream") {
             const streamUrl = (event as unknown as Record<string, unknown>).stream_url as string | undefined;
-            if (streamUrl && typeof streamUrl === "string") {
+            if (streamUrl && typeof streamUrl === "string" && isSafePreviewUrl(streamUrl)) {
                 previews.push({ url: streamUrl });
             }
         }
@@ -218,9 +231,13 @@ export const MessageBubble = memo(function MessageBubble({
     const isUser = message.role === "user";
     const [copied, setCopied] = useState(false);
     const openPreview = usePreviewStore((state) => state.openPreview);
+    const t = useTranslations("chat");
 
     // Parse metadata and extract data
-    const parsedMetadata = parseMetadata(message.metadata as Message["metadata"] | string | undefined);
+    const parsedMetadata = useMemo(
+        () => parseMetadata(message.metadata as Message["metadata"] | string | undefined),
+        [message.metadata]
+    );
     const agentEvents = parsedMetadata?.agentEvents;
 
     // Check if progress panel will actually render
@@ -266,9 +283,13 @@ export const MessageBubble = memo(function MessageBubble({
     );
 
     async function handleCopyMessage(): Promise<void> {
-        await navigator.clipboard.writeText(message.content);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+            await navigator.clipboard.writeText(message.content);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.warn("Failed to copy message to clipboard:", err);
+        }
     }
 
     function handleAttachmentClick(attachment: FileAttachment): void {
@@ -278,11 +299,11 @@ export const MessageBubble = memo(function MessageBubble({
     if (isUser) {
         return (
             <div className="group py-4 flex justify-end">
-                <div className="relative max-w-[90%] md:max-w-[75%]">
+                <div className="relative max-w-[90%] md:max-w-[75%] break-words">
                     <div
                         className={cn(
                             "relative px-4 py-3",
-                            "bg-secondary text-foreground",
+                            "bg-primary/10 text-foreground",
                             "rounded-2xl rounded-br-md"
                         )}
                     >
@@ -307,7 +328,7 @@ export const MessageBubble = memo(function MessageBubble({
 
     return (
         <div className="group py-4 flex justify-start">
-            <div className="w-full max-w-[90%] md:max-w-[75%]">
+            <div className="w-full max-w-[90%] md:max-w-[75%] break-words">
                 {/* Assistant header with icon and name */}
                 <AssistantHeader />
 
@@ -374,15 +395,15 @@ export const MessageBubble = memo(function MessageBubble({
                                 {/* Hover overlay */}
                                 <span className={cn(
                                     "absolute inset-0 flex items-center justify-center",
-                                    "bg-black/0 group-hover/img:bg-black/30",
+                                    "bg-foreground/0 group-hover/img:bg-foreground/30",
                                     "transition-colors duration-150"
                                 )}>
                                     <span className={cn(
-                                        "text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-black/60",
+                                        "text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-foreground/60",
                                         "opacity-0 group-hover/img:opacity-100",
                                         "transition-opacity duration-150"
                                     )}>
-                                        View
+                                        {t("viewImage")}
                                     </span>
                                 </span>
                             </button>
@@ -459,8 +480,8 @@ export const MessageBubble = memo(function MessageBubble({
         // Throttle small content-only changes
         const prevLen = prevProps.message.content?.length ?? 0;
         const nextLen = nextProps.message.content?.length ?? 0;
-        if (Math.abs(nextLen - prevLen) < 20) {
-            return true; // Skip re-render for small content changes
+        if (Math.abs(nextLen - prevLen) < 5) {
+            return true; // Skip re-render for tiny content changes
         }
         return false;
     }

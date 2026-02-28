@@ -14,6 +14,7 @@
         "dark": "Dark",
         "language": "Language",
         "preferences": "Preferences",
+        "provider": "Provider",
         "signIn": "Sign In",
         "signOut": "Sign Out",
         "noConversations": "No conversations yet",
@@ -29,11 +30,9 @@
         "all": "All",
         "task": "Task",
         "research": "Research",
-        "chat": "Chat",
         "data": "Data",
         "app": "App",
         "image": "Image",
-        "writing": "Writing",
         "slide": "Slides",
         "noResults": "No items found",
         "chatDescription": "Quick questions & conversations",
@@ -76,8 +75,8 @@
         "deepResearch": "Deep Research"
     },
     "agents": {
-        "chat": {
-            "name": "Chat",
+        "task": {
+            "name": "Task",
             "description": "Quick questions & conversations"
         },
         "research": {
@@ -181,6 +180,7 @@
         "copy": "Copy",
         "copied": "Copied",
         "regenerate": "Regenerate",
+        "viewImage": "View",
         "connectionError": "Unable to connect to the server. Please check if the backend is running.",
         "requestCancelled": "Request cancelled by user.",
         "pressEnterToSend": "Press ⌘/Ctrl+Enter to send",
@@ -263,6 +263,7 @@
                 "app_stop_server": "Stop Server",
                 "app_run_command": "Run Command",
                 "app_get_preview_url": "Get Preview URL",
+                "AppPlan": "App Planning",
                 "default": "Tool"
             },
             "stages": {
@@ -281,7 +282,7 @@
                     "completed": "Handoff complete",
                     "failed": "Handoff failed"
                 },
-                "chat": {
+                "task": {
                     "running": "Generating response...",
                     "completed": "Response generated",
                     "failed": "Response failed"
@@ -763,6 +764,18 @@
             "skill": "Skill",
             "browser": "Browser",
             "step": "Step"
+        },
+        "planName": {
+            "skillInvocation": "Skill invocation",
+            "browserAction": "Browser action"
+        },
+        "planAction": {
+            "invokingSkill": "Invoking skill: {skill}",
+            "callingTool": "Calling tool: {tool}",
+            "navigatingTo": "Navigating to: {target}",
+            "clicking": "Clicking: {target}",
+            "typing": "Typing: \"{text}\"",
+            "browserAction": "Performing browser action"
         },
         "planInProgress": "In progress...",
         "planProgress": "{completed} of {total} completed",

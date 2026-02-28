@@ -36,22 +36,6 @@
       "description": "Class creation should invoke code_generation skill"
     },
     {
-      "id": "skill_code_review",
-      "input": "Review this code for potential bugs and security issues: def login(user, password): return db.query(f'SELECT * FROM users WHERE user={user}')",
-      "expected_skill": "code_review",
-      "expected_tool": null,
-      "category": "code",
-      "description": "Code review request should invoke code_review skill"
-    },
-    {
-      "id": "skill_code_review_style",
-      "input": "Check this function for style issues and best practices",
-      "expected_skill": "code_review",
-      "expected_tool": null,
-      "category": "code",
-      "description": "Style check should invoke code_review skill"
-    },
-    {
       "id": "skill_web_research",
       "input": "Research the latest trends in sustainable energy",
       "expected_skill": "web_research",
@@ -70,18 +54,18 @@
     {
       "id": "skill_data_viz",
       "input": "Create a bar chart showing monthly sales data",
-      "expected_skill": "data_visualization",
+      "expected_skill": "data_analysis",
       "expected_tool": null,
       "category": "data",
-      "description": "Data visualization should invoke data_visualization skill"
+      "description": "Data visualization should invoke data_analysis skill"
     },
     {
       "id": "skill_data_viz_pie",
       "input": "Generate a pie chart from this market share data",
-      "expected_skill": "data_visualization",
+      "expected_skill": "data_analysis",
       "expected_tool": null,
       "category": "data",
-      "description": "Chart generation should invoke data_visualization skill"
+      "description": "Chart generation should invoke data_analysis skill"
     },
     {
       "id": "tool_web_search",

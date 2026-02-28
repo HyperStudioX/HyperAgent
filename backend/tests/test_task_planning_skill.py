@@ -9,7 +9,7 @@ from app.agents.skills.builtin.task_planning_skill import (
     TaskPlan,
     TaskPlanningSkill,
 )
-from app.agents.skills.skill_base import SkillState
+from app.agents.skills.skill_base import Skill, SkillContext, SkillState, ToolSkill
 
 
 class TestTaskPlanningSkillMetadata:
@@ -36,16 +36,12 @@ class TestTaskPlanningSkillMetadata:
 
     def test_task_description_required(self, skill):
         """task_description parameter should be required."""
-        task_desc_param = next(
-            p for p in skill.metadata.parameters if p.name == "task_description"
-        )
+        task_desc_param = next(p for p in skill.metadata.parameters if p.name == "task_description")
         assert task_desc_param.required is True
 
     def test_context_optional(self, skill):
         """context parameter should be optional."""
-        context_param = next(
-            p for p in skill.metadata.parameters if p.name == "context"
-        )
+        context_param = next(p for p in skill.metadata.parameters if p.name == "context")
         assert context_param.required is False
 
     def test_skill_tags(self, skill):
@@ -53,6 +49,14 @@ class TestTaskPlanningSkillMetadata:
         assert "planning" in skill.metadata.tags
         assert "task-decomposition" in skill.metadata.tags
         assert "automation" in skill.metadata.tags
+
+    def test_is_simple_skill(self, skill):
+        """TaskPlanningSkill should be a ToolSkill instance."""
+        assert isinstance(skill, ToolSkill)
+
+    def test_is_still_skill(self, skill):
+        """TaskPlanningSkill should still be a Skill instance (backward compat)."""
+        assert isinstance(skill, Skill)
 
 
 class TestTaskPlanningSkillValidation:
@@ -64,54 +68,58 @@ class TestTaskPlanningSkillValidation:
 
     def test_valid_input_minimal(self, skill):
         """Valid input with only required params should pass."""
-        is_valid, error = skill.validate_input({
-            "task_description": "Build a todo app"
-        })
+        is_valid, error = skill.validate_input({"task_description": "Build a todo app"})
         assert is_valid is True
         assert error == ""
 
     def test_valid_input_full(self, skill):
         """Valid input with all params should pass."""
-        is_valid, error = skill.validate_input({
-            "task_description": "Build a todo app",
-            "context": "Using React and TypeScript",
-            "available_tools": ["web_search", "execute_code"],
-            "max_steps": 8,
-        })
+        is_valid, error = skill.validate_input(
+            {
+                "task_description": "Build a todo app",
+                "context": "Using React and TypeScript",
+                "available_tools": ["web_search", "execute_code"],
+                "max_steps": 8,
+            }
+        )
         assert is_valid is True
         assert error == ""
 
     def test_missing_required_param(self, skill):
         """Missing required param should fail validation."""
-        is_valid, error = skill.validate_input({
-            "context": "Some context without task description"
-        })
+        is_valid, error = skill.validate_input({"context": "Some context without task description"})
         assert is_valid is False
         assert "task_description" in error
 
     def test_wrong_type_task_description(self, skill):
         """Wrong type for task_description should fail."""
-        is_valid, error = skill.validate_input({
-            "task_description": 123  # Should be string
-        })
+        is_valid, error = skill.validate_input(
+            {
+                "task_description": 123  # Should be string
+            }
+        )
         assert is_valid is False
         assert "task_description" in error
 
     def test_wrong_type_max_steps(self, skill):
         """Wrong type for max_steps should fail."""
-        is_valid, error = skill.validate_input({
-            "task_description": "Build an app",
-            "max_steps": "ten"  # Should be number
-        })
+        is_valid, error = skill.validate_input(
+            {
+                "task_description": "Build an app",
+                "max_steps": "ten",  # Should be number
+            }
+        )
         assert is_valid is False
         assert "max_steps" in error
 
     def test_wrong_type_available_tools(self, skill):
         """Wrong type for available_tools should fail."""
-        is_valid, error = skill.validate_input({
-            "task_description": "Build an app",
-            "available_tools": "web_search"  # Should be array
-        })
+        is_valid, error = skill.validate_input(
+            {
+                "task_description": "Build an app",
+                "available_tools": "web_search",  # Should be array
+            }
+        )
         assert is_valid is False
         assert "available_tools" in error
 
@@ -250,9 +258,7 @@ class TestTaskPlanningSkillExecution:
         mock_structured_llm.ainvoke = AsyncMock(return_value=mock_task_plan)
         mock_llm.with_structured_output = MagicMock(return_value=mock_structured_llm)
 
-        with patch(
-            "app.agents.skills.builtin.task_planning_skill.llm_service"
-        ) as mock_service:
+        with patch("app.agents.skills.builtin.task_planning_skill.llm_service") as mock_service:
             mock_service.get_llm_for_tier = MagicMock(return_value=mock_llm)
 
             # Execute the graph
@@ -299,9 +305,7 @@ class TestTaskPlanningSkillExecution:
         mock_structured_llm.ainvoke = AsyncMock(return_value=mock_task_plan)
         mock_llm.with_structured_output = MagicMock(return_value=mock_structured_llm)
 
-        with patch(
-            "app.agents.skills.builtin.task_planning_skill.llm_service"
-        ) as mock_service:
+        with patch("app.agents.skills.builtin.task_planning_skill.llm_service") as mock_service:
             mock_service.get_llm_for_tier = MagicMock(return_value=mock_llm)
 
             graph = skill.create_graph()
@@ -331,14 +335,10 @@ class TestTaskPlanningSkillExecution:
 
         mock_llm = MagicMock()
         mock_structured_llm = AsyncMock()
-        mock_structured_llm.ainvoke = AsyncMock(
-            side_effect=Exception("LLM service unavailable")
-        )
+        mock_structured_llm.ainvoke = AsyncMock(side_effect=Exception("LLM service unavailable"))
         mock_llm.with_structured_output = MagicMock(return_value=mock_structured_llm)
 
-        with patch(
-            "app.agents.skills.builtin.task_planning_skill.llm_service"
-        ) as mock_service:
+        with patch("app.agents.skills.builtin.task_planning_skill.llm_service") as mock_service:
             mock_service.get_llm_for_tier = MagicMock(return_value=mock_llm)
 
             graph = skill.create_graph()
@@ -347,6 +347,32 @@ class TestTaskPlanningSkillExecution:
         # Verify error is captured
         assert final_state["error"] is not None
         assert "LLM service unavailable" in final_state["error"]
+
+    @pytest.mark.asyncio
+    async def test_direct_execute_success(self, skill, mock_task_plan):
+        """Test calling execute() directly (ToolSkill API)."""
+        params = {
+            "task_description": "Build a web scraper to extract product prices",
+            "max_steps": 5,
+        }
+        context = SkillContext(
+            skill_id="task_planning",
+            user_id="test_user",
+            task_id="test_task",
+        )
+
+        mock_llm = MagicMock()
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke = AsyncMock(return_value=mock_task_plan)
+        mock_llm.with_structured_output = MagicMock(return_value=mock_structured_llm)
+
+        with patch("app.agents.skills.builtin.task_planning_skill.llm_service") as mock_service:
+            mock_service.get_llm_for_tier = MagicMock(return_value=mock_llm)
+            output = await skill.execute(params, context)
+
+        assert output["task_summary"] == "Build a simple web scraper"
+        assert output["complexity_assessment"] == "moderate"
+        assert len(output["steps"]) == 3
 
 
 class TestSkillRegistration:

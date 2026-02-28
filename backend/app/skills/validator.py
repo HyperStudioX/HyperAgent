@@ -2,7 +2,6 @@
 
 import ast
 import hashlib
-from typing import Any
 
 
 class SkillCodeValidator:
@@ -178,13 +177,13 @@ class SkillCodeValidator:
             tree: AST tree to check
 
         Returns:
-            True if a Skill subclass is defined
+            True if a Skill or ToolSkill subclass is defined
         """
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                # Check if class has Skill as a base
+                # Check if class has Skill or ToolSkill as a base
                 for base in node.bases:
-                    if isinstance(base, ast.Name) and base.id == "Skill":
+                    if isinstance(base, ast.Name) and base.id in ("Skill", "ToolSkill"):
                         return True
         return False
 
