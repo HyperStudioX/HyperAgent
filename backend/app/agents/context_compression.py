@@ -15,6 +15,10 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Summary markers for compressed context injection
+SUMMARY_START_MARKER = "[Previous conversation summary]"
+SUMMARY_END_MARKER = "[End of summary - recent messages follow]"
+
 # Compression prompt template with recoverable reference extraction
 COMPRESSION_PROMPT = """You are a conversation summarizer. Your task is to create a concise summary that preserves all essential information AND recoverable references.
 
@@ -470,6 +474,8 @@ class ContextCompressor:
 def inject_summary_as_context(
     messages: list[BaseMessage],
     summary: str,
+    *,
+    enforce_singleton: bool = True,
 ) -> list[BaseMessage]:
     """Inject a context summary into the message list.
 
@@ -487,13 +493,20 @@ def inject_summary_as_context(
         return messages
 
     summary_message = SystemMessage(
-        content=f"[Previous conversation summary]\n{summary}\n[End of summary - recent messages follow]"
+        content=f"{SUMMARY_START_MARKER}\n{summary}\n{SUMMARY_END_MARKER}"
     )
 
     result = []
     summary_injected = False
 
-    for msg in messages:
+    # Optional singleton enforcement: remove older summary blocks before inserting.
+    source_messages = (
+        [m for m in messages if not is_context_summary_message(m)]
+        if enforce_singleton
+        else messages
+    )
+
+    for msg in source_messages:
         result.append(msg)
         # Inject after the first system message
         if isinstance(msg, SystemMessage) and not summary_injected:
@@ -551,3 +564,19 @@ def get_dynamic_suffix(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 # Default compressor instance
 default_compressor = ContextCompressor()
+
+
+def is_context_summary_message(message: BaseMessage) -> bool:
+    """Return True if a message is an injected context summary system message."""
+    if not isinstance(message, SystemMessage):
+        return False
+    content = message.content if isinstance(message.content, str) else str(message.content)
+    return (
+        SUMMARY_START_MARKER in content
+        and SUMMARY_END_MARKER in content
+    )
+
+
+def has_context_summary_message(messages: list[BaseMessage]) -> bool:
+    """Return True if the message list already contains an injected context summary."""
+    return any(is_context_summary_message(m) for m in messages)

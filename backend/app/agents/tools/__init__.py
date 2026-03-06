@@ -51,6 +51,7 @@ from app.agents.tools.handoff import (
 from app.agents.tools.http_client import http_request
 from app.agents.tools.image_generation import generate_image
 from app.agents.tools.notification import send_notification
+from app.agents.tools.scratchpad import read_scratchpad, write_scratchpad
 from app.agents.tools.react_tool import (
     ReActLoopConfig,
     ReActLoopResult,
@@ -147,6 +148,8 @@ __all__ = [
     "file_str_replace",
     "file_find_by_name",
     "file_find_in_content",
+    "write_scratchpad",
+    "read_scratchpad",
     # Execution sandbox management
     "ExecutionSandboxSession",
     "ExecutionSandboxManager",

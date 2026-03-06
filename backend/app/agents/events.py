@@ -234,11 +234,18 @@ class BrowserStreamEvent(BaseModel):
     """Event containing browser stream URL for live viewing."""
 
     type: Literal["browser_stream"] = "browser_stream"
-    stream_url: str = Field(..., description="URL to view the browser stream")
+    stream_url: str | None = Field(
+        default=None,
+        description="URL to view the browser stream (None for screenshot-only providers)",
+    )
     sandbox_id: str = Field(..., description="Sandbox identifier")
     auth_key: str | None = Field(default=None, description="Authentication key if required")
     display_url: str | None = Field(
         default=None, description="User-friendly URL for address bar"
+    )
+    screenshot: str | None = Field(
+        default=None,
+        description="Base64-encoded screenshot for providers without live streaming",
     )
     timestamp: int = Field(default_factory=_timestamp, description="Event timestamp in ms")
 
@@ -753,21 +760,25 @@ def config(
 
 
 def browser_stream(
-    stream_url: str,
-    sandbox_id: str,
+    stream_url: str | None = None,
+    sandbox_id: str = "",
     auth_key: str | None = None,
     display_url: str | None = None,
+    screenshot: str | None = None,
 ) -> dict[str, Any]:
     """Create a browser stream event dictionary.
 
     This event provides a URL that can be embedded in an iframe
-    to show live browser activity in the E2B sandbox.
+    to show live browser activity in the E2B sandbox. For providers
+    without live streaming (e.g., BoxLite), stream_url is None and
+    a screenshot is included instead.
 
     Args:
-        stream_url: URL to view the browser stream
+        stream_url: URL to view the browser stream (None for screenshot-only providers)
         sandbox_id: Sandbox identifier
         auth_key: Authentication key if required
         display_url: User-friendly URL for address bar display
+        screenshot: Base64-encoded screenshot for providers without live streaming
 
     Returns:
         Browser stream event dictionary
@@ -777,6 +788,7 @@ def browser_stream(
         sandbox_id=sandbox_id,
         auth_key=auth_key,
         display_url=display_url,
+        screenshot=screenshot,
     ).model_dump()
 
 

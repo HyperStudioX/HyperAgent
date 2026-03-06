@@ -156,19 +156,23 @@ const createEventHandlers = (): Map<string, EventHandler> => {
     });
 
     handlers.set("browser_stream", (event, ctx) => {
-        const streamUrl = event.stream_url as string;
+        const streamUrl = (event.stream_url as string) || null;
         const sandboxId = event.sandbox_id as string;
         const authKey = event.auth_key as string | undefined;
-        if (streamUrl && sandboxId) {
+        const screenshot = event.screenshot as string | undefined;
+        if (sandboxId) {
             ctx.setBrowserStream({
                 streamUrl,
                 sandboxId,
                 authKey,
+                screenshot,
             });
             ctx.addEvent({
                 type: "stage",
                 name: "browser",
-                description: "Browser session started - live view available",
+                description: streamUrl
+                    ? "Browser session started - live view available"
+                    : "Browser session started",
                 status: "running",
             });
         }
@@ -220,6 +224,7 @@ interface TaskInfo {
 function ResearchBrowserStreamIframe({ stream }: { stream: ComputerStreamInfo }) {
     const streamUrl = useMemo(() => {
         const base = stream.streamUrl;
+        if (!base) return null;
         const auth = stream.authKey;
         if (auth && !base.includes("authKey=")) {
             const sep = base.includes("?") ? "&" : "?";
@@ -232,7 +237,7 @@ function ResearchBrowserStreamIframe({ stream }: { stream: ComputerStreamInfo })
         <div className="p-3">
             <div className="rounded-lg overflow-hidden border border-border bg-terminal-bg">
                 <iframe
-                    src={streamUrl}
+                    src={streamUrl ?? undefined}
                     className="w-full h-[400px]"
                     allow="autoplay; fullscreen"
                     referrerPolicy="no-referrer"

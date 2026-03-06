@@ -395,16 +395,21 @@ async def stream_query(
                             sandbox_id=event.get("sandbox_id", "")[:8],
                         )
                         sequence_no += 1
-                        payload = _attach_event_metadata(
-                            "browser_stream",
-                            {
+                        browser_stream_data: dict[str, Any] = {
                                 "type": "browser_stream",
                                 "run_id": run_id,
                                 "step_id": event.get("id"),
-                                "stream_url": event.get("stream_url", ""),
+                                "stream_url": event.get("stream_url"),
                                 "sandbox_id": event.get("sandbox_id", ""),
                                 "auth_key": event.get("auth_key"),
-                            },
+                        }
+                        if event.get("display_url"):
+                            browser_stream_data["display_url"] = event["display_url"]
+                        if event.get("screenshot"):
+                            browser_stream_data["screenshot"] = event["screenshot"]
+                        payload = _attach_event_metadata(
+                            "browser_stream",
+                            browser_stream_data,
                             sequence_no,
                         )
                         yield _sse_data(payload)

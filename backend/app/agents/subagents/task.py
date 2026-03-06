@@ -14,11 +14,7 @@ from langchain_core.messages import (
 from langgraph.graph import END, StateGraph
 
 from app.agents import events
-from app.agents.context_compression import (
-    CompressionConfig,
-    ContextCompressor,
-    inject_summary_as_context,
-)
+from app.agents.context_policy import apply_context_policy
 from app.agents.hitl.interrupt_manager import get_interrupt_manager
 from app.agents.prompts import TASK_SYSTEM_MESSAGE, TASK_SYSTEM_PROMPT, get_task_system_prompt
 from app.agents.state import TaskState
@@ -263,6 +259,18 @@ async def _build_initial_messages(state: TaskState) -> list:
             lc_messages.append(SystemMessage(content=memory_text))
             logger.info("user_memories_injected", user_id=user_id)
 
+    # Inject compact scratchpad context when offloading is enabled.
+    if user_id and settings.context_offloading_enabled:
+        from app.services.scratchpad_service import get_scratchpad_service
+
+        scratchpad_context = await get_scratchpad_service().get_compact_context(
+            user_id=user_id,
+            task_id=state.get("task_id"),
+        )
+        if scratchpad_context:
+            lc_messages.append(SystemMessage(content=scratchpad_context))
+            logger.info("scratchpad_context_injected", user_id=user_id)
+
     # Add history if present
     history = state.get("messages", [])
     append_history(lc_messages, history)
@@ -433,50 +441,23 @@ async def _apply_compression_if_needed(
     Returns:
         Tuple of (updated_messages, new_summary_or_none, compression_events)
     """
-    compression_events: list[dict] = []
-
-    if not (settings.context_compression_enabled and len(lc_messages) > settings.context_compression_preserve_recent):
-        return lc_messages, None, compression_events
-
-    # Quick token estimate to avoid creating compressor when clearly under threshold
-    from app.agents.context_compression import estimate_message_tokens
-
-    estimated_tokens = sum(estimate_message_tokens(m) for m in lc_messages)
-    if existing_summary:
-        from app.agents.context_compression import estimate_tokens
-        estimated_tokens += estimate_tokens(existing_summary)
-
-    if estimated_tokens <= settings.context_compression_token_threshold:
-        return lc_messages, None, compression_events
-
-    compression_config = CompressionConfig(
-        token_threshold=settings.context_compression_token_threshold,
-        preserve_recent=settings.context_compression_preserve_recent,
-        enabled=settings.context_compression_enabled,
+    config = _get_react_config_for_state(state)
+    updated_messages, new_summary, context_events, _ = await apply_context_policy(
+        lc_messages,
+        existing_summary=existing_summary,
+        provider=provider,
+        locale=locale,
+        compression_enabled=settings.context_compression_enabled,
+        compression_token_threshold=settings.context_compression_token_threshold,
+        compression_preserve_recent=settings.context_compression_preserve_recent,
+        truncate_max_tokens=config.max_message_tokens,
+        truncate_preserve_recent=config.preserve_recent_messages,
+        truncator=truncate_messages_to_budget,
+        enforce_summary_singleton_flag=settings.context_summary_singleton_enforced,
     )
-    compressor = ContextCompressor(compression_config)
-
-    try:
-        new_summary, lc_messages = await compressor.compress(
-            lc_messages,
-            existing_summary,
-            provider,
-            locale=locale,
-        )
-        if new_summary:
-            lc_messages = inject_summary_as_context(lc_messages, new_summary)
-            logger.info("context_compressed", summary_length=len(new_summary))
-            compression_events.append({
-                "type": "stage",
-                "name": "context",
-                "description": "Context compressed to preserve conversation history",
-                "status": "completed",
-            })
-            return lc_messages, new_summary, compression_events
-    except Exception as e:
-        logger.warning("context_compression_skipped", error=str(e))
-
-    return lc_messages, None, compression_events
+    if new_summary:
+        logger.info("context_compressed", summary_length=len(new_summary))
+    return updated_messages, new_summary, context_events
 
 
 async def reason_node(state: TaskState) -> dict:
@@ -522,27 +503,11 @@ async def reason_node(state: TaskState) -> dict:
     # Deduplicate tool messages to prevent API errors
     lc_messages = deduplicate_tool_messages(lc_messages)
 
-    # Apply context compression before truncation (preserves semantic meaning)
+    # Apply shared context policy (compression + truncation fallback)
     lc_messages, new_context_summary, compression_events = await _apply_compression_if_needed(
         lc_messages, state, existing_summary, provider, locale,
     )
     event_list.extend(compression_events)
-
-    # Apply message truncation to stay within token budget (fallback safety)
-    config = _get_react_config_for_state(state)
-    lc_messages, was_truncated = truncate_messages_to_budget(
-        lc_messages,
-        max_tokens=config.max_message_tokens,
-        preserve_recent=config.preserve_recent_messages,
-    )
-    if was_truncated:
-        logger.info("task_messages_truncated_for_budget")
-        event_list.append({
-            "type": "stage",
-            "name": "context",
-            "description": "Message history truncated to fit context window",
-            "status": "completed",
-        })
 
     # Get LLM with tools
     tier = state.get("tier")

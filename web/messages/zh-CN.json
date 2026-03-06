@@ -275,6 +275,7 @@
                 "file_str_replace": "编辑文件",
                 "file_find_by_name": "查找文件",
                 "file_find_in_content": "搜索文件内容",
+                "web_extract_structured": "网页提取",
                 "default": "工具"
             },
             "stages": {
@@ -983,6 +984,8 @@
         "browserFullscreen": "全屏",
         "browserScreenshot": "截图",
         "browserLive": "实时",
+        "browserScreenshotMode": "浏览器运行中 — 仅截图模式",
+        "browserScreenshotAlt": "浏览器截图",
         "browserExitFullscreen": "退出全屏",
         "emptyDirectory": "此目录为空",
         "terminalPrompt": "ubuntu@sandbox",

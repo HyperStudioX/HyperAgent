@@ -17,7 +17,9 @@ from typing import Any, Callable, TypeVar
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
+from app.agents.context_policy import apply_context_policy
 from app.ai.llm import extract_text_from_content
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -1443,8 +1445,15 @@ async def _execute_tools_parallel(
                     on_browser_stream(stream_url, session.sandbox_id, auth_key)
                     logger.info("browser_stream_event_emitted_early", sandbox_id=session.sandbox_id)
                 except NotImplementedError:
-                    # Provider doesn't support streaming (e.g., BoxLite) — skip
-                    logger.debug("browser_stream_not_supported_by_provider")
+                    # Provider doesn't support streaming (e.g., BoxLite)
+                    # Emit a screenshot-based browser_stream event so frontend opens the panel
+                    nav_url = tool_args.get("url", "")
+                    stream_event = agent_events.browser_stream(
+                        sandbox_id=session.sandbox_id,
+                        display_url=nav_url,
+                    )
+                    events.append(stream_event)
+                    logger.info("browser_stream_screenshot_mode", sandbox_id=session.sandbox_id)
                 except Exception as stream_err:
                     if "already running" in str(stream_err).lower():
                         # Stream already running — try to get URL again
@@ -1473,6 +1482,28 @@ async def _execute_tools_parallel(
         results.append((tool_call_id, msg, is_err))
         if is_err:
             error_count += 1
+
+        # Post-execution: update screenshot for browser_navigate on screenshot-only providers
+        if tool_name == "browser_navigate" and not is_err:
+            try:
+                import json as _json
+                result_content = getattr(msg, "content", "")
+                if isinstance(result_content, str):
+                    result_data = _json.loads(result_content)
+                    screenshot_b64 = result_data.get("screenshot")
+                    sandbox_id = result_data.get("sandbox_id", "")
+                    nav_url = result_data.get("url", "")
+                    # Only emit screenshot update when there's no live stream
+                    if screenshot_b64 and not result_data.get("stream_url"):
+                        from app.agents import events as agent_events
+                        screenshot_event = agent_events.browser_stream(
+                            sandbox_id=sandbox_id,
+                            display_url=nav_url,
+                            screenshot=screenshot_b64,
+                        )
+                        events.append(screenshot_event)
+            except Exception:
+                pass  # Non-critical — panel still works without screenshot update
 
     # Sort results by original tool_call order
     tool_call_order = {tc.get("id", ""): i for i, tc in enumerate(tool_calls)}
@@ -1513,6 +1544,8 @@ async def execute_react_loop(
     extra_tool_args: dict[str, Any] | None = None,
     on_browser_stream: Callable[[str, str, str | None], None] | None = None,
     tool_hooks: Any | None = None,
+    provider: str | None = None,
+    locale: str = "en",
 ) -> ReActLoopResult:
     """Execute a unified ReAct loop with tool calling and retry support.
 
@@ -1540,6 +1573,8 @@ async def execute_react_loop(
         on_browser_stream: Callback when browser stream is ready (stream_url, sandbox_id, auth_key)
         tool_hooks: Optional ToolExecutionHooks instance for custom tool execution behavior.
             When provided, used instead of creating CanonicalToolHooks from flat callbacks.
+        provider: Optional provider override for context-compression summarization model selection.
+        locale: Locale used for compression summary language.
 
     Returns:
         ReActLoopResult with updated messages and metadata
@@ -1553,25 +1588,29 @@ async def execute_react_loop(
     consecutive_errors = 0
     pending_handoff = None
     deferred_handoff = None
+    context_summary: str | None = None
 
     # Build tool lookup for execution
     tool_map = {tool.name: tool for tool in tools}
 
     while tool_iterations < config.max_iterations:
-        # Apply message truncation to stay within token budget
-        messages, was_truncated = truncate_messages_to_budget(
+        # Apply shared context policy (compression + truncation fallback).
+        messages, new_summary, context_events, _ = await apply_context_policy(
             messages,
-            max_tokens=config.max_message_tokens,
-            preserve_recent=config.preserve_recent_messages,
+            existing_summary=context_summary,
+            provider=provider,
+            locale=locale,
+            compression_enabled=settings.context_compression_enabled,
+            compression_token_threshold=settings.context_compression_token_threshold,
+            compression_preserve_recent=settings.context_compression_preserve_recent,
+            truncate_max_tokens=config.max_message_tokens,
+            truncate_preserve_recent=config.preserve_recent_messages,
+            truncator=truncate_messages_to_budget,
+            enforce_summary_singleton_flag=settings.context_summary_singleton_enforced,
         )
-
-        if was_truncated:
-            events.append({
-                "type": "stage",
-                "name": "context",
-                "description": "Message history truncated to fit context window",
-                "status": "completed",
-            })
+        if new_summary:
+            context_summary = new_summary
+        events.extend(context_events)
 
         # Stream LLM response
         response_chunks = []

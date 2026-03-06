@@ -22,11 +22,7 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
 from app.agents import events as agent_events
-from app.agents.context_compression import (
-    CompressionConfig,
-    ContextCompressor,
-    inject_summary_as_context,
-)
+from app.agents.context_policy import apply_context_policy
 from app.agents.prompts import (
     get_report_prompt,
 )
@@ -628,46 +624,35 @@ facts, statistics, and concrete evidence — not just high-level conclusions.
 
             llm_with_tools = _llm_cache["instance"]
 
-            # Context management: compression first, truncation as fallback
+            # Context management: shared compression + truncation policy
             lc_messages = list(state.get("lc_messages") or [])
             react_config = get_react_config("research")
             existing_summary = state.get("context_summary")
             new_context_summary = None
 
-            # Attempt LLM-based compression before truncation (preserves URLs, findings)
             from app.config import settings
 
-            compress_threshold = settings.context_compression_preserve_recent
-            if settings.context_compression_enabled and len(lc_messages) > compress_threshold:
-                compression_config = CompressionConfig(
-                    token_threshold=settings.context_compression_token_threshold,
-                    preserve_recent=settings.context_compression_preserve_recent,
-                    enabled=True,
-                )
-                compressor = ContextCompressor(compression_config)
-                try:
-                    new_summary, lc_messages = await compressor.compress(
-                        lc_messages,
-                        existing_summary,
-                        provider or "anthropic",
-                        locale=state.get("locale", "en"),
-                    )
-                    if new_summary:
-                        lc_messages = inject_summary_as_context(lc_messages, new_summary)
-                        new_context_summary = new_summary
-                        logger.info(
-                            "deep_research_context_compressed",
-                            summary_length=len(new_summary),
-                        )
-                except Exception as e:
-                    logger.warning("deep_research_compression_skipped", error=str(e))
-
-            # Fallback: hard truncation to stay within token budget
-            lc_messages, was_truncated = truncate_messages_to_budget(
+            lc_messages, new_summary, context_events, was_truncated = await apply_context_policy(
                 lc_messages,
-                max_tokens=react_config.max_message_tokens,
-                preserve_recent=react_config.preserve_recent_messages,
+                existing_summary=existing_summary,
+                provider=provider,
+                locale=state.get("locale", "en"),
+                compression_enabled=settings.context_compression_enabled,
+                compression_token_threshold=settings.context_compression_token_threshold,
+                compression_preserve_recent=settings.context_compression_preserve_recent,
+                truncate_max_tokens=react_config.max_message_tokens,
+                truncate_preserve_recent=react_config.preserve_recent_messages,
+                truncator=truncate_messages_to_budget,
+                enforce_summary_singleton_flag=settings.context_summary_singleton_enforced,
             )
+            pending_events.extend(context_events)
+
+            if new_summary:
+                new_context_summary = new_summary
+                logger.info(
+                    "deep_research_context_compressed",
+                    summary_length=len(new_summary),
+                )
             if was_truncated:
                 logger.info("deep_research_messages_truncated")
 

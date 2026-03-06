@@ -64,6 +64,7 @@ export function ComputerViewer({
     );
 
     const handleOpenExternal = () => {
+        if (!stream.streamUrl) return;
         // Open without auth key to prevent exposure via browser history/referrer
         window.open(stream.streamUrl, '_blank', 'noopener,noreferrer');
     };
@@ -119,7 +120,7 @@ export function ComputerViewer({
                 <div className="flex-1">
                     <iframe
                         ref={fullscreenIframeRef}
-                        src={streamUrl}
+                        src={streamUrl ?? undefined}
                         className="w-full h-full border-0"
                         sandbox="allow-scripts allow-popups allow-pointer-lock"
                         allow="autoplay; fullscreen"
@@ -212,7 +213,7 @@ export function ComputerViewer({
                     >
                         <iframe
                             ref={normalIframeRef}
-                            src={streamUrl}
+                            src={streamUrl ?? undefined}
                             className="w-full h-full border-0"
                             style={{
                                 display: 'block',

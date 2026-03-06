@@ -258,8 +258,13 @@ def _smart_truncate(text: str, max_chars: int) -> str:
     Returns:
         Truncated text with ellipsis indicator
     """
+    if max_chars <= 0:
+        return ""
     if len(text) <= max_chars:
         return text
+
+    if max_chars <= 24:
+        return text[:max_chars]
 
     # Reserve space for truncation indicator
     max_chars -= 20
@@ -329,6 +334,38 @@ def truncate_shared_memory(
         allocation = int((priority / total_priority) * budget)
         # Ensure minimum allocation
         allocations[key] = max(allocation, SHARED_MEMORY_MIN_CHARS)
+
+    # Enforce hard total budget after minimum-allocation pass.
+    total_allocated = sum(allocations.values())
+    if total_allocated > budget:
+        overflow = total_allocated - budget
+        # Reduce from lower-priority fields first while respecting minimum chars.
+        reducible_keys = sorted(
+            allocations.keys(),
+            key=lambda k: SHARED_MEMORY_PRIORITIES.get(k, 1),
+        )
+        for key in reducible_keys:
+            if overflow <= 0:
+                break
+            current = allocations[key]
+            reducible = max(0, current - SHARED_MEMORY_MIN_CHARS)
+            if reducible <= 0:
+                continue
+            delta = min(reducible, overflow)
+            allocations[key] = current - delta
+            overflow -= delta
+        # If budget is smaller than total minimum allocations, continue reducing
+        # below the nominal minimum to guarantee hard-budget compliance.
+        if overflow > 0:
+            for key in reducible_keys:
+                if overflow <= 0:
+                    break
+                current = allocations[key]
+                if current <= 1:
+                    continue
+                delta = min(current - 1, overflow)
+                allocations[key] = current - delta
+                overflow -= delta
 
     # Truncate each field
     truncated: SharedAgentMemory = {}

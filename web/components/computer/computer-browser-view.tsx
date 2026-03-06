@@ -105,6 +105,8 @@ export function ComputerBrowserView({
         );
     }
 
+    const hasLiveStream = !!stream.streamUrl;
+
     // Action overlay toast
     const actionOverlay = visibleAction ? (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 max-w-[80%]">
@@ -169,7 +171,7 @@ export function ComputerBrowserView({
 
                 {/* Right-side controls */}
                 {/* Live indicator - uses primary color */}
-                {isLive && stream && (
+                {isLive && stream && hasLiveStream && (
                     <div className={cn(
                         "flex items-center gap-0.5 px-1.5 py-0.5 rounded-full",
                         "bg-primary/10 border border-primary/20"
@@ -224,17 +226,34 @@ export function ComputerBrowserView({
 
             {/* Single iframe area - preserved across fullscreen toggle */}
             <div className="flex-1 relative bg-muted">
-                <iframe
-                    ref={iframeRef}
-                    src={stream.streamUrl}
-                    className="w-full h-full border-0"
-                    style={{ display: "block" }}
-                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-pointer-lock"
-                    allow="autoplay; fullscreen"
-                    referrerPolicy="no-referrer"
-                    onLoad={() => handleIframeLoad(iframeRef)}
-                    title={t("browserIframeTitle")}
-                />
+                {hasLiveStream ? (
+                    <iframe
+                        ref={iframeRef}
+                        src={stream.streamUrl!}
+                        className="w-full h-full border-0"
+                        style={{ display: "block" }}
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-pointer-lock"
+                        allow="autoplay; fullscreen"
+                        referrerPolicy="no-referrer"
+                        onLoad={() => handleIframeLoad(iframeRef)}
+                        title={t("browserIframeTitle")}
+                    />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                        {stream.screenshot ? (
+                            <img
+                                src={`data:image/png;base64,${stream.screenshot}`}
+                                alt={t("browserScreenshotAlt")}
+                                className="max-w-full max-h-full object-contain"
+                            />
+                        ) : (
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground/60">
+                                <Monitor className="w-8 h-8" />
+                                <span className="text-sm">{t("browserScreenshotMode")}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
                 {actionOverlay}
             </div>
         </div>

@@ -40,6 +40,8 @@ def _get_session_tool_names() -> set[str]:
         _SESSION_TOOLS.add("file_str_replace")
         _SESSION_TOOLS.add("file_find_by_name")
         _SESSION_TOOLS.add("file_find_in_content")
+        _SESSION_TOOLS.add("write_scratchpad")
+        _SESSION_TOOLS.add("read_scratchpad")
 
     return _SESSION_TOOLS
 

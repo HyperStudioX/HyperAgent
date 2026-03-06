@@ -570,6 +570,12 @@ class StreamProcessor:
                     sandbox_id=session.sandbox_id,
                     auth_key=auth_key,
                 )
+            else:
+                # Provider doesn't support live streaming (e.g., BoxLite)
+                # Still emit event so frontend opens the virtual computer panel
+                yield agent_events.browser_stream(
+                    sandbox_id=session.sandbox_id,
+                )
         except Exception as e:
             logger.warning("browser_stream_emit_failed", error=str(e))
 

@@ -663,6 +663,8 @@ class DataAnalysisSkill(Skill):
                             agent_events.tool_result(name, res, tool_id=tid),
                         )
                     ),
+                    provider=provider,
+                    locale=locale,
                 )
 
                 pending.extend(result.events)

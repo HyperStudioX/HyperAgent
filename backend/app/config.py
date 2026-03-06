@@ -105,6 +105,10 @@ class Settings(BaseSettings):
         60000  # Token threshold to trigger compression (60% of 100k budget)
     )
     context_compression_preserve_recent: int = 10  # Number of recent messages to always preserve
+    context_summary_singleton_enforced: bool = True  # Keep only one injected context summary
+    context_offloading_enabled: bool = False  # Enable scratchpad read/write tools
+    context_offloading_persistent_enabled: bool = False  # Persist scratchpad entries cross-thread
+    context_tool_output_summarization_enabled: bool = False  # Summarize token-heavy tool outputs
 
     # Sandbox Provider
     sandbox_provider: Literal["e2b", "boxlite"] = "e2b"

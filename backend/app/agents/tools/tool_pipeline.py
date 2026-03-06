@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
@@ -23,6 +24,9 @@ from app.agents.tools.react_tool import (
     execute_tool_with_retry,
     truncate_tool_result,
 )
+from app.ai.llm import extract_text_from_content, llm_service
+from app.ai.model_tiers import ModelTier
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -64,6 +68,44 @@ SEQUENTIAL_TOOLS = {
     "browser_scroll",
     "browser_press_key",
 }
+
+# Tools that often produce token-heavy outputs and benefit from optional summarization.
+TOKEN_HEAVY_TOOLS = {
+    "web_search",
+    "web_extract_structured",
+    "http_request",
+    "browser_dom_query",
+    "file_read",
+}
+
+
+async def _summarize_tool_output_if_enabled(tool_name: str, result_str: str) -> str:
+    """Summarize long tool output when feature flag is enabled."""
+    if not settings.context_tool_output_summarization_enabled:
+        return result_str
+    if tool_name not in TOKEN_HEAVY_TOOLS:
+        return result_str
+    if len(result_str) < 3000:
+        return result_str
+
+    prompt = (
+        "Summarize this tool output for agent continuation. "
+        "Preserve key facts, numbers, entities, URLs/paths, and actionable next steps. "
+        "Keep it concise and structured. If content is already concise, keep it unchanged.\n\n"
+        f"Tool: {tool_name}\n\nOutput:\n{result_str[:20000]}"
+    )
+    try:
+        llm = llm_service.get_llm_for_tier(
+            tier=ModelTier.LITE,
+            provider=settings.default_provider,
+        )
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        summary = extract_text_from_content(response.content).strip()
+        if summary:
+            return summary
+    except Exception as e:
+        logger.warning("tool_output_summarization_failed", tool=tool_name, error=str(e))
+    return result_str
 
 
 @dataclass
@@ -285,6 +327,10 @@ async def execute_tool(
 
         # 6. After-execution hook (event extraction)
         result_str = hooks.after_execution(ctx, result_str, all_events)
+
+        # 6.5 Optional targeted summarization for token-heavy tools
+        if result_str:
+            result_str = await _summarize_tool_output_if_enabled(ctx.tool_name, result_str)
 
         # 7. Truncate
         if config.truncate_tool_results and result_str:

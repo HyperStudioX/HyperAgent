@@ -49,6 +49,7 @@ from app.agents.tools.file_tools import (
 from app.agents.tools.handoff import get_handoff_tools_for_agent
 from app.agents.tools.http_client import http_request
 from app.agents.tools.notification import send_notification
+from app.agents.tools.scratchpad import read_scratchpad, write_scratchpad
 from app.agents.tools.shell_tools import (
     shell_exec,
     shell_kill,
@@ -62,6 +63,7 @@ from app.agents.tools.slide_generation import generate_slides
 from app.agents.tools.tool_search import search_tools
 from app.agents.tools.vision import analyze_image
 from app.agents.tools.web_search import web_extract_structured, web_search
+from app.config import settings
 from app.core.logging import get_logger
 from app.sandbox import sandbox_file
 
@@ -153,6 +155,7 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
         file_str_replace,
         file_find_by_name,
         file_find_in_content,
+        *([write_scratchpad, read_scratchpad] if settings.context_offloading_enabled else []),
     ],
     ToolCategory.SHELL: [
         shell_exec,
@@ -260,6 +263,12 @@ TOOL_CONTRACTS: dict[str, CapabilityContract] = {
     ),
     "search_tools": CapabilityContract(
         SideEffectLevel.NONE, DataSensitivity.INTERNAL, NetworkScope.NONE, True
+    ),
+    "write_scratchpad": CapabilityContract(
+        SideEffectLevel.LOW, DataSensitivity.SENSITIVE, NetworkScope.NONE, True
+    ),
+    "read_scratchpad": CapabilityContract(
+        SideEffectLevel.NONE, DataSensitivity.SENSITIVE, NetworkScope.NONE, True
     ),
     "create_app_project": CapabilityContract(
         SideEffectLevel.HIGH, DataSensitivity.SENSITIVE, NetworkScope.SANDBOX_ONLY, False
