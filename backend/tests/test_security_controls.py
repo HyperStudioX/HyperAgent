@@ -1,7 +1,7 @@
 """Security regression tests for authz, path validation, and tool policy controls."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -206,7 +206,16 @@ class TestToolHookGuardrails:
             tool_call_id="tc_1",
             tool=object(),
         )
-        result = await hooks.before_execution(ctx)
+        from unittest.mock import MagicMock
+
+        mock_manager = MagicMock()
+        mock_manager.generate_interrupt_id.return_value = "test-interrupt-id"
+        mock_manager.create_interrupt = AsyncMock()
+        with patch(
+            "app.agents.hitl.interrupt_manager.get_interrupt_manager",
+            return_value=mock_manager,
+        ):
+            result = await hooks.before_execution(ctx)
         assert result is not None
         assert result.pending_interrupt is not None
 

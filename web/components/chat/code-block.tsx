@@ -26,7 +26,7 @@ const darkCodeTheme: Record<string, React.CSSProperties> = {
         fontSize: "13px",
         lineHeight: "1.65",
         fontFamily:
-            'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            'var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
     },
 };
 
@@ -44,7 +44,7 @@ const lightCodeTheme: Record<string, React.CSSProperties> = {
         fontSize: "13px",
         lineHeight: "1.65",
         fontFamily:
-            'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            'var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
     },
 };
 
@@ -129,7 +129,7 @@ export function CodeBlock({ language, children }: CodeBlockProps): JSX.Element {
                         </span>
                     </div>
                     {/* Line count badge */}
-                    <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+                    <span className="text-xs text-muted-foreground/70 tabular-nums">
                         {lineCount} {lineCount === 1 ? "line" : "lines"}
                     </span>
                 </div>
@@ -178,7 +178,7 @@ export function CodeBlock({ language, children }: CodeBlockProps): JSX.Element {
                         codeTagProps={{
                             style: {
                                 fontFamily:
-                                    'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                    'var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
                             },
                         }}
                     >

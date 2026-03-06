@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 /**
  * Validate that a URL is safe for use in iframes and window.open.
@@ -120,49 +121,54 @@ export function AppPreviewPanel({
           <span className="text-xs font-mono text-muted-foreground truncate flex-1">
             {displayUrl}
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground/60"
             onClick={handleCopyUrl}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors"
             title={t("copyUrl")}
           >
             {copied ? (
-              <Check className="w-3.5 h-3.5 text-emerald-500" />
+              <Check className="w-3.5 h-3.5 text-success" />
             ) : (
               <Copy className="w-3.5 h-3.5" />
             )}
-          </button>
+          </Button>
         </div>
 
         {/* Template badge */}
         {template && (
-          <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
+          <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
             {template}
           </span>
         )}
 
         {/* Actions */}
         <div className="flex items-center gap-1">
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("h-8 w-8", isLoading && "animate-spin")}
             onClick={handleRefresh}
-            className={cn(
-              "p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors",
-              isLoading && "animate-spin"
-            )}
             title={t("refresh")}
             disabled={isLoading}
           >
             <RefreshCw className="w-4 h-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
             onClick={handleOpenExternal}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title={t("openExternal")}
           >
             <ExternalLink className="w-4 h-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title={isFullscreen ? t("exitFullscreen") : t("fullscreen")}
           >
             {isFullscreen ? (
@@ -170,15 +176,17 @@ export function AppPreviewPanel({
             ) : (
               <Maximize2 className="w-4 h-4" />
             )}
-          </button>
+          </Button>
           {isFullscreen && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 ml-1"
               onClick={() => setIsFullscreen(false)}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors ml-1"
               title={t("close")}
             >
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -292,7 +300,7 @@ export function InlineAppPreview({
               {t("appRunning")}
             </span>
             {template && (
-              <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+              <span className="text-xs font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                 {template}
               </span>
             )}
@@ -304,27 +312,33 @@ export function InlineAppPreview({
 
         {/* Actions */}
         <div className="flex items-center gap-1">
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
             onClick={handleCopyUrl}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title={t("copyUrl")}
           >
             {copied ? (
-              <Check className="w-4 h-4 text-emerald-500" />
+              <Check className="w-4 h-4 text-success" />
             ) : (
               <Copy className="w-4 h-4" />
             )}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
             onClick={handleOpenExternal}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title={t("openExternal")}
           >
             <ExternalLink className="w-4 h-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
             onClick={() => setExpanded(!expanded)}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title={expanded ? t("collapse") : t("expand")}
           >
             {expanded ? (
@@ -332,7 +346,7 @@ export function InlineAppPreview({
             ) : (
               <Maximize2 className="w-4 h-4" />
             )}
-          </button>
+          </Button>
         </div>
       </div>
 

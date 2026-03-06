@@ -113,6 +113,13 @@ class OutputScanner:
             except Exception as e:
                 logger.error("sensitive_scan_failed", error=str(e))
 
+        # Fallback PII detection via regex when llm-guard is unavailable
+        if _sensitive_scanner is None:
+            pii_result = self._check_pii_patterns(content)
+            if pii_result:
+                violations.append(ViolationType.PII)
+                reasons.append(pii_result)
+
         # Check for harmful content patterns
         harmful_result = self._check_harmful_patterns(content)
         if harmful_result:
@@ -144,6 +151,34 @@ class OutputScanner:
                 return ScanResult.allow()
 
         return ScanResult.allow()
+
+    def _check_pii_patterns(self, content: str) -> str | None:
+        """Fallback regex-based PII detection when llm-guard is unavailable.
+
+        Args:
+            content: Text to check
+
+        Returns:
+            Reason string if PII detected, None otherwise
+        """
+        import re
+
+        pii_patterns = [
+            (r"\b\d{3}-\d{2}-\d{4}\b", "SSN pattern detected"),
+            (r"\b(?:\d[ -]*?){13,16}\b", "Credit card number pattern detected"),
+            (r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "Email address detected"),
+        ]
+
+        for pattern, reason in pii_patterns:
+            if re.search(pattern, content):
+                logger.warning(
+                    "pii_pattern_detected_fallback",
+                    pattern_type=reason,
+                    content_preview=truncate_for_logging(content),
+                )
+                return reason
+
+        return None
 
     def _check_harmful_patterns(self, content: str) -> str | None:
         """Check for harmful content patterns in output.

@@ -205,6 +205,7 @@ class SlideGenerationSkill(Skill):
             params = state["input_params"]
             topic = params["topic"]
             num_slides = int(params.get("num_slides", 8))
+            num_slides = max(4, min(20, num_slides))
             style = params.get("style", "professional")
             additional_context = params.get("additional_context", "")
             research_context = state.get("output", {}).get("research_context", "")
@@ -228,12 +229,17 @@ class SlideGenerationSkill(Skill):
                     "content with real data):\n" + research_context
                 )
 
-            prompt = f"""Create a complete, content-rich presentation for: "{topic}"
+            prompt = f"""Create a complete, content-rich presentation for the topic below.
+
+Topic:
+<user_request>
+{topic}
+</user_request>
 
 Number of slides: {num_slides}
 Style: {style}
 
-{f"Additional requirements: {additional_context}" if additional_context else ""}
+{f"Additional requirements:\n<user_request>\n{additional_context}\n</user_request>" if additional_context else ""}
 
 {research_section}
 
@@ -520,6 +526,7 @@ Available layouts: title_slide, section_header, content, two_column, blank
 
                 if user_id:
                     try:
+                        # TODO: Use save_generated_file when available — save_generated_image works for arbitrary bytes
                         storage_result = await file_storage_service.save_generated_image(
                             image_data=pptx_bytes,
                             user_id=user_id,

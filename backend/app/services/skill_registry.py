@@ -257,7 +257,6 @@ class SkillRegistry:
         try:
             # Import builtin skills
             from app.agents.skills.builtin import (
-                AgenticSearchSkill,
                 AppBuilderSkill,
                 CodeGenerationSkill,
                 DataAnalysisSkill,
@@ -265,13 +264,13 @@ class SkillRegistry:
                 ImageGenerationSkill,
                 SlideGenerationSkill,
                 TaskPlanningSkill,
+                WebResearchSkill,
             )
 
             # Register each skill at Level 1 (metadata only)
-            # Note: WebResearchSkill is now an alias for AgenticSearchSkill
-            # (both share ID "web_research"), so we only register AgenticSearchSkill.
+            # WebResearchSkill is the canonical export (alias for AgenticSearchSkill).
             for skill_class in [
-                AgenticSearchSkill,
+                WebResearchSkill,
                 DeepResearchSkill,
                 DataAnalysisSkill,
                 ImageGenerationSkill,
@@ -531,7 +530,6 @@ class SkillRegistry:
 
     def list_skills(
         self,
-        category: Optional[str] = None,
         enabled_only: bool = True,
     ) -> list[SkillMetadata]:
         """List available skills using Level 1 metadata (no full loading required).
@@ -540,7 +538,6 @@ class SkillRegistry:
         full skill instantiation.
 
         Args:
-            category: Filter by category (e.g., "research", "code", "data")
             enabled_only: Only return enabled skills
 
         Returns:
@@ -549,8 +546,6 @@ class SkillRegistry:
         results: list[SkillMetadata] = []
         for skill_id, metadata in self._skill_metadata_cache.items():
             if enabled_only and not metadata.enabled:
-                continue
-            if category and metadata.category != category:
                 continue
             results.append(metadata)
         return results

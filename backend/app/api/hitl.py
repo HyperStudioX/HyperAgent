@@ -19,6 +19,24 @@ router = APIRouter(prefix="/hitl", tags=["hitl"])
 logger = get_logger(__name__)
 
 
+async def _verify_thread_ownership(thread_id: str, user_id: str, interrupt_manager) -> None:
+    """Verify the requesting user owns the pending interrupt for a thread.
+
+    Args:
+        thread_id: Thread/conversation ID
+        user_id: ID of the requesting user
+        interrupt_manager: InterruptManager instance
+
+    Raises:
+        HTTPException: 403 if interrupt belongs to a different user
+    """
+    pending = await interrupt_manager.get_pending_interrupt(thread_id)
+    if pending is not None:
+        stored_user = pending.get("user_id")
+        if stored_user and stored_user != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+
 class InterruptResponseRequest(BaseModel):
     """Request to respond to an interrupt."""
 
@@ -61,6 +79,8 @@ async def respond_to_interrupt(
     interrupt_manager = get_interrupt_manager()
 
     try:
+        await _verify_thread_ownership(thread_id, current_user.id, interrupt_manager)
+
         success = await interrupt_manager.submit_response(
             thread_id=thread_id,
             interrupt_id=request.interrupt_id,
@@ -91,6 +111,8 @@ async def respond_to_interrupt(
                 message="No active listener for this interrupt. It may have timed out.",
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             "hitl_response_error",
@@ -100,7 +122,7 @@ async def respond_to_interrupt(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to submit response: {str(e)}",
+            detail="Internal server error",
         )
 
 
@@ -123,6 +145,8 @@ async def get_pending_interrupt(
     interrupt_manager = get_interrupt_manager()
 
     try:
+        await _verify_thread_ownership(thread_id, current_user.id, interrupt_manager)
+
         interrupt = await interrupt_manager.get_pending_interrupt(thread_id)
 
         if interrupt:
@@ -141,6 +165,8 @@ async def get_pending_interrupt(
                 interrupt=None,
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             "hitl_pending_check_error",
@@ -149,7 +175,7 @@ async def get_pending_interrupt(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to check pending interrupts: {str(e)}",
+            detail="Internal server error",
         )
 
 
@@ -171,6 +197,8 @@ async def cancel_interrupt(
     interrupt_manager = get_interrupt_manager()
 
     try:
+        await _verify_thread_ownership(thread_id, current_user.id, interrupt_manager)
+
         cancelled = await interrupt_manager.cancel_interrupt(
             thread_id=thread_id,
             interrupt_id=interrupt_id,
@@ -192,6 +220,8 @@ async def cancel_interrupt(
                 message="Interrupt not found or already processed",
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             "hitl_cancel_error",
@@ -201,5 +231,5 @@ async def cancel_interrupt(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to cancel interrupt: {str(e)}",
+            detail="Internal server error",
         )

@@ -8,13 +8,12 @@ import asyncio
 import base64
 import shlex
 import uuid
-from pathlib import PurePosixPath as Path
 
 import boxlite
 
 from app.config import settings
 from app.core.logging import get_logger
-from app.sandbox.runtime import CommandResult, OutputCallback
+from app.sandbox.runtime import CommandResult
 
 logger = get_logger(__name__)
 
@@ -107,8 +106,6 @@ class BoxLiteRuntime:
         command: str,
         timeout: int = 60,
         cwd: str | None = None,
-        on_stdout: OutputCallback | None = None,
-        on_stderr: OutputCallback | None = None,
     ) -> CommandResult:
         """Run a command via BoxLite exec."""
         full_cmd = command
@@ -122,21 +119,10 @@ class BoxLiteRuntime:
                 timeout=timeout,
             )
 
-            stdout = result.stdout or ""
-            stderr = result.stderr or ""
-
-            # Simulate line-by-line streaming after completion
-            if on_stdout and stdout:
-                for line in stdout.splitlines(keepends=True):
-                    on_stdout(line)
-            if on_stderr and stderr:
-                for line in stderr.splitlines(keepends=True):
-                    on_stderr(line)
-
             return CommandResult(
                 exit_code=result.exit_code,
-                stdout=stdout,
-                stderr=stderr,
+                stdout=result.stdout or "",
+                stderr=result.stderr or "",
             )
         except asyncio.TimeoutError:
             return CommandResult(
@@ -191,18 +177,15 @@ class BoxLiteRuntime:
     ) -> None:
         """Write content to a file via exec.
 
-        Note: parent directory creation is NOT handled here because the
-        caller (file_operations.write_file) already runs ``mkdir -p``
-        before invoking this method.  Keeping it only in the caller
-        avoids a redundant round-trip and keeps the logic in one place
-        (the caller must do it anyway for E2B which does not auto-create
-        parent directories).
+        Creates parent directories automatically via ``mkdir -p`` before
+        writing the file content. Uses base64 encoding for binary data
+        and a heredoc with a random delimiter for text data to prevent
+        injection.
         """
-        # Ensure parent directory exists (some images lack /home/user)
-        parent_dir = str(Path(path).parent)
-        if parent_dir != "/":
-            await self.run_command(f"mkdir -p {shlex.quote(parent_dir)}", timeout=10)
-
+        # Ensure parent directory exists
+        parent = "/".join(path.split("/")[:-1])
+        if parent:
+            await self.run_command(f"mkdir -p {shlex.quote(parent)}", timeout=10)
         if isinstance(content, bytes):
             # Binary write via base64 pipe using printf to avoid echo length limits
             encoded = base64.b64encode(content).decode("ascii")
@@ -248,6 +231,10 @@ class BoxLiteRuntime:
         snapshot_id: str,
     ) -> bytes:
         """Tar specified paths and return the archive bytes."""
+        import re as _re
+
+        if not _re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
+            raise ValueError(f"Invalid snapshot_id: {snapshot_id!r}")
         paths_str = " ".join(shlex.quote(p) for p in paths)
         archive_path = f"/tmp/snapshot_{snapshot_id}.tar.gz"
 

@@ -415,9 +415,5 @@ except Exception as e:
                 self._stream_started = False
 
 
-def get_screenshot_as_base64(screenshot_bytes: bytes) -> dict:
-    """Convert screenshot bytes to base64 format for tool response."""
-    return {
-        "data": base64.b64encode(screenshot_bytes).decode("utf-8"),
-        "type": "image/png",
-    }
+# Re-export from base module for backward compatibility
+from app.sandbox.base_desktop_executor import get_screenshot_as_base64  # noqa: F401

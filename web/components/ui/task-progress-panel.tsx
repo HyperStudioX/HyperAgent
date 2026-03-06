@@ -554,7 +554,7 @@ function InlineToolList({ tools, tTools, isHistorical, isActive }: {
                     <ToolIcon name={g.name} className={cn("w-3 h-3 flex-shrink-0", textClass)} />
                     <span className="truncate max-w-[200px]">{g.displayName}</span>
                     {g.count > 1 && (
-                        <span className="tabular-nums text-[10px] text-muted-foreground/40">
+                        <span className="tabular-nums text-xs text-muted-foreground/40">
                             {g.completedCount}/{g.count}
                         </span>
                     )}
@@ -609,7 +609,7 @@ function TimelineStage({
                     status === "running" && "text-foreground",
                     status === "completed" && "text-muted-foreground/60",
                     status === "failed" && "text-destructive/80",
-                    status === "pending" && "text-muted-foreground/30"
+                    status === "pending" && "text-muted-foreground/50"
                 )}>
                     {label}
                 </span>
@@ -637,7 +637,7 @@ function TimelineStage({
                             {reasoningEvents!.map((re, idx) => (
                                 <p
                                     key={`reasoning-${idx}`}
-                                    className="text-xs text-muted-foreground/40 italic leading-relaxed"
+                                    className="text-xs text-muted-foreground/50 italic leading-relaxed"
                                 >
                                     {re.thinking}
                                 </p>
@@ -690,7 +690,7 @@ function SourcesSection({ sources }: { sources: Source[] }) {
                         ))}
                         {sources.length > 5 && (
                             <div className="pt-1.5 pl-5">
-                                <span className="text-[11px] text-muted-foreground/40 font-medium">
+                                <span className="text-xs text-muted-foreground/40 font-medium">
                                     {tProgress("moreSources", { count: sources.length - 5 })}
                                 </span>
                             </div>

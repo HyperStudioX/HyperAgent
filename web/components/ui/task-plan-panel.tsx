@@ -49,25 +49,25 @@ interface TaskPlanPanelProps {
 const COMPLEXITY_CONFIG = {
   simple: {
     labelKey: "complexity.simple" as const,
-    color: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-    dot: "bg-emerald-500",
+    color: "bg-success/15 text-success",
+    dot: "bg-success",
   },
   moderate: {
     labelKey: "complexity.moderate" as const,
-    color: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-    dot: "bg-amber-500",
+    color: "bg-warning/15 text-warning",
+    dot: "bg-warning",
   },
   complex: {
     labelKey: "complexity.complex" as const,
-    color: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
-    dot: "bg-rose-500",
+    color: "bg-destructive/15 text-destructive",
+    dot: "bg-destructive",
   },
 };
 
 const STEP_COMPLEXITY_CONFIG = {
-  low: { dot: "bg-emerald-500" },
-  medium: { dot: "bg-amber-500" },
-  high: { dot: "bg-rose-500" },
+  low: { dot: "bg-success" },
+  medium: { dot: "bg-warning" },
+  high: { dot: "bg-destructive" },
 };
 
 // Tool/skill badge
@@ -76,7 +76,7 @@ function ToolBadge({ name }: { name: string }) {
     <span
       className={cn(
         "inline-flex items-center gap-1 px-1.5 py-0.5",
-        "text-[10px] font-medium",
+        "text-xs font-medium",
         "bg-primary/10 text-primary/80",
         "rounded-md"
       )}
@@ -96,7 +96,7 @@ function DependencyBadge({ stepNumbers }: { stepNumbers: number[] }) {
     <span
       className={cn(
         "inline-flex items-center gap-1 px-1.5 py-0.5",
-        "text-[10px] font-medium",
+        "text-xs font-medium",
         "bg-muted text-muted-foreground/70",
         "rounded-md"
       )}
@@ -170,7 +170,7 @@ export function TaskPlanPanel({
             <span
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-0.5",
-                "text-[10px] font-medium rounded-full",
+                "text-xs font-medium rounded-full",
                 complexityConfig.color
               )}
             >
@@ -245,7 +245,7 @@ export function TaskPlanPanel({
                             "flex-shrink-0 w-6 h-6 rounded-full",
                             "flex items-center justify-center",
                             "border-2 border-border bg-card",
-                            "text-[11px] font-semibold text-muted-foreground"
+                            "text-xs font-semibold text-muted-foreground"
                           )}
                         >
                           {step.step_number}
@@ -306,7 +306,7 @@ export function TaskPlanPanel({
                       className="flex items-start gap-2 text-sm text-foreground/80"
                     >
                       <Check
-                        className="w-3.5 h-3.5 text-emerald-500 mt-0.5 flex-shrink-0"
+                        className="w-3.5 h-3.5 text-success mt-0.5 flex-shrink-0"
                         strokeWidth={2.5}
                       />
                       <span>{criterion}</span>
@@ -342,7 +342,7 @@ export function TaskPlanPanel({
                       className="flex items-start gap-2 text-sm text-foreground/80"
                     >
                       <Circle
-                        className="w-1.5 h-1.5 fill-amber-500 text-amber-500 mt-2 flex-shrink-0"
+                        className="w-1.5 h-1.5 fill-warning text-warning mt-2 flex-shrink-0"
                       />
                       <span>{challenge}</span>
                     </div>

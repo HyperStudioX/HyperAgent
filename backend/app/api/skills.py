@@ -97,7 +97,6 @@ class SkillListResponse(BaseModel):
 
     skills: list[SkillMetadataResponse]
     count: int
-    category: str | None = None
 
 
 # === Helper ===
@@ -230,22 +229,20 @@ async def get_skill_load_stats():
 
 @router.get("/", response_model=SkillListResponse)
 async def list_skills(
-    category: str | None = None,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """List all available skills.
 
     Args:
-        category: Optional category filter (research, code, data, creative, automation)
         current_user: Authenticated user
 
     Returns:
         List of available skills with metadata
     """
-    logger.info("list_skills_requested", user_id=current_user.id, category=category)
+    logger.info("list_skills_requested", user_id=current_user.id)
 
     try:
-        skills = skill_registry.list_skills(category=category)
+        skills = skill_registry.list_skills()
 
         skills_response = [
             SkillMetadataResponse(
@@ -276,7 +273,6 @@ async def list_skills(
         return SkillListResponse(
             skills=skills_response,
             count=len(skills_response),
-            category=category,
         )
 
     except Exception as e:

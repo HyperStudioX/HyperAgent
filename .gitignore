@@ -74,3 +74,6 @@ yarn-error.log*
 
 # Uploaded files (local development)
 backend/uploads/
+
+# Claude Code
+.claude/

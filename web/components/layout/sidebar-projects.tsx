@@ -116,7 +116,7 @@ export function SidebarProjects({ variant: _variant, onNavigate }: SidebarProjec
                                             <span
                                                 className={cn(
                                                     "w-3 h-3 rounded-full",
-                                                    COLOR_MAP[project.color || "blue"] || "bg-blue-500"
+                                                    COLOR_MAP[project.color || "blue"] || "bg-primary"
                                                 )}
                                             />
                                         </div>

@@ -431,7 +431,7 @@ export function VirtualComputerPanel() {
                         <span
                             className={cn(
                                 "w-1.5 h-1.5 rounded-full",
-                                isLive ? "bg-info animate-pulse" : "bg-muted-foreground/50"
+                                isLive ? "bg-primary animate-pulse" : "bg-muted-foreground/50"
                             )}
                         />
                         {t("live")}

@@ -90,8 +90,32 @@ class _TextExtractor(HTMLParser):
         return " ".join(self._chunks)
 
 
+def _is_private_ip(hostname: str) -> bool:
+    """Check if a hostname resolves to a private/reserved IP address."""
+    import ipaddress
+    import socket
+
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+        for family, _type, _proto, _canonname, sockaddr in addr_infos:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                return True
+    except (socket.gaierror, ValueError):
+        # If we can't resolve, treat as potentially unsafe
+        return True
+    return False
+
+
 def _fetch_page_for_structured_extraction(url: str) -> SearchResult:
     """Fetch and convert a URL into SearchResult-like content."""
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme: {parsed_url.scheme}")
+    hostname = parsed_url.hostname or ""
+    if _is_private_ip(hostname):
+        raise ValueError(f"Fetching private/internal URLs is not allowed: {hostname}")
+
     req = Request(
         url,
         headers={

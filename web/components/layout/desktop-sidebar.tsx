@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Sparkles, Library } from "lucide-react";
+import { Sparkles, Library, Plug } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
@@ -224,8 +224,24 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
 
             <div className="mx-3 border-t border-sidebar-border" />
 
-            {/* Skills Link */}
+            {/* Library Link */}
             <div className="px-3 pt-2 pb-1">
+                <button
+                    onClick={() => router.push("/library")}
+                    className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                        pathname === "/library"
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                    )}
+                >
+                    <Library className="w-4 h-4" />
+                    <span>{t("library")}</span>
+                </button>
+            </div>
+
+            {/* Skills Link */}
+            <div className="px-3 pb-1">
                 <button
                     onClick={() => router.push("/skills")}
                     className={cn(
@@ -240,19 +256,19 @@ export function DesktopSidebar({ className }: DesktopSidebarProps) {
                 </button>
             </div>
 
-            {/* Library Link */}
+            {/* Integrations Link */}
             <div className="px-3 pb-1">
                 <button
-                    onClick={() => router.push("/library")}
+                    onClick={() => router.push("/integrations")}
                     className={cn(
                         "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                        pathname === "/library"
+                        pathname === "/integrations"
                             ? "bg-sidebar-accent text-sidebar-accent-foreground"
                             : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                     )}
                 >
-                    <Library className="w-4 h-4" />
-                    <span>{t("library")}</span>
+                    <Plug className="w-4 h-4" />
+                    <span>{t("integrations")}</span>
                 </button>
             </div>
 

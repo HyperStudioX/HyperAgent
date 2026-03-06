@@ -80,6 +80,7 @@ async def query(
                 system_prompt=system_prompt,
                 provider=request.provider,
                 model=request.model,
+                memory_enabled=request.memory_enabled,
             )
 
             return UnifiedQueryResponse(
@@ -100,6 +101,7 @@ async def query(
                 system_prompt=system_prompt,
                 provider=request.provider,
                 model=request.model,
+                memory_enabled=request.memory_enabled,
                 scenario=request.scenario,
                 depth=request.depth,
             )
@@ -379,6 +381,7 @@ async def stream_query(
                     locale=request.locale,
                     budget=request.budget,
                     execution_mode=request.execution_mode,
+                    memory_enabled=request.memory_enabled,
                     skills=request.skills,
                     scenario=request.scenario,
                     depth=request.depth,
@@ -604,7 +607,7 @@ async def stream_query(
                     # the E2B sandbox has already timed out).
                     try:
                         from app.sandbox import get_execution_sandbox_manager
-                        exec_mgr = get_execution_sandbox_manager()
+                        exec_mgr = await get_execution_sandbox_manager()
                         await exec_mgr.save_snapshot_for_session(
                             user_id=current_user.id,
                             task_id=chat_task_id,

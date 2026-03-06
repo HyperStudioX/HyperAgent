@@ -85,13 +85,13 @@ class TestUnifiedSandboxManager:
         key = UnifiedSandboxManager.make_session_key(None, None)
         assert key == "unified:anonymous:default"
 
-    def test_singleton(self):
-        m1 = UnifiedSandboxManager.get_instance()
-        m2 = UnifiedSandboxManager.get_instance()
+    async def test_singleton(self):
+        m1 = await UnifiedSandboxManager.get_instance()
+        m2 = await UnifiedSandboxManager.get_instance()
         assert m1 is m2
 
-    def test_get_unified_sandbox_manager(self):
-        m = get_unified_sandbox_manager()
+    async def test_get_unified_sandbox_manager(self):
+        m = await get_unified_sandbox_manager()
         assert isinstance(m, UnifiedSandboxManager)
 
     def test_initial_metrics(self):

@@ -201,7 +201,7 @@ export function SkillBrowser({ onSkillSelect }: SkillBrowserProps) {
                 <span>{categoryLabels[cat]}</span>
                 <span
                   className={cn(
-                    "ml-0.5 text-[10px] tabular-nums",
+                    "ml-0.5 text-xs tabular-nums",
                     categoryFilter === cat
                       ? "text-background/60"
                       : "text-muted-foreground/60"

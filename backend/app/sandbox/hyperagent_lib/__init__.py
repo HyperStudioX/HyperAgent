@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -146,7 +147,7 @@ def browse(url: str) -> str:
         Response body as text
     """
     result = run_command(
-        f"curl -sL -m 30 --max-filesize 5242880 '{url}'",
+        f"curl -sL -m 30 --max-filesize 5242880 {shlex.quote(url)}",
         timeout=35,
     )
     if result["exit_code"] != 0:

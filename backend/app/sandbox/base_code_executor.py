@@ -113,6 +113,7 @@ class BaseCodeExecutor(ABC):
         """
         ...
 
+    @abstractmethod
     def set_runtime(self, runtime: SandboxRuntime) -> None:
         """Set an external SandboxRuntime for this executor.
 
@@ -122,9 +123,7 @@ class BaseCodeExecutor(ABC):
         Args:
             runtime: Pre-existing SandboxRuntime to use
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support set_runtime()"
-        )
+        ...
 
     @property
     @abstractmethod

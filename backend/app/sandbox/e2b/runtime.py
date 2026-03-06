@@ -3,9 +3,11 @@
 Wraps E2B's AsyncSandbox to satisfy the SandboxRuntime protocol.
 """
 
+import asyncio
+
 from e2b import AsyncSandbox
 
-from app.sandbox.runtime import CommandResult, OutputCallback, SandboxRuntime
+from app.sandbox.runtime import CommandResult, SandboxRuntime
 
 
 class E2BRuntime:
@@ -32,17 +34,11 @@ class E2BRuntime:
         command: str,
         timeout: int = 60,
         cwd: str | None = None,
-        on_stdout: OutputCallback | None = None,
-        on_stderr: OutputCallback | None = None,
     ) -> CommandResult:
         """Run a command via E2B sandbox."""
         kwargs: dict = {"timeout": timeout}
         if cwd is not None:
             kwargs["cwd"] = cwd
-        if on_stdout is not None:
-            kwargs["on_stdout"] = on_stdout
-        if on_stderr is not None:
-            kwargs["on_stderr"] = on_stderr
         result = await self._sandbox.commands.run(command, **kwargs)
         return CommandResult(
             exit_code=result.exit_code,
@@ -73,7 +69,8 @@ class E2BRuntime:
 
         Returns a full URL with scheme, e.g. "https://sandbox-id-5173.e2b.dev".
         """
-        return f"https://{self._sandbox.get_host(port)}"
+        host = await asyncio.to_thread(self._sandbox.get_host, port)
+        return f"https://{host}"
 
     async def save_snapshot(
         self,
@@ -81,8 +78,11 @@ class E2BRuntime:
         snapshot_id: str,
     ) -> bytes:
         """Tar specified paths and return the archive bytes."""
+        import re
         import shlex
 
+        if not re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
+            raise ValueError(f"Invalid snapshot_id: {snapshot_id!r}")
         paths_str = " ".join(shlex.quote(p) for p in paths)
         archive_path = f"/tmp/snapshot_{snapshot_id}.tar.gz"
 

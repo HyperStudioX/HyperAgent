@@ -48,34 +48,34 @@ const CONVERSATION_TYPE_CONFIG: Record<ConversationType, {
   research: {
     icon: <BookOpenText className="w-4 h-4" />,
     filterIcon: <BookOpenText className="w-3.5 h-3.5" />,
-    color: "text-indigo-500 dark:text-indigo-400",
+    color: "text-muted-foreground",
   },
   data: {
     icon: <BarChart3 className="w-4 h-4" />,
     filterIcon: <BarChart3 className="w-3.5 h-3.5" />,
-    color: "text-amber-500 dark:text-amber-400",
+    color: "text-muted-foreground",
   },
   app: {
     icon: <AppWindow className="w-4 h-4" />,
     filterIcon: <AppWindow className="w-3.5 h-3.5" />,
-    color: "text-rose-500 dark:text-rose-400",
+    color: "text-muted-foreground",
   },
   image: {
     icon: <ImageIcon className="w-4 h-4" />,
     filterIcon: <ImageIcon className="w-3.5 h-3.5" />,
-    color: "text-purple-500 dark:text-purple-400",
+    color: "text-muted-foreground",
   },
   slide: {
     icon: <Presentation className="w-4 h-4" />,
     filterIcon: <Presentation className="w-3.5 h-3.5" />,
-    color: "text-teal-500 dark:text-teal-400",
+    color: "text-muted-foreground",
   },
 };
 
 // Legacy task items (from old research worker) use Search icon
 const TASK_ITEM_CONFIG = {
   icon: <Search className="w-4 h-4" />,
-  color: "text-blue-500 dark:text-blue-400",
+  color: "text-muted-foreground",
 };
 
 const FILTER_ICONS: Record<FilterType, React.ReactNode> = {

@@ -148,17 +148,6 @@ class TestListSkillsWithMetadataCache:
         ids = {s.id for s in skills}
         assert "stub_disabled" in ids
 
-    def test_list_by_category(self):
-        registry = _make_registry_with_stubs()
-        skills = registry.list_skills(category="research")
-        ids = {s.id for s in skills}
-        assert ids == {"stub_b"}
-
-    def test_list_by_nonexistent_category(self):
-        registry = _make_registry_with_stubs()
-        skills = registry.list_skills(category="nonexistent")
-        assert skills == []
-
     def test_list_does_not_trigger_full_loading(self):
         """Listing skills should NOT populate _loaded_skills."""
         registry = _make_registry_with_stubs()
@@ -351,24 +340,3 @@ class TestUnloadSkill:
         assert skill1 is not skill2
 
 
-class TestCategoryFiltering:
-    """Tests for list_skills category filtering with metadata cache."""
-
-    def test_filter_code_category(self):
-        registry = _make_registry_with_stubs()
-        skills = registry.list_skills(category="code")
-        ids = {s.id for s in skills}
-        # stub_a is code, stub_disabled is code but disabled
-        assert ids == {"stub_a"}
-
-    def test_filter_research_category(self):
-        registry = _make_registry_with_stubs()
-        skills = registry.list_skills(category="research")
-        ids = {s.id for s in skills}
-        assert ids == {"stub_b"}
-
-    def test_filter_code_including_disabled(self):
-        registry = _make_registry_with_stubs()
-        skills = registry.list_skills(category="code", enabled_only=False)
-        ids = {s.id for s in skills}
-        assert ids == {"stub_a", "stub_disabled"}

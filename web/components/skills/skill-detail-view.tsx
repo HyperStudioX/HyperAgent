@@ -150,8 +150,8 @@ export function SkillDetailView({ skillId }: SkillDetailViewProps) {
               className={cn(
                 "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded",
                 skill.enabled
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : "bg-red-500/10 text-red-600 dark:text-red-400"
+                  ? "bg-success/10 text-success"
+                  : "bg-destructive/10 text-destructive"
               )}
             >
               {skill.enabled ? (
@@ -303,7 +303,7 @@ export function SkillDetailView({ skillId }: SkillDetailViewProps) {
                     </td>
                     <td className="px-4 py-2.5">
                       {param.required ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-success" />
                       ) : (
                         <span className="text-xs text-muted-foreground/50">-</span>
                       )}

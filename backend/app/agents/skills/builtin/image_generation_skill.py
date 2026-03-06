@@ -53,14 +53,14 @@ class ImageGenerationSkill(ToolSkill):
             SkillParameter(
                 name="model",
                 type="string",
-                description="Leave empty to use server default. Only specify if user requests a specific model.",
+                description="Model: gemini-3-pro-image-preview, dall-e-3, or dall-e-2",
                 required=False,
                 default=None,
             ),
             SkillParameter(
                 name="quality",
                 type="string",
-                description="Image quality: standard or hd (provider support varies)",
+                description="Quality for DALL-E 3: standard or hd",
                 required=False,
                 default="standard",
             ),
@@ -109,6 +109,7 @@ class ImageGenerationSkill(ToolSkill):
         prompt = params["prompt"]
         size = params.get("size", "1024x1024")
         n = int(params.get("n", 1))
+        n = max(1, min(4, n))
         model = params.get("model")
         quality = params.get("quality", "standard")
         user_id = context.user_id

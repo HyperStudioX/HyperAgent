@@ -5,14 +5,14 @@
 
 @layer base {
   :root {
-    /* Light Theme - Modern neutral with teal accent (OKLCH) */
+    /* Light Theme - Cool neutral with indigo accent (OKLCH) */
     --background: 0.985 0.004 230;
     --foreground: 0.23 0.012 250;
     --card: 0.993 0.002 230;
     --card-foreground: 0.20 0.012 250;
     --popover: 1.00 0 0;
     --popover-foreground: 0.20 0.012 250;
-    --primary: 0.609 0.113 221;           /* #0891B2 — logo teal */
+    --primary: 0.53 0.185 275;            /* indigo — AI agent accent */
     --primary-foreground: 1.00 0 0;
     --secondary: 0.960 0.004 230;
     --secondary-foreground: 0.42 0.01 250;
@@ -20,13 +20,13 @@
     --muted-foreground: 0.55 0.01 250;
     --accent: 0.950 0.005 230;
     --accent-foreground: 0.20 0.012 250;
-    --accent-cyan: 192 91% 37%;           /* #0891B2 — logo teal */
+    --accent-cyan: 192 91% 37%;           /* #0891B2 — logo teal, decorative accent */
     --destructive: 0.55 0.22 27;
     --destructive-foreground: 1.00 0 0;
     --border: 0.925 0.004 230;
     --input: 0.935 0.005 230;
-    --ring: 0.609 0.113 221;
-    --radius: 0.625rem;
+    --ring: 0.53 0.185 275;
+    --radius: 0.25rem;
 
     /* Semantic status colors (HSL) */
     --success: 142 71% 45%;
@@ -58,12 +58,12 @@
     /* Sidebar (OKLCH) */
     --sidebar: 0.975 0.004 230;
     --sidebar-foreground: 0.37 0.008 250;
-    --sidebar-primary: 0.609 0.113 221;   /* #0891B2 — logo teal */
+    --sidebar-primary: 0.53 0.185 275;    /* indigo — matches primary */
     --sidebar-primary-foreground: 1.00 0 0;
     --sidebar-accent: 0.945 0.005 230;
     --sidebar-accent-foreground: 0.25 0.012 250;
     --sidebar-border: 0.935 0.004 230;
-    --sidebar-ring: 0.609 0.113 221;
+    --sidebar-ring: 0.53 0.185 275;
 
     /* Shadows */
     --shadow-2xs: 0 1px 2px 0 rgba(0,0,0,0.02);
@@ -86,7 +86,7 @@
     --card-foreground: 0.92 0.004 230;
     --popover: 0.22 0.008 250;
     --popover-foreground: 0.90 0.004 230;
-    --primary: 0.796 0.134 212;            /* #22D3EE — logo bright teal */
+    --primary: 0.74 0.15 275;              /* bright indigo — AI agent accent */
     --primary-foreground: 0.13 0.01 250;
     --secondary: 0.24 0.008 250;
     --secondary-foreground: 0.82 0.005 230;
@@ -94,12 +94,12 @@
     --muted-foreground: 0.58 0.008 250;
     --accent: 0.23 0.01 250;
     --accent-foreground: 0.92 0.004 230;
-    --accent-cyan: 188 86% 53%;           /* #22D3EE — logo bright teal */
+    --accent-cyan: 188 86% 53%;           /* #22D3EE — logo teal, decorative accent */
     --destructive: 0.60 0.21 25;
     --destructive-foreground: 1.00 0 0;
     --border: 0.28 0.008 250;
     --input: 0.30 0.008 250;
-    --ring: 0.796 0.134 212;
+    --ring: 0.74 0.15 275;
 
     /* Semantic status colors (HSL) */
     --success: 142 71% 50%;
@@ -131,14 +131,14 @@
     /* Sidebar (OKLCH, dark mode) */
     --sidebar: 0.16 0.006 250;
     --sidebar-foreground: 0.82 0.005 230;
-    --sidebar-primary: 0.796 0.134 212;   /* #22D3EE — logo bright teal */
+    --sidebar-primary: 0.74 0.15 275;     /* bright indigo — matches primary */
     --sidebar-primary-foreground: 0.13 0.01 250;
     --sidebar-accent: 0.22 0.01 250;
     --sidebar-accent-foreground: 0.88 0.005 230;
     --sidebar-border: 0.26 0.006 250;
     --sidebar-ring: 0.45 0.008 250;
     --tracking-normal: 0em;
-    --radius: 0.625rem;
+    --radius: 0.25rem;
 
     /* Shadows */
     --shadow-2xs: 0 1px 2px 0 rgba(0,0,0,0.03);
@@ -151,7 +151,7 @@
     --shadow-2xl: 0 24px 48px -12px rgba(0,0,0,0.18);
   }
   .theme {
-    --radius: 0.625rem;
+    --radius: 0.25rem;
     --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
     --tracking-tight: calc(var(--tracking-normal) - 0.025em);
     --tracking-wide: calc(var(--tracking-normal) + 0.025em);
@@ -208,6 +208,14 @@
   h5 {
     @apply text-lg font-medium;
   }
+
+  /* Semantic status utilities */
+  .text-success { color: hsl(var(--success)); }
+  .bg-success { background-color: hsl(var(--success)); }
+  .text-warning { color: hsl(var(--warning)); }
+  .bg-warning { background-color: hsl(var(--warning)); }
+  .text-info { color: hsl(var(--info)); }
+  .bg-info { background-color: hsl(var(--info)); }
 }
 
 /* Refined scrollbar */

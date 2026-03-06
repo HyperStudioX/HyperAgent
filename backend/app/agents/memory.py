@@ -147,6 +147,10 @@ class ConversationMemory:
         # Reconstruct message list
         self._messages = system_messages + trimmed_other
 
+        # Hard cap: ensure we never exceed max_messages even if system messages push us over
+        if len(self._messages) > self.max_messages:
+            self._messages = self._messages[:self.max_messages]
+
         trimmed_count = len(other_messages) - len(trimmed_other)
         if trimmed_count > 0:
             logger.info(

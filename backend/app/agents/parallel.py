@@ -199,7 +199,9 @@ async def _execute_sub_task(
     """
     import time
     start = time.time()
-    sub_task.status = "running"
+    status = "running"
+    result_text = ""
+    error_text: str | None = None
 
     try:
         # Use web_research skill for each sub-task
@@ -228,16 +230,29 @@ async def _execute_sub_task(
                 )),
             ])
 
-        sub_task.result = extract_text_from_content(result.content)
-        sub_task.status = "completed"
+        result_text = extract_text_from_content(result.content)
+        status = "completed"
 
     except Exception as e:
         logger.warning("sub_task_failed", task_id=sub_task.id, error=str(e))
-        sub_task.status = "failed"
-        sub_task.error = str(e)
+        status = "failed"
+        error_text = str(e)
 
-    sub_task.duration_ms = max(1, int((time.time() - start) * 1000))
-    return sub_task
+    duration_ms = max(1, int((time.time() - start) * 1000))
+
+    # Return a new SubTask instead of mutating the input
+    return SubTask(
+        id=sub_task.id,
+        query=sub_task.query,
+        focus_area=sub_task.focus_area,
+        task_type=sub_task.task_type,
+        tools_hint=sub_task.tools_hint,
+        status=status,
+        result=result_text,
+        error=error_text,
+        duration_ms=duration_ms,
+        shared_findings=sub_task.shared_findings,
+    )
 
 
 async def synthesize_results(
@@ -461,10 +476,10 @@ async def _execute_general_sub_task(
     provider: str | None = None,
     shared_state: dict | None = None,
 ) -> SubTask:
-    """Execute a general sub-task using PRO-tier LLM with tool guidance.
+    """Execute a general sub-task using PRO-tier LLM reasoning only (no tool execution).
 
-    For general tasks, the sub-agent gets guidance on which tools to use
-    but executes via LLM reasoning rather than direct tool calls.
+    The sub-agent receives tool hints for context but does not invoke tools
+    directly. All output is generated via LLM reasoning.
 
     Args:
         sub_task: The sub-task to execute
@@ -476,7 +491,10 @@ async def _execute_general_sub_task(
     """
     import time
     start = time.time()
-    sub_task.status = "running"
+    status = "running"
+    result_text = ""
+    error_text: str | None = None
+    findings: dict[str, Any] = {}
 
     try:
         llm = llm_service.get_llm_for_tier(ModelTier.PRO, provider=provider)
@@ -497,23 +515,36 @@ async def _execute_general_sub_task(
                 HumanMessage(content="\n".join(context_parts)),
             ])
 
-        sub_task.result = extract_text_from_content(result.content)
-        sub_task.status = "completed"
+        result_text = extract_text_from_content(result.content)
+        status = "completed"
 
         # Extract any findings to share with other sub-tasks
-        sub_task.shared_findings = {
+        findings = {
             "focus_area": sub_task.focus_area,
             "status": "completed",
-            "summary": sub_task.result[:500],
+            "summary": result_text[:500],
         }
 
     except Exception as e:
         logger.warning("general_sub_task_failed", task_id=sub_task.id, error=str(e))
-        sub_task.status = "failed"
-        sub_task.error = str(e)
+        status = "failed"
+        error_text = str(e)
 
-    sub_task.duration_ms = max(1, int((time.time() - start) * 1000))
-    return sub_task
+    duration_ms = max(1, int((time.time() - start) * 1000))
+
+    # Return a new SubTask instead of mutating the input
+    return SubTask(
+        id=sub_task.id,
+        query=sub_task.query,
+        focus_area=sub_task.focus_area,
+        task_type=sub_task.task_type,
+        tools_hint=sub_task.tools_hint,
+        status=status,
+        result=result_text,
+        error=error_text,
+        duration_ms=duration_ms,
+        shared_findings=findings,
+    )
 
 
 async def synthesize_general_results(
@@ -559,15 +590,16 @@ async def synthesize_general_results(
 
 
 class GeneralParallelExecutor:
-    """Executes any task type in parallel via decomposition.
+    """Executes any task type in parallel via LLM reasoning only (no tool execution).
 
-    Extends the research-only ParallelExecutor to support general-purpose
-    tasks with full tool access guidance and inter-agent shared state.
+    Decomposes a complex task into independent sub-tasks, executes each via
+    PRO-tier LLM reasoning (without direct tool calls), and synthesizes the
+    results. Sub-agents receive tool hints but do not invoke tools directly.
 
     Usage:
         executor = GeneralParallelExecutor(max_agents=3)
         result = await executor.execute(
-            query="Build a REST API with user auth and a React frontend",
+            query="Analyze the pros and cons of three database options",
             provider="anthropic",
         )
     """

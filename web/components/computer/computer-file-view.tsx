@@ -228,7 +228,7 @@ function FileItem({
                 "hover:bg-secondary/80 transition-colors cursor-pointer",
                 "focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
                 isSelected
-                    ? "bg-primary/8 border-l-2 border-l-primary"
+                    ? "bg-primary/5 border-l-2 border-l-primary"
                     : "border-l-2 border-l-transparent",
                 isChanged && "bg-primary/5"
             )}
@@ -310,7 +310,7 @@ function ExternalFileItem({
                 "hover:bg-secondary/80 transition-colors cursor-pointer",
                 "focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
                 isSelected
-                    ? "bg-primary/8 border-l-2 border-l-primary"
+                    ? "bg-primary/5 border-l-2 border-l-primary"
                     : "border-l-2 border-l-transparent"
             )}
         >

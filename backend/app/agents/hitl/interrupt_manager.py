@@ -65,6 +65,7 @@ class InterruptManager:
         interrupt_id: str,
         interrupt_data: dict[str, Any],
         ttl_seconds: int | None = None,
+        user_id: str | None = None,
     ) -> None:
         """Store an interrupt in Redis for the given thread.
 
@@ -73,6 +74,7 @@ class InterruptManager:
             interrupt_id: Unique interrupt identifier
             interrupt_data: Interrupt event data
             ttl_seconds: Time-to-live in seconds (default from interrupt timeout)
+            user_id: Owner user ID for access control
         """
         r = await self._get_redis()
         key = f"{INTERRUPT_KEY_PREFIX}{thread_id}:{interrupt_id}"
@@ -81,7 +83,9 @@ class InterruptManager:
         if ttl_seconds is None:
             ttl_seconds = interrupt_data.get("timeout_seconds", 120) + 30  # Add buffer
 
-        await r.setex(key, ttl_seconds, json.dumps(interrupt_data))
+        # Store user_id for ownership verification
+        stored_data = {**interrupt_data, "user_id": user_id} if user_id else dict(interrupt_data)
+        await r.setex(key, ttl_seconds, json.dumps(stored_data))
         logger.info(
             "interrupt_created",
             thread_id=thread_id,

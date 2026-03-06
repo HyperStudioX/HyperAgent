@@ -52,27 +52,31 @@ def inject_tool_context(
 ) -> dict:
     """Inject user_id/task_id into tool args based on tool category.
 
+    Creates and returns a new dict with context fields added.
+    The original args dict is never mutated.
+
     Args:
         tool_name: Name of the tool being invoked
-        args: Current tool arguments (modified in-place)
+        args: Current tool arguments (not modified)
         user_id: User ID for context injection
         task_id: Task ID for context injection
 
     Returns:
-        The args dict (same reference, modified in-place)
+        A new dict with context fields injected as needed.
     """
+    result = {**args}
     session_tools = _get_session_tool_names()
 
     if tool_name in session_tools:
         # Only overwrite if the injected value is not None, or the key is
         # absent.  This prevents inject_tool_context from clobbering values
         # that were already set via extra_tool_args in execute_react_loop.
-        if user_id is not None or "user_id" not in args:
-            args["user_id"] = user_id
-        if task_id is not None or "task_id" not in args:
-            args["task_id"] = task_id
+        if user_id is not None or "user_id" not in result:
+            result["user_id"] = user_id
+        if task_id is not None or "task_id" not in result:
+            result["task_id"] = task_id
     elif tool_name in _USER_ONLY_TOOLS:
-        if user_id is not None or "user_id" not in args:
-            args["user_id"] = user_id
+        if user_id is not None or "user_id" not in result:
+            result["user_id"] = user_id
 
-    return args
+    return result

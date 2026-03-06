@@ -7,6 +7,7 @@ as an intermediary to avoid direct sandbox-to-sandbox transfers.
 
 from __future__ import annotations
 
+import shlex
 import uuid
 from io import BytesIO
 from typing import Any
@@ -70,7 +71,7 @@ async def collect_artifacts(
     # Build find command for all patterns
     find_parts = []
     for pat in patterns:
-        find_parts.append(f"-name '{pat}'")
+        find_parts.append(f"-name {shlex.quote(pat)}")
     find_expr = " -o ".join(find_parts)
 
     # Search in /home/user (standard sandbox working dir)
@@ -106,13 +107,14 @@ async def collect_artifacts(
         # Get file size
         try:
             stat_result = await runtime.run_command(
-                f"stat -c '%s' '{path}' 2>/dev/null || stat -f '%z' '{path}' 2>/dev/null",
+                f"stat -c '%s' {shlex.quote(path)} 2>/dev/null || stat -f '%z' {shlex.quote(path)} 2>/dev/null",
                 timeout=5,
             )
             if stat_result.exit_code != 0 or not stat_result.stdout.strip():
                 continue
             file_size = int(stat_result.stdout.strip())
-        except (ValueError, Exception):
+        except (ValueError, OSError) as e:
+            logger.warning("artifact_stat_failed", path=path, error=str(e))
             continue
 
         # Check size budget
@@ -228,7 +230,7 @@ async def restore_artifacts(
             # Ensure parent directory exists in target sandbox
             parent_dir = "/".join(path.split("/")[:-1])
             if parent_dir:
-                await runtime.run_command(f"mkdir -p '{parent_dir}'", timeout=10)
+                await runtime.run_command(f"mkdir -p {shlex.quote(parent_dir)}", timeout=10)
 
             # Write file to target sandbox
             await runtime.write_file(path, content)

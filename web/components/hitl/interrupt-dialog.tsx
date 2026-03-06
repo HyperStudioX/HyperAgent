@@ -267,7 +267,7 @@ function DecisionContent({
                         className={cn(
                             "w-full text-left p-3 rounded-lg border transition-colors",
                             selected === option.value
-                                ? "border-accent-cyan bg-accent-cyan/10"
+                                ? "border-primary bg-primary/10"
                                 : "border-border hover:border-border/80 hover:bg-secondary/50"
                         )}
                         onClick={() => setSelected(option.value)}
@@ -504,7 +504,7 @@ export function InterruptDialog({ interrupt, onRespond, onCancel }: InterruptDia
                             <div className={cn(
                                 "w-8 h-8 rounded-lg flex items-center justify-center",
                                 interrupt.interrupt_type === "approval"
-                                    ? "bg-amber-500/10 text-amber-500"
+                                    ? "bg-warning/10 text-warning"
                                     : "bg-accent-cyan/10 text-accent-cyan"
                             )}>
                                 <DialogIcon className="w-4 h-4" />

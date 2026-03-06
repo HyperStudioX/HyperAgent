@@ -120,6 +120,11 @@ async def get_current_user(
     """
     if not settings.auth_enabled:
         # Return a dummy user when auth is disabled (for development)
+        logger.warning(
+            "auth_disabled_dummy_user",
+            detail="Authentication is disabled. All requests use a shared dev user. "
+            "Do NOT run in production with auth disabled.",
+        )
         return CurrentUser(
             id="dev-user",
             email="dev@example.com",

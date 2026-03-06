@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from langchain_core.callbacks import adispatch_custom_event
+from langchain_core.callbacks import dispatch_custom_event
 from langchain_core.tools import tool
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,15 +16,10 @@ logger = get_logger(__name__)
 
 def _remove_internal_fields(schema: dict[str, Any]) -> dict[str, Any]:
     """Remove user_id and task_id from JSON schema so the LLM cannot see or set them."""
-    props = schema.get("properties", {})
-    props.pop("user_id", None)
-    props.pop("task_id", None)
-    props.pop("user_intent_source", None)
-    required = schema.get("required", [])
-    schema["required"] = [
-        r for r in required if r not in ("user_id", "task_id", "user_intent_source")
-    ]
-    return schema
+    internal = {"user_id", "task_id", "user_intent_source"}
+    props = {k: v for k, v in schema.get("properties", {}).items() if k not in internal}
+    required = [r for r in schema.get("required", []) if r not in internal]
+    return {**schema, "properties": props, "required": required}
 
 
 class InvokeSkillInput(BaseModel):
@@ -162,14 +157,11 @@ async def invoke_skill(
                 # Dispatch in real-time via LangChain callback system
                 # so the stream processor can yield them immediately
                 try:
-                    await adispatch_custom_event("skill_event", data=event)
-                except Exception as e:
-                    logger.warning(
-                        "skill_event_dispatch_failed",
-                        skill_id=skill_id,
-                        event_type=event_type,
-                        error=str(e),
+                    dispatch_custom_event(
+                        "skill_event", data=event
                     )
+                except Exception:
+                    pass  # Don't block on dispatch failure
 
         if error:
             logger.error("skill_execution_error", skill_id=skill_id, error=error)
@@ -209,38 +201,24 @@ async def invoke_skill(
         )
 
 
-class ListSkillsInput(BaseModel):
-    """Input schema for listing skills."""
-
-    category: str | None = Field(
-        default=None,
-        description="Optional category filter (research, code, data, creative, automation)",
-    )
-    # Note: list_skills does not need user_id/task_id since it just lists
-    # available skills without any session-specific context
-
-
-@tool(args_schema=ListSkillsInput)
-async def list_skills(category: str | None = None) -> str:
+@tool
+async def list_skills() -> str:
     """List all available skills that can be invoked.
 
     Use this tool to discover what skills are available and what they do.
     Each skill has a specific purpose and required parameters.
 
-    Args:
-        category: Optional category filter (e.g., 'research', 'code', 'data')
-
     Returns:
         JSON string with available skills and their metadata
     """
-    logger.debug("list_skills_tool_called", category=category)
+    logger.debug("list_skills_tool_called")
 
-    skills = skill_registry.list_skills(category=category)
+    skills = skill_registry.list_skills()
 
     if not skills:
         return json.dumps(
             {
-                "message": "No skills found" + (f" in category '{category}'" if category else ""),
+                "message": "No skills found",
                 "skills": [],
             }
         )
@@ -271,7 +249,6 @@ async def list_skills(category: str | None = None) -> str:
         {
             "skills": skills_data,
             "count": len(skills_data),
-            "category": category,
         },
         indent=2,
     )

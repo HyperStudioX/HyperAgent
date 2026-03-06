@@ -99,8 +99,6 @@ class AppBuilderState(SkillState):
     plan: dict[str, Any] | None
     generated_files: list[dict[str, Any]]
     preview_url: str | None
-    display_url: str | None  # User-friendly URL (e.g. http://localhost:5173)
-    sandbox_id: str | None  # Sandbox ID for browser preview
     build_errors: list[str]
     current_step: str
     retry_count: int
@@ -393,7 +391,7 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
             )
 
             try:
-                manager = get_app_sandbox_manager()
+                manager = await get_app_sandbox_manager()
 
                 # Create sandbox and scaffold
                 session = await manager.get_or_create_sandbox(
@@ -557,7 +555,7 @@ Be practical and create a working app, not just boilerplate. Focus on the core f
             )
 
             try:
-                manager = get_app_sandbox_manager()
+                manager = await get_app_sandbox_manager()
                 session = await manager.get_session(user_id=user_id, task_id=task_id)
 
                 if not session:
@@ -855,7 +853,7 @@ The code should be complete and immediately runnable."""
             logger.info("app_builder_starting_server")
 
             try:
-                manager = get_app_sandbox_manager()
+                manager = await get_app_sandbox_manager()
                 session = await manager.get_session(user_id=user_id, task_id=task_id)
 
                 if not session:
@@ -887,11 +885,10 @@ The code should be complete and immediately runnable."""
                 result = await manager.start_dev_server(session)
 
                 if result["success"]:
-                    display_url = result.get("display_url", result["preview_url"])
                     # Emit terminal output with server URL
                     pending_events.append(
                         agent_events.terminal_output(
-                            content=f"Server running at {display_url}",
+                            content=f"Server running at {result['preview_url']}",
                             stream="stdout",
                         )
                     )
@@ -905,7 +902,6 @@ The code should be complete and immediately runnable."""
                             stream_url=result["preview_url"],
                             sandbox_id=sandbox_id,
                             auth_key=None,
-                            display_url=result.get("display_url"),
                         )
                     )
                     pending_events.append(
@@ -917,8 +913,6 @@ The code should be complete and immediately runnable."""
                     )
                     return {
                         "preview_url": result["preview_url"],
-                        "display_url": result.get("display_url", result["preview_url"]),
-                        "sandbox_id": sandbox_id,
                         "current_step": "start_server",  # Return current step, route_step maps to next
                         "iterations": state.get("iterations", 0) + 1,
                         "pending_events": pending_events,
@@ -996,7 +990,7 @@ The code should be complete and immediately runnable."""
             )
 
             try:
-                manager = get_app_sandbox_manager()
+                manager = await get_app_sandbox_manager()
                 session = await manager.get_session(user_id=user_id, task_id=task_id)
 
                 if not session:
@@ -1158,15 +1152,12 @@ Output ONLY the JSON, no explanation."""
 
             # Prepare output
             if preview_url:
-                friendly_url = state.get("display_url") or preview_url
                 output = {
                     "success": True,
                     "preview_url": preview_url,
-                    "display_url": friendly_url,
-                    "sandbox_id": state.get("sandbox_id", ""),
                     "template": plan.get("template", "unknown"),
                     "files_created": [f["path"] for f in generated_files],
-                    "message": f"App built successfully! View it at: {friendly_url}",
+                    "message": f"App built successfully! View it at: {preview_url}",
                 }
 
                 if build_errors:

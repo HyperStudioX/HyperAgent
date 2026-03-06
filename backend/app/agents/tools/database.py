@@ -26,7 +26,7 @@ QUERY_TIMEOUT = 30
 
 # SQL statements that modify data
 WRITE_STATEMENTS = re.compile(
-    r"^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE)\b",
+    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE)\b",
     re.IGNORECASE,
 )
 
@@ -36,7 +36,7 @@ def _is_write_query(query: str) -> bool:
     # Strip comments
     stripped = re.sub(r"--[^\n]*", "", query)
     stripped = re.sub(r"/\*.*?\*/", "", stripped, flags=re.DOTALL)
-    return bool(WRITE_STATEMENTS.match(stripped.strip()))
+    return bool(WRITE_STATEMENTS.search(stripped.strip()))
 
 
 def _format_as_markdown_table(columns: list[str], rows: list[tuple]) -> str:

@@ -51,7 +51,7 @@ export function PlanStepRow({ step, index, isLast, isExpanded, onToggle }: PlanS
             <div
               className={cn(
                 "w-[22px] h-[22px] rounded-full flex items-center justify-center",
-                "text-[10px] font-semibold",
+                "text-xs font-semibold",
                 isCompleted && "border-2 border-primary/30 bg-primary/5 text-primary/60",
                 step.status === "failed" && "border-2 border-destructive/30 bg-destructive/5 text-destructive/60",
                 step.status === "pending" && "border-2 border-border bg-card text-muted-foreground/40"
@@ -69,7 +69,7 @@ export function PlanStepRow({ step, index, isLast, isExpanded, onToggle }: PlanS
             isRunning && "text-foreground font-medium",
             isCompleted && "text-muted-foreground/60",
             step.status === "failed" && "text-destructive/80",
-            step.status === "pending" && "text-muted-foreground/30"
+            step.status === "pending" && "text-muted-foreground/50"
           )}
         >
           {step.title}
@@ -97,7 +97,7 @@ export function PlanStepRow({ step, index, isLast, isExpanded, onToggle }: PlanS
       {/* Result summary for completed steps */}
       {isExpanded && isCompleted && step.resultSummary && (
         <div className="pl-[30px] pb-1">
-          <p className="text-xs text-muted-foreground/40 italic leading-relaxed truncate">
+          <p className="text-xs text-muted-foreground/50 italic leading-relaxed truncate">
             {step.resultSummary}
           </p>
         </div>

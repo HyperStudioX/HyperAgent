@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.agents.skills.artifact_saver import save_skill_artifact
 from app.agents.skills.skill_base import (
     SkillContext,
     SkillMetadata,
@@ -170,6 +171,14 @@ class TaskPlanningSkill(ToolSkill):
                     "description": "Questions if requirements are unclear",
                     "items": {"type": "string"},
                 },
+                "download_url": {
+                    "type": "string",
+                    "description": "URL to download the generated plan file",
+                },
+                "storage_key": {
+                    "type": "string",
+                    "description": "Storage key for the generated plan file",
+                },
             },
         },
         required_tools=[],
@@ -250,7 +259,9 @@ Additional Context:
 create a detailed, actionable execution plan.
 
 Task Description:
+<user_request>
 {task_description}
+</user_request>
 {context_section}
 {tools_section}
 
@@ -270,7 +281,7 @@ Important:
 - Consider error handling and fallback approaches
 - Keep the plan focused on achieving the stated goal"""
 
-        llm = llm_service.get_llm_for_tier(ModelTier.PRO)
+        llm = llm_service.get_llm_for_tier(ModelTier.MAX)
         structured_llm = llm.with_structured_output(TaskPlan)
 
         result: TaskPlan = await structured_llm.ainvoke(prompt)
@@ -287,6 +298,13 @@ Important:
 
         if revision_mode:
             output["is_revision"] = True
+
+        # Save plan as downloadable markdown artifact
+        md = _plan_to_markdown(result)
+        artifact = await save_skill_artifact(md, context.user_id, "plan")
+        if artifact:
+            output["download_url"] = artifact["download_url"]
+            output["storage_key"] = artifact["storage_key"]
 
         logger.info(
             "task_planning_skill_completed",
@@ -333,7 +351,9 @@ Important:
 encountered failures. Revise the plan to work around the issues.
 
 Original Task:
+<user_request>
 {task_description}
+</user_request>
 {context_section}
 
 {completed_section}
@@ -353,3 +373,53 @@ Important:
 - Learn from the failures — do not repeat the same approach that failed
 - Consider alternative tools or methods for failed steps
 - Keep the plan practical and achievable"""
+
+
+def _plan_to_markdown(plan: TaskPlan) -> str:
+    """Format a TaskPlan as a well-structured Markdown document."""
+    lines: list[str] = []
+
+    lines.append(f"# Task Plan: {plan.task_summary}")
+    lines.append("")
+    lines.append(f"**Complexity:** {plan.complexity_assessment}")
+    lines.append("")
+
+    # Steps
+    lines.append("## Steps")
+    lines.append("")
+    for step in plan.steps:
+        deps = ""
+        if step.depends_on:
+            deps = f" (depends on: {', '.join(f'#{d}' for d in step.depends_on)})"
+        tool_note = f" — *Tool: {step.tool_or_skill}*" if step.tool_or_skill else ""
+        lines.append(
+            f"{step.step_number}. **[{step.estimated_complexity}]** "
+            f"{step.action}{tool_note}{deps}"
+        )
+    lines.append("")
+
+    # Success Criteria
+    if plan.success_criteria:
+        lines.append("## Success Criteria")
+        lines.append("")
+        for criterion in plan.success_criteria:
+            lines.append(f"- [ ] {criterion}")
+        lines.append("")
+
+    # Potential Challenges
+    if plan.potential_challenges:
+        lines.append("## Potential Challenges")
+        lines.append("")
+        for challenge in plan.potential_challenges:
+            lines.append(f"- {challenge}")
+        lines.append("")
+
+    # Clarifying Questions
+    if plan.clarifying_questions:
+        lines.append("## Clarifying Questions")
+        lines.append("")
+        for question in plan.clarifying_questions:
+            lines.append(f"- {question}")
+        lines.append("")
+
+    return "\n".join(lines)

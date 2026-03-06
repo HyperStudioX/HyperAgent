@@ -5,7 +5,9 @@ organized by category. Agents can request tools by category to get
 only the tools relevant to their specialization.
 """
 
+import asyncio
 import importlib
+import inspect
 from enum import Enum
 from typing import Any
 
@@ -20,7 +22,6 @@ from app.agents.policy.contracts import (
 )
 from app.agents.tools.app_builder import get_app_builder_tools
 from app.agents.tools.codeact import execute_script
-from app.agents.tools.complete_step import complete_step_tool
 from app.agents.tools.browser_use import (
     browser_click,
     browser_console_exec,
@@ -83,7 +84,15 @@ def _invalidate_cached_agent_tools() -> None:
             module = importlib.import_module(module_path)
             invalidator = getattr(module, fn_name, None)
             if callable(invalidator):
-                invalidator()
+                result = invalidator()
+                # Handle async invalidators (e.g. _clear_tool_cache)
+                if inspect.isawaitable(result):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(result)
+                    except RuntimeError:
+                        # No running event loop — close the coroutine to avoid warning
+                        result.close()
         except Exception as e:
             logger.debug(
                 "tool_cache_invalidation_skipped",
@@ -115,7 +124,6 @@ class ToolCategory(str, Enum):
     TOOL_SEARCH = "tool_search"  # Meta-tool for discovering tools
     MCP = "mcp"  # MCP (Model Context Protocol) tools from external servers
     CODEACT = "codeact"  # CodeAct hybrid execution (multi-line Python with helpers)
-    PLAN_TRACKING = "plan_tracking"  # Plan step completion tracking
 
 
 # Tool instances by category
@@ -174,8 +182,6 @@ TOOL_CATALOG: dict[ToolCategory, list[BaseTool]] = {
     ToolCategory.MCP: [],
     # CodeAct - multi-line Python execution with helper library
     ToolCategory.CODEACT: [execute_script],
-    # Plan step tracking
-    ToolCategory.PLAN_TRACKING: [complete_step_tool],
 }
 
 
@@ -285,9 +291,6 @@ TOOL_CONTRACTS: dict[str, CapabilityContract] = {
     "execute_script": CapabilityContract(
         SideEffectLevel.HIGH, DataSensitivity.SENSITIVE, NetworkScope.SANDBOX_ONLY, False
     ),
-    "complete_step": CapabilityContract(
-        SideEffectLevel.NONE, DataSensitivity.INTERNAL, NetworkScope.NONE, True
-    ),
 }
 
 # Browser tools are all high-impact.
@@ -333,7 +336,6 @@ AGENT_TOOL_MAPPING: dict[str, list[ToolCategory]] = {
         ToolCategory.NOTIFICATION,  # For sending notifications/webhooks
         ToolCategory.TOOL_SEARCH,  # For discovering tools on-demand
         ToolCategory.MCP,  # MCP tools from external servers
-        ToolCategory.PLAN_TRACKING,  # Plan step completion tracking
     ],
     AgentType.RESEARCH.value: [
         ToolCategory.SEARCH,
@@ -463,9 +465,9 @@ def register_tool(category: ToolCategory, tool: BaseTool) -> None:
     if tool.name not in existing_names:
         TOOL_CATALOG[category].append(tool)
         if tool.name not in TOOL_CONTRACTS:
-            # Dynamic MCP tools default to medium-risk external contract unless explicitly set.
+            # Dynamic MCP tools default to high-risk external contract unless explicitly set.
             TOOL_CONTRACTS[tool.name] = CapabilityContract(
-                SideEffectLevel.MEDIUM,
+                SideEffectLevel.HIGH,
                 DataSensitivity.INTERNAL,
                 NetworkScope.EXTERNAL,
                 False,

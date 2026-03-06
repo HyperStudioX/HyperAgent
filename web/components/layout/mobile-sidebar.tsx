@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Sparkles, Library } from "lucide-react";
+import { Sparkles, Library, Plug } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
@@ -200,7 +200,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                 className={cn(
                     "md:hidden",
                     "h-full flex flex-col",
-                    "bg-card border-r border-border",
+                    "bg-sidebar border-r border-sidebar-border",
                     "fixed inset-y-0 left-0 z-50 w-[300px]",
                     "pt-safe pb-safe",
                     "will-change-transform",
@@ -218,7 +218,7 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                 aria-label="Main navigation"
             >
                 {/* Header */}
-                <div className="h-14 px-4 flex items-center justify-between border-b border-border">
+                <div className="h-14 px-4 flex items-center justify-between border-b border-sidebar-border">
                     <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 flex items-center justify-center">
                             <Image
@@ -258,29 +258,10 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     />
                 </div>
 
-                <div className="mx-3 border-t border-border/50" />
-
-                {/* Skills Link */}
-                <div className="px-3 pt-2 pb-1">
-                    <button
-                        onClick={() => {
-                            router.push("/skills");
-                            onClose();
-                        }}
-                        className={cn(
-                            "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                            pathname === "/skills"
-                                ? "bg-secondary text-foreground"
-                                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-                        )}
-                    >
-                        <Sparkles className="w-4 h-4" />
-                        <span>{t("skills")}</span>
-                    </button>
-                </div>
+                <div className="mx-3 border-t border-sidebar-border" />
 
                 {/* Library Link */}
-                <div className="px-3 pb-1">
+                <div className="px-3 pt-2 pb-1">
                     <button
                         onClick={() => {
                             router.push("/library");
@@ -289,8 +270,8 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                         className={cn(
                             "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                             pathname === "/library"
-                                ? "bg-secondary text-foreground"
-                                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                         )}
                     >
                         <Library className="w-4 h-4" />
@@ -298,10 +279,48 @@ export function MobileSidebar({ isOpen, onClose }: MobileSidebarProps) {
                     </button>
                 </div>
 
+                {/* Skills Link */}
+                <div className="px-3 pb-1">
+                    <button
+                        onClick={() => {
+                            router.push("/skills");
+                            onClose();
+                        }}
+                        className={cn(
+                            "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                            pathname === "/skills"
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                        )}
+                    >
+                        <Sparkles className="w-4 h-4" />
+                        <span>{t("skills")}</span>
+                    </button>
+                </div>
+
+                {/* Integrations Link */}
+                <div className="px-3 pb-1">
+                    <button
+                        onClick={() => {
+                            router.push("/integrations");
+                            onClose();
+                        }}
+                        className={cn(
+                            "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                            pathname === "/integrations"
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                        )}
+                    >
+                        <Plug className="w-4 h-4" />
+                        <span>{t("integrations")}</span>
+                    </button>
+                </div>
+
                 {/* Projects */}
                 <SidebarProjects variant="mobile" onNavigate={onClose} />
 
-                <div className="mx-3 border-t border-border/50" />
+                <div className="mx-3 border-t border-sidebar-border" />
 
                 {/* Recent Items */}
                 {hasHydrated && (

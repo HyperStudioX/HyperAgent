@@ -8,6 +8,7 @@ and image capture.
 import base64
 import re
 import shlex
+import uuid
 from io import BytesIO
 from typing import Any, Literal
 
@@ -187,7 +188,9 @@ class E2BSandboxExecutor(BaseCodeExecutor):
         if not self.sandbox:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
-        # Write code to file and determine execution command
+        # Write code to a unique file to avoid collision with concurrent executions
+        script_id = uuid.uuid4().hex[:8]
+
         if language in ("python", "py"):
             # Auto-detect and install required packages (if not using custom template)
             if auto_install_packages and not self.template_id:
@@ -204,17 +207,17 @@ class E2BSandboxExecutor(BaseCodeExecutor):
                             stderr=stderr[:500] if stderr else None,
                         )
 
-            script_path = "/home/user/script.py"
+            script_path = f"/home/user/script_{script_id}.py"
             # Inject common imports if not present for Python data analysis
             code = inject_python_imports(code)
             await self.sandbox.files.write(script_path, code.encode("utf-8"))
             cmd = f"python3 {script_path}"
         elif language in ("javascript", "js"):
-            script_path = "/home/user/script.js"
+            script_path = f"/home/user/script_{script_id}.js"
             await self.sandbox.files.write(script_path, code.encode("utf-8"))
             cmd = f"node {script_path}"
         elif language in ("typescript", "ts"):
-            script_path = "/home/user/script.ts"
+            script_path = f"/home/user/script_{script_id}.ts"
             await self.sandbox.files.write(script_path, code.encode("utf-8"))
             # Install ts-node if needed
             await self.sandbox.commands.run(
@@ -223,9 +226,9 @@ class E2BSandboxExecutor(BaseCodeExecutor):
             )
             cmd = f"ts-node {script_path}"
         elif language in ("bash", "sh", "shell"):
-            script_path = "/home/user/script.sh"
+            script_path = f"/home/user/script_{script_id}.sh"
             await self.sandbox.files.write(script_path, code.encode("utf-8"))
-            await self.sandbox.commands.run("chmod +x /home/user/script.sh")
+            await self.sandbox.commands.run(f"chmod +x {script_path}")
             cmd = script_path
         else:
             raise ValueError(f"Unsupported language: {language}")
@@ -237,6 +240,12 @@ class E2BSandboxExecutor(BaseCodeExecutor):
         success = execution.exit_code == 0
         stdout = execution.stdout or ""
         stderr = execution.stderr or ""
+
+        # Clean up the script file
+        try:
+            await self.sandbox.commands.run(f"rm -f {script_path}", timeout=5)
+        except Exception:
+            pass
 
         logger.info(
             "code_execution_completed",

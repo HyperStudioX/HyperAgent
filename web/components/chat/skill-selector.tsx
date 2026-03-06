@@ -147,10 +147,10 @@ export function SkillSelector({ value, onChange, disabled }: SkillSelectorProps)
                                 <Sparkles className="w-3.5 h-3.5" />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <span className="text-[13px] font-medium text-foreground block truncate">
+                                <span className="text-sm font-medium text-foreground block truncate">
                                     {t("auto")}
                                 </span>
-                                <span className="text-[11px] text-muted-foreground block truncate leading-tight mt-0.5">
+                                <span className="text-xs text-muted-foreground block truncate leading-tight mt-0.5">
                                     {t("autoDescription")}
                                 </span>
                             </div>
@@ -186,10 +186,10 @@ export function SkillSelector({ value, onChange, disabled }: SkillSelectorProps)
                                         <Icon className="w-3.5 h-3.5" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <span className="text-[13px] font-medium text-foreground block truncate">
+                                        <span className="text-sm font-medium text-foreground block truncate">
                                             {getTranslatedSkillName(skill.id, skill.name, tSkills)}
                                         </span>
-                                        <span className="text-[11px] text-muted-foreground block truncate leading-tight mt-0.5">
+                                        <span className="text-xs text-muted-foreground block truncate leading-tight mt-0.5">
                                             {getTranslatedSkillDescription(skill.id, skill.description, tSkills)}
                                         </span>
                                     </div>

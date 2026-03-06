@@ -39,6 +39,7 @@ URL_TOOLS = {
     "computer_tool",
     "web_search",
     "fetch_url",
+    "http_request",
 }
 
 # Tools that involve code execution
@@ -47,6 +48,10 @@ CODE_TOOLS = {
     "run_python",
     "run_shell",
     "code_sandbox",
+    "execute_script",
+    "shell_exec",
+    "file_write",
+    "file_str_replace",
 }
 
 

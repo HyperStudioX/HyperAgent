@@ -15,6 +15,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
 import { COLOR_MAP } from "@/lib/utils/project-colors";
 import { formatRelativeTime } from "@/lib/utils/relative-time";
 import { useProjectStore } from "@/lib/stores/project-store";
@@ -61,7 +62,7 @@ function ProjectItemRow({
           <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         )}
         <span className="text-sm truncate">{title}</span>
-        <span className="text-[10px] uppercase px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0">
+        <span className="text-xs uppercase px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0">
           {isConversation ? t("conversationsSection") : t("tasksSection")}
         </span>
         {!isConversation && (
@@ -70,7 +71,7 @@ function ProjectItemRow({
               <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
             )}
             {item.data.status === "completed" && (
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-success" />
             )}
             {item.data.status === "failed" && (
               <AlertCircle className="w-3.5 h-3.5 text-destructive" />
@@ -235,14 +236,14 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
   if (!activeProject) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-3">
-        <p className="text-sm text-muted-foreground">Project not found</p>
+        <p className="text-sm text-muted-foreground">{t("notFound")}</p>
         <Button
           variant="ghost"
           onClick={() => router.push("/projects")}
           className="cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4 mr-1.5" />
-          Back to projects
+          {t("backToProjects")}
         </Button>
       </div>
     );
@@ -280,11 +281,11 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
             <label className="text-sm font-medium mb-1.5 block">
               {t("description")}
             </label>
-            <textarea
+            <Textarea
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
               rows={2}
-              className="flex w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 resize-none"
+              className="text-sm"
             />
           </div>
           <div>
@@ -510,7 +511,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
                     />
                     <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <span className="text-sm truncate">{task.query}</span>
-                    <span className="text-[10px] text-muted-foreground uppercase">
+                    <span className="text-xs text-muted-foreground uppercase">
                       {task.status}
                     </span>
                   </label>

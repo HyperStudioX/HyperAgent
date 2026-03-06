@@ -48,7 +48,7 @@ export function SkillCard({ skill, onExecute, index = 0 }: SkillCardProps) {
             <h4 className="font-semibold text-sm text-foreground truncate">
               {getTranslatedSkillName(skill.id, skill.name, t)}
             </h4>
-            <span className="shrink-0 text-[10px] text-muted-foreground/60 font-mono">
+            <span className="shrink-0 text-xs text-muted-foreground/60 font-mono">
               v{skill.version}
             </span>
           </div>
@@ -65,7 +65,7 @@ export function SkillCard({ skill, onExecute, index = 0 }: SkillCardProps) {
             <span
               key={tag}
               className={cn(
-                "inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded",
+                "inline-flex text-xs font-medium px-1.5 py-0.5 rounded",
                 accent.tag
               )}
             >
@@ -73,7 +73,7 @@ export function SkillCard({ skill, onExecute, index = 0 }: SkillCardProps) {
             </span>
           ))}
           {skill.tags.length > 4 && (
-            <span className="text-[10px] text-muted-foreground/50 px-1 py-0.5">
+            <span className="text-xs text-muted-foreground/50 px-1 py-0.5">
               +{skill.tags.length - 4}
             </span>
           )}
@@ -82,7 +82,7 @@ export function SkillCard({ skill, onExecute, index = 0 }: SkillCardProps) {
 
       {/* Footer: metadata + action */}
       <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/30">
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="uppercase tracking-wider font-medium">
             {getTranslatedCategory(skill.category, t)}
           </span>

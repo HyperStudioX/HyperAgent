@@ -7,11 +7,13 @@ import { MenuToggle } from "@/components/ui/menu-toggle";
 import { UserProfileMenu } from "@/components/auth/user-profile-menu";
 import { useSidebarStore } from "@/lib/stores/sidebar-store";
 import { useComputerStore } from "@/lib/stores/computer-store";
+import { useSettingsDialogStore } from "@/lib/stores/settings-dialog-store";
 import { cn } from "@/lib/utils";
 
 import { FilePreviewSidebar } from "@/components/artifacts/artifacts-preview-panel";
 import { ArtifactsToggleButton } from "@/components/artifacts/artifacts-toggle-button";
 import { VirtualComputerPanel, ComputerToggleButton } from "@/components/computer";
+import { SettingsDialog } from "@/components/settings";
 
 interface MainLayoutProps {
     children: React.ReactNode;
@@ -22,6 +24,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     const [isDesktop, setIsDesktop] = useState(false);
     const { desktopSidebarOpen, toggleDesktopSidebar } = useSidebarStore();
     const { isOpen: computerPanelOpen, panelWidth } = useComputerStore();
+    const { openSettings } = useSettingsDialogStore();
 
     // Check if we're on desktop (lg breakpoint = 1024px)
     useEffect(() => {
@@ -31,6 +34,18 @@ export function MainLayout({ children }: MainLayoutProps) {
         mq.addEventListener("change", handler);
         return () => mq.removeEventListener("change", handler);
     }, []);
+
+    // Cmd+, / Ctrl+, keyboard shortcut to open settings
+    useEffect(() => {
+        function handleKeyDown(e: KeyboardEvent) {
+            if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+                e.preventDefault();
+                openSettings();
+            }
+        }
+        document.addEventListener("keydown", handleKeyDown);
+        return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [openSettings]);
 
     // Calculate the right panel width for content adjustment (only on desktop)
     const rightPanelPadding = isDesktop && computerPanelOpen ? panelWidth : 0;
@@ -102,6 +117,9 @@ export function MainLayout({ children }: MainLayoutProps) {
                 {/* Virtual Computer Panel - Right side panel for terminal, browser, and file views */}
                 <VirtualComputerPanel />
             </main>
+
+            {/* Settings Dialog */}
+            <SettingsDialog />
         </div>
     );
 }

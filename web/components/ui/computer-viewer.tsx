@@ -140,7 +140,7 @@ export function ComputerViewer({
                         <div className="relative">
                             <Monitor className="w-3.5 h-3.5 text-foreground flex-shrink-0" />
                             {/* Live indicator */}
-                            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
                         </div>
                         <span className="text-xs font-medium truncate">
                             {t("liveBrowser")}

@@ -116,7 +116,7 @@ async def proxy_sandbox_app(
     and returns the response. For HTML responses, injects a <base href> tag
     so that relative resource URLs (JS, CSS, images) resolve through the proxy.
     """
-    manager = get_app_sandbox_manager()
+    manager = await get_app_sandbox_manager()
     session = await manager.get_session_by_sandbox_id(sandbox_id)
 
     if not session:

@@ -82,6 +82,31 @@ class CompressionConfig:
     enabled: bool = True
 
 
+_tiktoken_encoder = None
+_tiktoken_unavailable = False
+
+
+def _get_encoder():
+    """Get or create cached tiktoken encoder.
+
+    Returns:
+        tiktoken Encoding instance, or None if tiktoken is unavailable
+    """
+    global _tiktoken_encoder, _tiktoken_unavailable
+    if _tiktoken_unavailable:
+        return None
+    if _tiktoken_encoder is not None:
+        return _tiktoken_encoder
+    try:
+        import tiktoken
+
+        _tiktoken_encoder = tiktoken.encoding_for_model("gpt-4")
+        return _tiktoken_encoder
+    except ImportError:
+        _tiktoken_unavailable = True
+        return None
+
+
 def estimate_tokens(text: str) -> int:
     """Estimate token count for text.
 
@@ -96,13 +121,10 @@ def estimate_tokens(text: str) -> int:
     Returns:
         Estimated token count
     """
-    try:
-        import tiktoken
-
-        enc = tiktoken.get_encoding("cl100k_base")
+    enc = _get_encoder()
+    if enc is not None:
         return len(enc.encode(text))
-    except ImportError:
-        return len(text) // 4 + 1
+    return len(text) // 4 + 1
 
 
 def estimate_message_tokens(message: BaseMessage) -> int:
@@ -197,7 +219,7 @@ def _extract_references_from_messages(messages: list[BaseMessage]) -> dict[str, 
             )
 
         # Extract file paths (Unix-style)
-        file_paths = re.findall(r'(?:/[\w.-]+)+(?:\.\w+)?', content)
+        file_paths = re.findall(r'(?:/[\w.-]+){2,}\.\w+', content)
         for fp in file_paths:
             if len(fp) > 4 and not fp.startswith("//"):  # Filter out short fragments
                 refs["files"].add(fp)

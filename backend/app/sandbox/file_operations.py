@@ -7,6 +7,7 @@ protocol so this module works with any provider (E2B, BoxLite, etc.).
 
 import base64
 import mimetypes
+import os
 import shlex
 from typing import Any
 
@@ -243,7 +244,7 @@ async def delete_path(sandbox: SandboxRuntime, path: str) -> dict[str, Any]:
     # Safety check: refuse to delete root-level directories
     protected_paths = {"/", "/home", "/root", "/etc", "/usr", "/var", "/tmp",
                        "/bin", "/sbin", "/lib", "/opt", "/dev", "/proc", "/sys"}
-    normalized = path.rstrip("/") or "/"
+    normalized = os.path.normpath(path)
     if normalized in protected_paths:
         logger.warning("sandbox_delete_refused_protected_path", path=path)
         return {

@@ -166,7 +166,7 @@ async def execute_script(
 
     try:
         # Get or create sandbox session
-        sandbox_manager = get_execution_sandbox_manager()
+        sandbox_manager = await get_execution_sandbox_manager()
         session = await sandbox_manager.get_or_create_sandbox(
             user_id=user_id,
             task_id=task_id,

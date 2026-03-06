@@ -26,14 +26,14 @@ function getFileIcon(contentType: string) {
     contentType.includes("word") ||
     contentType.includes("document")
   ) {
-    return <FileText className="w-6 h-6 text-accent-cyan" />;
+    return <FileText className="w-6 h-6 text-muted-foreground" />;
   }
   if (
     contentType.includes("sheet") ||
     contentType.includes("excel") ||
     contentType === "text/csv"
   ) {
-    return <FileSpreadsheet className="w-6 h-6 text-accent-rose" />;
+    return <FileSpreadsheet className="w-6 h-6 text-muted-foreground" />;
   }
   if (
     contentType.includes("javascript") ||
@@ -41,7 +41,7 @@ function getFileIcon(contentType: string) {
     contentType.includes("json") ||
     contentType.includes("typescript")
   ) {
-    return <FileCode className="w-6 h-6 text-accent-amber" />;
+    return <FileCode className="w-6 h-6 text-muted-foreground" />;
   }
   return <File className="w-6 h-6 text-muted-foreground" />;
 }

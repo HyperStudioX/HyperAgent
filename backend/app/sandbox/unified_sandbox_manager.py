@@ -5,7 +5,7 @@ development within one agent run.  Desktop sandboxes stay separate because
 they require a different VM image (Xvfb).
 
 Usage:
-    manager = get_unified_sandbox_manager()
+    manager = await get_unified_sandbox_manager()
     runtime = await manager.get_or_create_runtime(user_id, task_id)
     executor = await manager.get_code_executor(user_id, task_id)
     app_session = await manager.get_app_session(user_id, task_id, template="react")
@@ -13,9 +13,10 @@ Usage:
 
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, ClassVar
 
 from app.core.logging import get_logger
 from app.sandbox.runtime import SandboxRuntime
@@ -60,7 +61,7 @@ class UnifiedSandboxSession:
     @property
     def is_expired(self) -> bool:
         """Check if the session has expired."""
-        return datetime.now(timezone.utc) > (self.last_accessed + self.timeout)
+        return datetime.now(timezone.utc) >= (self.last_accessed + self.timeout)
 
     def touch(self) -> None:
         """Update last accessed time to prevent expiry."""
@@ -76,6 +77,14 @@ class UnifiedSandboxManager:
     """
 
     _instance: "UnifiedSandboxManager | None" = None
+    _instance_lock: ClassVar[asyncio.Lock | None] = None
+
+    @classmethod
+    def _get_instance_lock(cls) -> asyncio.Lock:
+        """Lazily create the class-level lock to avoid binding to wrong event loop."""
+        if cls._instance_lock is None:
+            cls._instance_lock = asyncio.Lock()
+        return cls._instance_lock
 
     def __init__(self) -> None:
         """Initialize the unified sandbox manager."""
@@ -89,10 +98,13 @@ class UnifiedSandboxManager:
         self._health_check_failures: int = 0
 
     @classmethod
-    def get_instance(cls) -> "UnifiedSandboxManager":
+    async def get_instance(cls) -> "UnifiedSandboxManager":
         """Get the singleton instance of UnifiedSandboxManager."""
-        if cls._instance is None:
-            cls._instance = UnifiedSandboxManager()
+        if cls._instance is not None:
+            return cls._instance
+        async with cls._get_instance_lock():
+            if cls._instance is None:
+                cls._instance = UnifiedSandboxManager()
         return cls._instance
 
     @staticmethod
@@ -218,22 +230,38 @@ class UnifiedSandboxManager:
         session_key = self.make_session_key(user_id, task_id)
         session_timeout = timeout or DEFAULT_UNIFIED_TIMEOUT
 
+        # Snapshot existing session under lock, then health-check outside lock
         async with self._session_lock:
-            # Check for existing valid session
-            if session_key in self._sessions:
-                session = self._sessions[session_key]
-                if not session.is_expired and await self._is_sandbox_healthy(session):
-                    session.touch()
+            existing = self._sessions.get(session_key)
+
+        if existing and not existing.is_expired:
+            healthy = await self._is_sandbox_healthy(existing)
+            if healthy:
+                async with self._session_lock:
+                    # Verify session was not replaced while we were checking
+                    if self._sessions.get(session_key) is existing:
+                        existing.touch()
+                        self._total_reused += 1
+                        logger.info(
+                            "unified_sandbox_session_reused",
+                            session_key=session_key,
+                            sandbox_id=existing.sandbox_id,
+                        )
+                        return existing
+
+        # Need a new session - acquire lock
+        async with self._session_lock:
+            # Double-check: another coroutine may have created one
+            if session_key in self._sessions and self._sessions[session_key] is not existing:
+                fresh = self._sessions[session_key]
+                if not fresh.is_expired:
+                    fresh.touch()
                     self._total_reused += 1
-                    logger.info(
-                        "unified_sandbox_session_reused",
-                        session_key=session_key,
-                        sandbox_id=session.sandbox_id,
-                    )
-                    return session
-                else:
-                    # Clean up unhealthy or expired session
-                    await self._cleanup_session_internal(session_key)
+                    return fresh
+
+            # Clean up stale session if present
+            if session_key in self._sessions:
+                await self._cleanup_session_internal(session_key)
 
             # Create new shared runtime via provider factory
             from app.sandbox.provider import create_app_runtime
@@ -285,7 +313,7 @@ class UnifiedSandboxManager:
             ExecutionSandboxSession,
         )
 
-        manager = ExecutionSandboxManager.get_instance()
+        manager = await ExecutionSandboxManager.get_instance()
         return await manager.get_or_create_sandbox_with_runtime(
             user_id=user_id,
             task_id=task_id,
@@ -310,10 +338,15 @@ class UnifiedSandboxManager:
 
         async with self._session_lock:
             session = self._sessions.get(session_key)
-            if session and not session.is_expired and await self._is_sandbox_healthy(session):
-                session.touch()
-                return session
-            return None
+
+        if session and not session.is_expired:
+            healthy = await self._is_sandbox_healthy(session)
+            if healthy:
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is session:
+                        session.touch()
+                        return session
+        return None
 
     async def _is_sandbox_healthy(self, session: UnifiedSandboxSession) -> bool:
         """Check if a sandbox session is still healthy and responsive.
@@ -340,11 +373,12 @@ class UnifiedSandboxManager:
             return True
 
         try:
+            token = uuid.uuid4().hex[:8]
             result = await session.runtime.run_command(
-                "echo 'health_check'",
+                f"echo 'hc_{token}'",
                 timeout=5,
             )
-            healthy = result.exit_code == 0 and "health_check" in result.stdout
+            healthy = result.exit_code == 0 and f"hc_{token}" in result.stdout
             if healthy:
                 session.last_health_check = now
             return healthy
@@ -417,15 +451,35 @@ class UnifiedSandboxManager:
         Returns:
             Number of sessions cleaned up
         """
-        cleaned = 0
-
+        # Collect expired sessions under lock
         async with self._session_lock:
-            expired_keys = [
-                key for key, session in self._sessions.items() if session.is_expired
+            expired_items = [
+                (key, self._sessions.pop(key))
+                for key, session in list(self._sessions.items())
+                if session.is_expired
             ]
-            for key in expired_keys:
-                if await self._cleanup_session_internal(key):
-                    cleaned += 1
+
+        # Perform I/O-heavy cleanup outside lock
+        cleaned = 0
+        for key, session in expired_items:
+            try:
+                await session.runtime.kill()
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.info(
+                    "unified_sandbox_session_cleaned",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                )
+            except Exception as e:
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.error(
+                    "unified_sandbox_session_cleanup_failed_sandbox_may_be_leaked",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                    error=str(e),
+                )
 
         if cleaned > 0:
             logger.info("unified_expired_sessions_cleaned", count=cleaned)
@@ -510,10 +564,10 @@ class UnifiedSandboxManager:
         ]
 
 
-def get_unified_sandbox_manager() -> UnifiedSandboxManager:
+async def get_unified_sandbox_manager() -> UnifiedSandboxManager:
     """Get the global UnifiedSandboxManager instance.
 
     Returns:
         UnifiedSandboxManager singleton
     """
-    return UnifiedSandboxManager.get_instance()
+    return await UnifiedSandboxManager.get_instance()

@@ -24,6 +24,7 @@ from app.agents.prompts import (
     get_planning_prompt,
     get_summary_prompt,
 )
+from app.agents.skills.artifact_saver import save_skill_artifact
 from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 from app.agents.tools import execute_react_loop, get_react_config
 from app.agents.utils import (
@@ -150,23 +151,6 @@ async def _upload_attachments_to_sandbox(
             )
             files = result.scalars().all()
 
-            # Fallback: if user_id filter excluded files (e.g. deduplication),
-            # retry without the user_id constraint.
-            if not files:
-                result = await session.execute(
-                    select(FileModel).where(
-                        FileModel.id.in_(attachment_ids),
-                    )
-                )
-                files = result.scalars().all()
-                if files:
-                    logger.warning(
-                        "files_found_without_user_id_filter",
-                        attachment_ids=attachment_ids,
-                        user_id=user_id,
-                        file_user_ids=[f.user_id for f in files],
-                    )
-
             if not files:
                 err = "No files found for the provided attachment IDs"
                 logger.error(
@@ -265,14 +249,6 @@ async def _build_file_context(
                 )
             )
             files = result.scalars().all()
-            # Fallback without user_id filter
-            if not files:
-                result = await session.execute(
-                    select(FileModel).where(
-                        FileModel.id.in_(attachment_ids),
-                    )
-                )
-                files = result.scalars().all()
             for f in files:
                 safe_name = _safe_filename(f.id, f.original_filename)
                 file_info.append(
@@ -381,6 +357,14 @@ class DataAnalysisSkill(Skill):
                     "type": "string",
                     "description": "Detected analysis type",
                 },
+                "download_url": {
+                    "type": "string",
+                    "description": "URL to download the generated analysis file",
+                },
+                "storage_key": {
+                    "type": "string",
+                    "description": "Storage key for the generated analysis file",
+                },
             },
         },
         required_tools=[
@@ -450,14 +434,6 @@ class DataAnalysisSkill(Skill):
                             )
                         )
                         files = result.scalars().all()
-                        # Fallback without user_id filter
-                        if not files:
-                            result = await session.execute(
-                                select(FileModel).where(
-                                    FileModel.id.in_(attachment_ids),
-                                )
-                            )
-                            files = result.scalars().all()
                         attachments_info = [
                             f"- {f.original_filename} ({f.content_type}, {f.file_size} bytes)"
                             for f in files
@@ -973,14 +949,28 @@ class DataAnalysisSkill(Skill):
 
                 logger.info("analysis_summarized")
 
+                output_dict: dict[str, Any] = {
+                    "response": summary,
+                    "code": code,
+                    "execution_result": execution_result,
+                    "images": images,
+                    "analysis_type": analysis_type,
+                }
+
+                # Save analysis as downloadable markdown artifact
+                user_id = state.get("user_id")
+                analysis_md = _format_analysis_report(
+                    summary, code, execution_result, analysis_type
+                )
+                artifact = await save_skill_artifact(
+                    analysis_md, user_id, "analysis"
+                )
+                if artifact:
+                    output_dict["download_url"] = artifact["download_url"]
+                    output_dict["storage_key"] = artifact["storage_key"]
+
                 return {
-                    "output": {
-                        "response": summary,
-                        "code": code,
-                        "execution_result": execution_result,
-                        "images": images,
-                        "analysis_type": analysis_type,
-                    },
+                    "output": output_dict,
                     "pending_events": pending,
                     "iterations": state.get("iterations", 0) + 1,
                 }
@@ -1024,3 +1014,41 @@ def _detect_analysis_type(query: str) -> str:
     if any(w in q for w in _ML_WORDS):
         return "ml"
     return "general"
+
+
+def _format_analysis_report(
+    summary: str,
+    code: str,
+    execution_result: str,
+    analysis_type: str,
+) -> str:
+    """Format data analysis results as a Markdown document."""
+    lines: list[str] = []
+    lines.append("# Data Analysis Report")
+    lines.append("")
+    lines.append(f"**Analysis Type:** {analysis_type}")
+    lines.append("")
+
+    if summary:
+        lines.append("## Summary")
+        lines.append("")
+        lines.append(summary)
+        lines.append("")
+
+    if code:
+        lines.append("## Code")
+        lines.append("")
+        lines.append("```python")
+        lines.append(code)
+        lines.append("```")
+        lines.append("")
+
+    if execution_result:
+        lines.append("## Execution Results")
+        lines.append("")
+        lines.append("```")
+        lines.append(execution_result[:5000])
+        lines.append("```")
+        lines.append("")
+
+    return "\n".join(lines)

@@ -1426,7 +1426,7 @@ async def _execute_tools_parallel(
                 from app.agents import events as agent_events
                 from app.sandbox import get_desktop_sandbox_manager
 
-                manager = get_desktop_sandbox_manager()
+                manager = await get_desktop_sandbox_manager()
                 user_id = tool_args.get("user_id")
                 task_id = tool_args.get("task_id")
 

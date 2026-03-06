@@ -80,7 +80,7 @@ function DecisionInput({
                         "px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors",
                         "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none",
                         selected === option.value
-                            ? "bg-foreground text-background border-foreground"
+                            ? "border-primary bg-primary/10 text-foreground"
                             : "bg-transparent text-foreground border-border hover:bg-secondary hover:text-foreground"
                     )}
                     onClick={() => {

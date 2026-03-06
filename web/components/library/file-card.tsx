@@ -13,19 +13,20 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePreviewStore } from "@/lib/stores/preview-store";
+import { formatRelativeTime } from "@/lib/utils/relative-time";
 import type { LibraryFile } from "@/lib/api/library";
 
 function getFileIcon(contentType: string) {
-  if (contentType.startsWith("image/")) return { Icon: ImageIcon, accent: "bg-pink-500/10 text-pink-500" };
+  if (contentType.startsWith("image/")) return { Icon: ImageIcon, accent: "bg-accent-cyan/10 text-accent-cyan" };
   if (
     contentType === "application/pdf" ||
     contentType === "text/plain" ||
     contentType === "text/markdown" ||
     contentType.includes("wordprocessingml")
   )
-    return { Icon: FileText, accent: "bg-blue-500/10 text-blue-500" };
+    return { Icon: FileText, accent: "bg-accent-cyan/10 text-accent-cyan" };
   if (contentType.includes("presentationml"))
-    return { Icon: Presentation, accent: "bg-orange-500/10 text-orange-500" };
+    return { Icon: Presentation, accent: "bg-accent-cyan/10 text-accent-cyan" };
   if (
     contentType === "text/x-python" ||
     contentType === "application/javascript" ||
@@ -34,10 +35,10 @@ function getFileIcon(contentType: string) {
     contentType === "text/css" ||
     contentType === "application/json"
   )
-    return { Icon: Code, accent: "bg-green-500/10 text-green-500" };
+    return { Icon: Code, accent: "bg-accent-cyan/10 text-accent-cyan" };
   if (contentType === "text/csv" || contentType.includes("spreadsheetml"))
-    return { Icon: Sheet, accent: "bg-emerald-500/10 text-emerald-500" };
-  return { Icon: File, accent: "bg-muted-foreground/10 text-muted-foreground" };
+    return { Icon: Sheet, accent: "bg-accent-cyan/10 text-accent-cyan" };
+  return { Icon: File, accent: "bg-accent-cyan/10 text-accent-cyan" };
 }
 
 function formatFileSize(bytes: number): string {
@@ -45,20 +46,6 @@ function formatFileSize(bytes: number): string {
   const units = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
-}
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }
 
 interface FileCardProps {
@@ -127,8 +114,8 @@ export function FileCard({ file, index = 0, onDelete }: FileCardProps) {
 
       {/* Footer: date + download */}
       <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/30">
-        <span className="text-[10px] text-muted-foreground">
-          {formatRelativeTime(file.created_at)}
+        <span className="text-xs text-muted-foreground">
+          {formatRelativeTime(file.created_at, t as (key: string, params?: Record<string, number>) => string)}
         </span>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
           <button

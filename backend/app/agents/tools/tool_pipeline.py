@@ -48,7 +48,9 @@ def _validate_required_args(tool: BaseTool, args: dict) -> list[str]:
     for field_name, field_info in schema.model_fields.items():
         if field_name in _INJECTED_FIELDS:
             continue
-        if field_info.is_required() and (field_name not in args or args[field_name] is None):
+        if field_info.is_required() and (
+            field_name not in args or args[field_name] is None
+        ):
             missing.append(field_name)
 
     return missing
@@ -99,7 +101,9 @@ class ToolExecutionHooks:
 
     skip_before_execution: bool = False
 
-    async def before_execution(self, ctx: ToolExecutionContext) -> ToolExecutionResult | None:
+    async def before_execution(
+        self, ctx: ToolExecutionContext
+    ) -> ToolExecutionResult | None:
         """Called before tool execution. Return non-None to short-circuit.
 
         Use cases: HITL approval check, ask_user handling, guardrail scan.
@@ -116,11 +120,15 @@ class ToolExecutionHooks:
         """
         return result_str
 
-    def on_tool_call(self, tool_name: str, tool_args: dict, tool_call_id: str) -> list[dict]:
+    def on_tool_call(
+        self, tool_name: str, tool_args: dict, tool_call_id: str
+    ) -> list[dict]:
         """Emit events when a tool is called. Returns events to add."""
         return []
 
-    def on_tool_result(self, tool_name: str, result: str, tool_call_id: str) -> list[dict]:
+    def on_tool_result(
+        self, tool_name: str, result: str, tool_call_id: str
+    ) -> list[dict]:
         """Emit events when a tool returns. Returns events to add."""
         return []
 
@@ -204,7 +212,9 @@ async def execute_tool(
         error_msg = f"Tool not found: {ctx.tool_name}"
         final_status = "failed"
         final_error = error_msg
-        result_events = hooks.on_tool_result(ctx.tool_name, error_msg, ctx.tool_call_id)
+        result_events = hooks.on_tool_result(
+            ctx.tool_name, error_msg, ctx.tool_call_id
+        )
         if ctx.policy_decision:
             for evt in result_events:
                 if evt.get("type") == "tool_result":
@@ -239,7 +249,9 @@ async def execute_tool(
         )
         final_status = "failed"
         final_error = error_msg
-        result_events = hooks.on_tool_result(ctx.tool_name, error_msg, ctx.tool_call_id)
+        result_events = hooks.on_tool_result(
+            ctx.tool_name, error_msg, ctx.tool_call_id
+        )
         all_events.extend(result_events)
         return ToolExecutionResult(
             message=ToolMessage(
@@ -272,19 +284,13 @@ async def execute_tool(
                 result_str = ""
 
         # 6. After-execution hook (event extraction)
-        try:
-            result_str = hooks.after_execution(ctx, result_str, all_events)
-        except Exception as e:
-            logger.warning(
-                "after_execution_hook_failed",
-                tool=ctx.tool_name,
-                error=str(e),
-            )
-            # Continue with the original result_str — don't lose the tool result
+        result_str = hooks.after_execution(ctx, result_str, all_events)
 
         # 7. Truncate
         if config.truncate_tool_results and result_str:
-            result_str = truncate_tool_result(result_str, config.tool_result_max_chars)
+            result_str = truncate_tool_result(
+                result_str, config.tool_result_max_chars
+            )
 
         # 8. Emit tool-result event
         result_events = hooks.on_tool_result(
@@ -313,12 +319,16 @@ async def execute_tool(
         )
 
     except Exception as e:
-        logger.error("tool_execution_failed", tool=ctx.tool_name, error=str(e))
+        logger.error(
+            "tool_execution_failed", tool=ctx.tool_name, error=str(e)
+        )
         error_msg = f"Error executing {ctx.tool_name}: {e}"
         final_status = "failed"
         final_error = error_msg
         error_category = classify_error(str(e), ctx.tool_name)
-        result_events = hooks.on_tool_result(ctx.tool_name, error_msg, ctx.tool_call_id)
+        result_events = hooks.on_tool_result(
+            ctx.tool_name, error_msg, ctx.tool_call_id
+        )
         if ctx.policy_decision:
             for evt in result_events:
                 if evt.get("type") == "tool_result":
@@ -524,7 +534,9 @@ class TaskToolHooks(ToolExecutionHooks):
             }
         return self._app_builder_tools
 
-    async def before_execution(self, ctx: ToolExecutionContext) -> ToolExecutionResult | None:
+    async def before_execution(
+        self, ctx: ToolExecutionContext
+    ) -> ToolExecutionResult | None:
         """HITL approval check, ask_user handling, guardrail scan, lazy upload."""
         from app.agents.hitl.interrupt_manager import get_interrupt_manager
         from app.agents.hitl.tool_risk import requires_approval, requires_approval_for_skill
@@ -540,21 +552,16 @@ class TaskToolHooks(ToolExecutionHooks):
 
         # Lazy attachment upload: upload files to sandbox on first sandbox tool use
         _SANDBOX_TOOLS = {
-            "execute_code",
-            "execute_script",
-            "sandbox_file",
-            "shell_exec",
-            "shell_view",
-            "shell_wait",
-            "shell_kill",
-            "file_read",
-            "file_write",
-            "file_str_replace",
-            "file_find_by_name",
-            "file_find_in_content",
+            "execute_code", "execute_script", "sandbox_file",
+            "shell_exec", "shell_view", "shell_wait", "shell_kill",
+            "file_read", "file_write", "file_str_replace",
+            "file_find_by_name", "file_find_in_content",
         }
 
-        if ctx.tool_name in _SANDBOX_TOOLS and not self.state.get("files_uploaded_to_sandbox"):
+        if (
+            ctx.tool_name in _SANDBOX_TOOLS
+            and not self.state.get("files_uploaded_to_sandbox")
+        ):
             attachment_ids = self.state.get("attachment_ids") or []
             if attachment_ids and user_id:
                 from app.agents.skills.builtin.data_analysis_skill import (
@@ -565,9 +572,7 @@ class TaskToolHooks(ToolExecutionHooks):
                 attachment_ids = _normalize_attachment_ids(attachment_ids)
 
                 _upload_evts, _ok, _ = await _upload_attachments_to_sandbox(
-                    attachment_ids,
-                    user_id,
-                    task_id,
+                    attachment_ids, user_id, task_id,
                 )
                 if _ok:
                     self.state["files_uploaded_to_sandbox"] = True
@@ -575,7 +580,9 @@ class TaskToolHooks(ToolExecutionHooks):
         # 0. Skill-level HITL policy (invoke_skill can encapsulate high-risk tools)
         if ctx.tool_name == "invoke_skill":
             skill_id = str(ctx.tool_args.get("skill_id", "")).strip()
-            user_intent_source = str(ctx.tool_args.get("user_intent_source") or "agent_selected")
+            user_intent_source = str(
+                ctx.tool_args.get("user_intent_source") or "agent_selected"
+            )
 
             skill_policy = get_policy_engine().decide(
                 PolicyInput(
@@ -619,6 +626,7 @@ class TaskToolHooks(ToolExecutionHooks):
                     thread_id=thread_id,
                     interrupt_id=interrupt_id,
                     interrupt_data=interrupt_event,
+                    user_id=user_id,
                 )
 
                 return ToolExecutionResult(
@@ -703,6 +711,7 @@ class TaskToolHooks(ToolExecutionHooks):
                 thread_id=thread_id,
                 interrupt_id=interrupt_id,
                 interrupt_data=interrupt_event,
+                user_id=user_id,
             )
 
             return ToolExecutionResult(
@@ -785,6 +794,7 @@ class TaskToolHooks(ToolExecutionHooks):
                 thread_id=thread_id,
                 interrupt_id=interrupt_id,
                 interrupt_data=interrupt_event,
+                user_id=user_id,
             )
 
             return ToolExecutionResult(
@@ -849,10 +859,11 @@ class TaskToolHooks(ToolExecutionHooks):
         task_id = self.state.get("task_id")
         app_builder_tools = self._get_app_builder_tools()
 
-        self._image_event_count = extract_image_events(
+        image_new, self._image_event_count = extract_image_events(
             ctx.tool_name, result_str, events, self._image_event_count
         )
-        self._image_event_count = extract_skill_events(
+        events.extend(image_new)
+        skill_new, self._image_event_count = extract_skill_events(
             ctx.tool_name,
             result_str,
             events,
@@ -860,25 +871,31 @@ class TaskToolHooks(ToolExecutionHooks):
             task_id,
             user_id,
         )
-        extract_app_builder_events(
-            ctx.tool_name,
-            result_str,
-            events,
-            app_builder_tools,
-            task_id,
-            user_id,
+        events.extend(skill_new)
+        events.extend(
+            extract_app_builder_events(
+                ctx.tool_name,
+                result_str,
+                app_builder_tools,
+                task_id,
+                user_id,
+            )
         )
-        extract_slide_events(ctx.tool_name, result_str, events)
-        extract_shell_and_code_events(ctx.tool_name, result_str, events)
+        events.extend(extract_slide_events(ctx.tool_name, result_str))
+        events.extend(extract_shell_and_code_events(ctx.tool_name, result_str))
 
         return result_str
 
-    def on_tool_call(self, tool_name: str, tool_args: dict, tool_call_id: str) -> list[dict]:
+    def on_tool_call(
+        self, tool_name: str, tool_args: dict, tool_call_id: str
+    ) -> list[dict]:
         from app.agents import events as agent_events
 
         return [agent_events.tool_call(tool=tool_name, args=tool_args, tool_id=tool_call_id)]
 
-    def on_tool_result(self, tool_name: str, result: str, tool_call_id: str) -> list[dict]:
+    def on_tool_result(
+        self, tool_name: str, result: str, tool_call_id: str
+    ) -> list[dict]:
         from app.agents import events as agent_events
 
         return [agent_events.tool_result(tool=tool_name, content=result, tool_id=tool_call_id)]
@@ -895,13 +912,12 @@ class ResearchToolHooks(ToolExecutionHooks):
         self.skip_before_execution = skip_before_execution
         self.collected_sources: list[Any] = []
 
-    async def before_execution(self, ctx: ToolExecutionContext) -> ToolExecutionResult | None:
+    async def before_execution(
+        self, ctx: ToolExecutionContext
+    ) -> ToolExecutionResult | None:
         """Apply tool guardrails for research tool calls."""
         from app.agents import events as agent_events
-        from app.agents.hitl.interrupt_manager import (
-            create_approval_interrupt,
-            get_interrupt_manager,
-        )
+        from app.agents.hitl.interrupt_manager import create_approval_interrupt, get_interrupt_manager
         from app.agents.hitl.tool_risk import requires_approval, requires_approval_for_skill
         from app.agents.policy import PolicyInput, get_policy_engine
         from app.agents.policy.engine import PolicyDecision
@@ -948,6 +964,7 @@ class ResearchToolHooks(ToolExecutionHooks):
                     thread_id=thread_id,
                     interrupt_id=interrupt_event["interrupt_id"],
                     interrupt_data=interrupt_event,
+                    user_id=user_id,
                 )
                 return ToolExecutionResult(
                     message=None,
@@ -1015,6 +1032,7 @@ class ResearchToolHooks(ToolExecutionHooks):
                 thread_id=thread_id,
                 interrupt_id=interrupt_event["interrupt_id"],
                 interrupt_data=interrupt_event,
+                user_id=user_id,
             )
             return ToolExecutionResult(
                 message=None,
@@ -1083,7 +1101,9 @@ class ResearchToolHooks(ToolExecutionHooks):
 
         return result_str
 
-    def on_tool_result(self, tool_name: str, result: str, tool_call_id: str) -> list[dict]:
+    def on_tool_result(
+        self, tool_name: str, result: str, tool_call_id: str
+    ) -> list[dict]:
         from app.agents import events as agent_events
 
         return [agent_events.tool_result(tool=tool_name, content=result, tool_id=tool_call_id)]
@@ -1110,7 +1130,9 @@ class CanonicalToolHooks(ToolExecutionHooks):
         # Reference to the shared events list for image event counting
         self._all_events = all_events or []
 
-    async def before_execution(self, ctx: ToolExecutionContext) -> ToolExecutionResult | None:
+    async def before_execution(
+        self, ctx: ToolExecutionContext
+    ) -> ToolExecutionResult | None:
         """Apply tool guardrails in canonical ReAct loops."""
         from app.guardrails.scanners.tool_scanner import tool_scanner
 
@@ -1165,7 +1187,8 @@ class CanonicalToolHooks(ToolExecutionHooks):
                         placeholders = (
                             "\n\n"
                             + "\n\n".join(
-                                f"![generated-image:{start_index + i}]" for i in range(image_count)
+                                f"![generated-image:{start_index + i}]"
+                                for i in range(image_count)
                             )
                             + "\n\n"
                         )
@@ -1179,7 +1202,9 @@ class CanonicalToolHooks(ToolExecutionHooks):
                         }
                     )
             except Exception as e:
-                logger.warning("generate_image_result_processing_error", error=str(e))
+                logger.warning(
+                    "generate_image_result_processing_error", error=str(e)
+                )
 
         # Special handling for invoke_skill image generation
         if ctx.tool_name == "invoke_skill" and result_str:
@@ -1222,13 +1247,19 @@ class CanonicalToolHooks(ToolExecutionHooks):
                             }
                         )
             except Exception as e:
-                logger.warning("invoke_skill_image_result_processing_error", error=str(e))
+                logger.warning(
+                    "invoke_skill_image_result_processing_error", error=str(e)
+                )
 
         # Special handling for browser_navigate: strip screenshot, keep content
         if ctx.tool_name == "browser_navigate" and result_str:
             try:
                 parsed = json.loads(result_str)
-                if parsed.get("success") and parsed.get("screenshot") and parsed.get("content"):
+                if (
+                    parsed.get("success")
+                    and parsed.get("screenshot")
+                    and parsed.get("content")
+                ):
                     llm_result = json.dumps(
                         {
                             "success": True,
@@ -1239,16 +1270,22 @@ class CanonicalToolHooks(ToolExecutionHooks):
                         }
                     )
             except Exception as e:
-                logger.warning("browser_navigate_result_processing_error", error=str(e))
+                logger.warning(
+                    "browser_navigate_result_processing_error", error=str(e)
+                )
 
         return llm_result
 
-    def on_tool_call(self, tool_name: str, tool_args: dict, tool_call_id: str) -> list[dict]:
+    def on_tool_call(
+        self, tool_name: str, tool_args: dict, tool_call_id: str
+    ) -> list[dict]:
         if self._on_tool_call:
             self._on_tool_call(tool_name, tool_args, tool_call_id)
         return []  # Canonical loop manages its own events list
 
-    def on_tool_result(self, tool_name: str, result: str, tool_call_id: str) -> list[dict]:
+    def on_tool_result(
+        self, tool_name: str, result: str, tool_call_id: str
+    ) -> list[dict]:
         if self._on_tool_result:
             self._on_tool_result(tool_name, result, tool_call_id)
         return []  # Canonical loop manages its own events list

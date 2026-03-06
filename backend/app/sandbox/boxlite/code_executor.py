@@ -7,6 +7,7 @@ Uses boxlite.Box for running code in isolated containers.
 import base64
 import re
 import shlex
+import uuid
 from io import BytesIO
 from typing import Any, Literal
 
@@ -131,6 +132,9 @@ class BoxLiteCodeExecutor(BaseCodeExecutor):
         if not self._runtime:
             raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
 
+        # Use unique script path to avoid collision with concurrent executions
+        script_id = uuid.uuid4().hex[:8]
+
         if language in ("python", "py"):
             if auto_install_packages:
                 required_packages = detect_required_packages(code)
@@ -138,16 +142,16 @@ class BoxLiteCodeExecutor(BaseCodeExecutor):
                     logger.info("boxlite_auto_installing_packages", packages=required_packages)
                     await self.install_packages(required_packages, package_manager="pip")
 
-            script_path = "/home/user/script.py"
+            script_path = f"/home/user/script_{script_id}.py"
             code = inject_python_imports(code)
             await self._runtime.write_file(script_path, code)
             cmd = f"python3 {script_path}"
         elif language in ("javascript", "js"):
-            script_path = "/home/user/script.js"
+            script_path = f"/home/user/script_{script_id}.js"
             await self._runtime.write_file(script_path, code)
             cmd = f"node {script_path}"
         elif language in ("typescript", "ts"):
-            script_path = "/home/user/script.ts"
+            script_path = f"/home/user/script_{script_id}.ts"
             await self._runtime.write_file(script_path, code)
             await self._runtime.run_command(
                 "npm install -g ts-node typescript 2>/dev/null || true",
@@ -155,7 +159,7 @@ class BoxLiteCodeExecutor(BaseCodeExecutor):
             )
             cmd = f"ts-node {script_path}"
         elif language in ("bash", "sh", "shell"):
-            script_path = "/home/user/script.sh"
+            script_path = f"/home/user/script_{script_id}.sh"
             await self._runtime.write_file(script_path, code)
             await self._runtime.run_command(f"chmod +x {script_path}")
             cmd = script_path
@@ -165,6 +169,12 @@ class BoxLiteCodeExecutor(BaseCodeExecutor):
         logger.info("boxlite_executing_code", language=language, script_path=script_path)
 
         result = await self._runtime.run_command(cmd, timeout=timeout)
+
+        # Clean up the script file
+        try:
+            await self._runtime.run_command(f"rm -f {script_path}", timeout=5)
+        except Exception:
+            pass
 
         success = result.exit_code == 0
         logger.info(

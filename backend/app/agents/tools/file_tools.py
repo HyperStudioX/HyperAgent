@@ -176,7 +176,7 @@ async def _get_sandbox_runtime(user_id: str | None, task_id: str | None):
     if not available:
         raise RuntimeError(issue)
 
-    sandbox_manager = get_execution_sandbox_manager()
+    sandbox_manager = await get_execution_sandbox_manager()
     session = await sandbox_manager.get_or_create_sandbox(
         user_id=user_id,
         task_id=task_id,

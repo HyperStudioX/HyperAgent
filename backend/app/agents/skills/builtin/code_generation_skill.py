@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.agents.skills.artifact_saver import save_skill_artifact
 from app.agents.skills.skill_base import SkillContext, SkillMetadata, SkillParameter, ToolSkill
 from app.ai.llm import llm_service
 from app.ai.model_tiers import ModelTier
@@ -96,6 +97,14 @@ class CodeGenerationSkill(ToolSkill):
                     "type": "string",
                     "description": "Unit tests if requested",
                 },
+                "download_url": {
+                    "type": "string",
+                    "description": "URL to download the generated code file",
+                },
+                "storage_key": {
+                    "type": "string",
+                    "description": "Storage key for the generated code file",
+                },
             },
         },
         required_tools=[],
@@ -143,7 +152,10 @@ class CodeGenerationSkill(ToolSkill):
 
         prompt = f"""Generate {language} code for the following task:
 
-Task: {task}
+Task:
+<user_request>
+{task}
+</user_request>
 
 Requirements:
 - Language: {language}
@@ -157,7 +169,11 @@ Requirements:
         structured_llm = llm.with_structured_output(CodeGenerationResponse)
 
         # Generate code
-        result: CodeGenerationResponse = await structured_llm.ainvoke(prompt)
+        try:
+            result: CodeGenerationResponse = await structured_llm.ainvoke(prompt)
+        except Exception as e:
+            logger.error("code_generation_llm_failed", error=str(e))
+            return {"error": f"Code generation failed: {str(e)}"}
 
         # Validate syntax for generated code (warn but don't block)
         if result.language == "python" and result.code:
@@ -178,9 +194,28 @@ Requirements:
             has_tests=bool(result.tests),
         )
 
-        return {
+        output = {
             "code": result.code,
             "language": result.language,
             "explanation": result.explanation,
             "tests": result.tests if include_tests else None,
         }
+
+        # Save code as downloadable file
+        lang_ext_map = {
+            "python": (".py", "text/x-python"),
+            "javascript": (".js", "text/javascript"),
+            "typescript": (".ts", "application/typescript"),
+            "java": (".java", "text/plain"),
+            "go": (".go", "text/plain"),
+            "rust": (".rs", "text/plain"),
+            "html": (".html", "text/html"),
+            "css": (".css", "text/css"),
+        }
+        _ext, ct = lang_ext_map.get(result.language, (".txt", "text/plain"))
+        artifact = await save_skill_artifact(result.code, context.user_id, "code", ct)
+        if artifact:
+            output["download_url"] = artifact["download_url"]
+            output["storage_key"] = artifact["storage_key"]
+
+        return output

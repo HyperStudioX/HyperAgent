@@ -114,7 +114,7 @@ export function StepToolList({ tools, maxVisible = 6 }: StepToolListProps) {
             <ToolIcon name={g.name} className="w-3 h-3 flex-shrink-0 text-muted-foreground/40" />
             <span className="truncate max-w-[180px]">{g.displayName}</span>
             {g.count > 1 && (
-              <span className="tabular-nums text-[10px] text-muted-foreground/40">
+              <span className="tabular-nums text-xs text-muted-foreground/40">
                 {g.completedCount}/{g.count}
               </span>
             )}
@@ -124,7 +124,7 @@ export function StepToolList({ tools, maxVisible = 6 }: StepToolListProps) {
       {!showAll && hiddenCount > 0 && (
         <button
           onClick={() => setShowAll(true)}
-          className="text-[11px] text-muted-foreground/40 hover:text-muted-foreground/60 transition-colors"
+          className="text-xs text-muted-foreground/50 hover:text-muted-foreground/60 transition-colors"
         >
           +{hiddenCount} more
         </button>

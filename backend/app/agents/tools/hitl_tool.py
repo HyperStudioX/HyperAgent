@@ -31,6 +31,7 @@ async def ask_user(
     context: str | None = None,
     _thread_id: str | None = None,
     _timeout: int | None = None,
+    _user_id: str | None = None,
 ) -> str:
     """Ask the user a question and wait for their response.
 
@@ -87,7 +88,9 @@ async def ask_user(
         )
     """
     interrupt_manager = get_interrupt_manager()
-    thread_id = _thread_id or "default"
+    if not _thread_id:
+        raise ValueError("_thread_id is required for HITL interrupt management")
+    thread_id = _thread_id
     timeout = _timeout or settings.hitl_decision_timeout
 
     # Build the full message with context
@@ -135,6 +138,7 @@ async def ask_user(
             thread_id=thread_id,
             interrupt_id=interrupt_id,
             interrupt_data=interrupt_event,
+            user_id=_user_id,
         )
 
         # Wait for user response
@@ -174,7 +178,7 @@ async def ask_user(
         return "timeout"
     except Exception as e:
         logger.error("hitl_ask_user_error", error=str(e), interrupt_id=interrupt_id)
-        return f"error: {str(e)}"
+        return "blocked: unable to complete user interaction due to an internal error"
 
 
 # Export the tool

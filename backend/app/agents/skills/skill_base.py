@@ -13,7 +13,7 @@ class SkillParameter(BaseModel):
     """Parameter definition for skill input."""
 
     name: str
-    type: str  # "string", "number", "boolean", "object", "array"
+    type: Literal["string", "number", "boolean", "object", "array"]
     description: str
     required: bool = True
     default: Any = None
@@ -159,7 +159,7 @@ class Skill:
             # Basic type validation
             type_checks = {
                 "string": lambda v: isinstance(v, str),
-                "number": lambda v: isinstance(v, (int, float)),
+                "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
                 "boolean": lambda v: isinstance(v, bool),
                 "object": lambda v: isinstance(v, dict),
                 "array": lambda v: isinstance(v, list),

@@ -4,8 +4,11 @@ Provides tools for sending notifications via webhooks, Slack, or email
 when tasks complete or need attention.
 """
 
+import ipaddress
 import json
+import socket
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import aiohttp
 from langchain_core.tools import tool
@@ -43,6 +46,37 @@ class SendNotificationInput(BaseModel):
         default=None,
         description="Optional notification title or subject",
     )
+
+
+# ---------------------------------------------------------------------------
+# URL validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_webhook_url(url: str) -> str | None:
+    """Validate a webhook URL, rejecting private IPs and non-HTTP schemes.
+
+    Returns:
+        None if valid, or an error message string if invalid.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return f"Unsupported URL scheme: {parsed.scheme}. Only http/https are allowed."
+
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return "Invalid webhook URL: no hostname found."
+
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+        for family, _type, _proto, _canonname, sockaddr in addr_infos:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                return f"Webhook URL resolves to a private/internal address: {hostname}"
+    except (socket.gaierror, ValueError):
+        return f"Cannot resolve webhook hostname: {hostname}"
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +202,15 @@ async def send_notification(
             "success": False,
             "error": f"webhook_url is required for '{channel}' channel.",
         })
+
+    # Validate webhook URL to prevent SSRF
+    if channel_lower in ("webhook", "slack") and webhook_url:
+        url_error = _validate_webhook_url(webhook_url)
+        if url_error:
+            return json.dumps({
+                "success": False,
+                "error": url_error,
+            })
 
     try:
         if channel_lower == "webhook":

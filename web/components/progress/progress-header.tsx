@@ -103,7 +103,7 @@ export function ProgressHeader({
             style={{ width: `${Math.max(progressPct, 2)}%` }}
           />
         </div>
-        <span className="text-[11px] tabular-nums text-muted-foreground/50 shrink-0">
+        <span className="text-xs tabular-nums text-muted-foreground/50 shrink-0">
           {completedSteps}/{totalSteps}
         </span>
       </div>

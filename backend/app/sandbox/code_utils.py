@@ -106,25 +106,26 @@ def inject_python_imports(code: str) -> str:
     Returns:
         Code with necessary imports prepended
     """
-    # Common imports for data analysis
-    import_mappings = {
-        "pd.": "import pandas as pd",
-        "pd,": "import pandas as pd",
-        "pandas.": "import pandas as pd",
-        "np.": "import numpy as np",
-        "np,": "import numpy as np",
-        "numpy.": "import numpy as np",
-        "plt.": "import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt",
-        "matplotlib.": "import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt",
-        "sns.": "import seaborn as sns",
-        "seaborn.": "import seaborn as sns",
+    # Common imports for data analysis — use regex word-boundary patterns
+    # to avoid false positives (e.g. "rapid" matching "pd")
+    import_mappings: dict[str, tuple[str, str]] = {
+        r"\bpd\.": ("pandas", "import pandas as pd"),
+        r"\bpd\b": ("pandas", "import pandas as pd"),
+        r"\bpandas\.": ("pandas", "import pandas as pd"),
+        r"\bnp\.": ("numpy", "import numpy as np"),
+        r"\bnp\b": ("numpy", "import numpy as np"),
+        r"\bnumpy\.": ("numpy", "import numpy as np"),
+        r"\bplt\.": ("matplotlib", "import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt"),
+        r"\bmatplotlib\.": ("matplotlib", "import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt"),
+        r"\bsns\.": ("seaborn", "import seaborn as sns"),
+        r"\bseaborn\.": ("seaborn", "import seaborn as sns"),
     }
 
     missing_imports: list[str] = []
 
-    for usage, import_statement in import_mappings.items():
+    for pattern, (base_module_name, import_statement) in import_mappings.items():
         # Check if the usage exists in code but import is missing
-        if usage in code and import_statement not in code:
+        if re.search(pattern, code) and import_statement not in code:
             # Check if this is matplotlib-related
             if "matplotlib" in import_statement:
                 # Check if matplotlib backend is already configured
@@ -135,8 +136,7 @@ def inject_python_imports(code: str) -> str:
                         missing_imports.append(import_statement)
             else:
                 # For non-matplotlib imports, check variations
-                base_module = import_statement.split()[1]
-                if f"import {base_module}" not in code and f"from {base_module}" not in code:
+                if f"import {base_module_name}" not in code and f"from {base_module_name}" not in code:
                     if import_statement not in missing_imports:
                         missing_imports.append(import_statement)
 

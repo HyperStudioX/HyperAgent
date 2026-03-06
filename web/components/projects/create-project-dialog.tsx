@@ -8,6 +8,7 @@ import { COLOR_MAP } from "@/lib/utils/project-colors";
 import { PROJECT_COLORS, type ProjectColor } from "@/lib/types/projects";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -84,12 +85,12 @@ export function CreateProjectDialog({
             <label className="text-sm font-medium text-foreground mb-1.5 block">
               {t("description")}
             </label>
-            <textarea
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t("descriptionPlaceholder")}
               rows={3}
-              className="flex w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 resize-none"
+              className="text-sm"
             />
           </div>
 

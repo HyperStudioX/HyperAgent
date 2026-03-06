@@ -1,12 +1,12 @@
 # Frontend Style Guide
 
-A modern, clean design system — teal/cyan accents, balanced cool neutrals, flat design, and clarity over decoration.
+A modern, clean design system — indigo primary accent, teal decorative accent (logo), balanced cool neutrals, flat design, and clarity over decoration.
 
 ## Design Philosophy
 
 - **Radically Minimal** - No shadows, borders only where structure is needed
 - **Cool Neutrals** - Cool slate-blue light theme, refined dark theme with blue-gray undertones (hue 230-250)
-- **Teal Primary** - Vibrant teal/cyan as the primary accent color for emphasis
+- **Indigo Primary** - Deep indigo-violet as the primary interactive accent, teal reserved for decorative accents (logo, code highlights)
 - **Semantic Tokens** - Use CSS variables for consistency across themes
 - **Ultra-Flat Design** - Borders for structure, no glows or effects
 - **Subtle Interactions** - Minimal hover states, focus on clarity over decoration
@@ -29,30 +29,30 @@ A modern, clean design system — teal/cyan accents, balanced cool neutrals, fla
 | `border-border` | Light border (0.925 0.004 230) | Dark border (0.28 0.008 250) | Standard borders |
 | `border-border/50` | 50% opacity | 50% opacity | Card borders, containers |
 | `border-border/30` | 30% opacity | 30% opacity | Dividers, separators |
-| `bg-primary` | Teal (0.609 0.113 221 / #0891B2) | Bright teal (0.796 0.134 212 / #22D3EE) | Primary buttons, interactive accents |
+| `bg-primary` | Indigo (0.53 0.185 275) | Bright indigo (0.74 0.15 275) | Primary buttons, interactive accents |
 | `text-primary-foreground` | White (1.00 0 0) | Dark slate (0.13 0.01 250) | Text on primary |
 | `bg-destructive` | Red (0.55 0.22 27) | Red (0.60 0.21 25) | Error states, delete buttons |
 | `text-destructive` | Red | Red | Error text, warning icons |
 
 ### Interactive States
 
-Interactive elements use teal primary for emphasis, cool neutrals for subtle states:
+Interactive elements use indigo primary for emphasis, cool neutrals for subtle states:
 
 | State | Color Treatment |
 |-------|-----------------|
 | Default | `bg-card text-foreground` |
 | Hover | `bg-secondary text-foreground` or `bg-muted` |
-| Active/Selected Primary | `bg-primary text-primary-foreground` (teal accent) |
+| Active/Selected Primary | `bg-primary text-primary-foreground` (indigo accent) |
 | Active/Selected Subtle | `bg-secondary text-foreground` (cool neutral) |
-| Focus | `ring-2 ring-primary` (teal ring) |
+| Focus | `ring-2 ring-primary` (indigo ring) |
 | Disabled | `opacity-50` |
 
-**Teal Accent Philosophy:**
-- Teal primary (`bg-primary`) for high-emphasis interactive elements (primary buttons, active states)
+**Dual Accent Philosophy:**
+- Indigo primary (`bg-primary`) for high-emphasis interactive elements (primary buttons, selected states, focus rings)
+- Teal (`accent-cyan`) for decorative accents: code highlights, report markers, file type indicators, logo elements
 - Cool neutrals for subtle states and secondary actions
 - No glows or decorative effects - flat design maintained
-- Focus on hierarchy through typography weight, spacing, and strategic use of teal
-- Links can use teal for emphasis or subtle underline for minimal style
+- Focus on hierarchy through typography weight, spacing, and strategic use of indigo
 
 ### Do's and Don'ts
 
@@ -99,7 +99,9 @@ className="hover:bg-gray-100 dark:hover:bg-gray-700"
 | `text-3xl` | 24px | Hero titles |
 | `text-4xl` | 32px | Large hero titles |
 
-**Note:** Minimum font size is 12px (`text-xs`) for WCAG accessibility.
+**Rules:**
+- Minimum font size is 12px (`text-xs`) for WCAG accessibility.
+- All text must use the standard Tailwind scale above. No arbitrary `text-[Npx]` values — use the nearest standard class instead.
 
 ### Font Weights
 
@@ -117,14 +119,14 @@ className="hover:bg-gray-100 dark:hover:bg-gray-700"
 ```css
 --background: 0.985 0.004 230;     /* Cool off-white - site background */
 --foreground: 0.23 0.012 250;      /* Dark charcoal - primary text */
---primary: 0.609 0.113 221;        /* #0891B2 — logo teal */
---primary-foreground: 1.00 0 0;    /* White - text on teal */
+--primary: 0.53 0.185 275;         /* Indigo — AI agent accent */
+--primary-foreground: 1.00 0 0;    /* White - text on primary */
 --secondary: 0.960 0.004 230;      /* Light gray */
 --muted: 0.955 0.003 230;          /* Soft gray */
 --muted-foreground: 0.55 0.01 250;
 --border: 0.925 0.004 230;         /* Light border */
 --card: 0.993 0.002 230;           /* Near-white - editor areas */
---ring: 0.609 0.113 221;           /* Logo teal focus ring */
+--ring: 0.53 0.185 275;            /* Indigo focus ring */
 ```
 
 ### CSS Variables (Dark Mode - Refined Slate)
@@ -132,31 +134,32 @@ className="hover:bg-gray-100 dark:hover:bg-gray-700"
 ```css
 --background: 0.18 0.008 250;      /* Dark slate - site background */
 --foreground: 0.90 0.005 230;      /* Light gray - primary text */
---primary: 0.796 0.134 212;        /* #22D3EE — logo bright teal */
---primary-foreground: 0.13 0.01 250;  /* Dark slate - text on teal */
+--primary: 0.74 0.15 275;          /* Bright indigo — AI agent accent */
+--primary-foreground: 0.13 0.01 250;  /* Dark slate - text on primary */
 --secondary: 0.24 0.008 250;       /* Medium slate */
 --muted: 0.16 0.004 250;           /* Dark slate */
 --muted-foreground: 0.58 0.008 250;
 --border: 0.28 0.008 250;          /* Dark border */
 --card: 0.20 0.008 250;            /* Deep slate - editor areas */
---ring: 0.796 0.134 212;           /* Logo bright teal focus ring */
+--ring: 0.74 0.15 275;             /* Bright indigo focus ring */
 ```
 
 ### Status Colors (Both Themes)
 
-Use teal for primary actions, red for destructive states:
+Use indigo for primary actions, red for destructive states, teal for decorative accents:
 
 ```css
-/* Primary - teal accent (matches logo node colors) */
---primary: 0.609 0.113 221;        /* Light mode — #0891B2 */
---primary: 0.796 0.134 212;        /* Dark mode — #22D3EE */
+/* Primary - indigo accent (AI agent branding) */
+--primary: 0.53 0.185 275;         /* Light mode — deep indigo */
+--primary: 0.74 0.15 275;          /* Dark mode — bright indigo */
+
+/* Decorative - teal accent (logo, code highlights) */
+--accent-cyan: 192 91% 37%;        /* Light mode — #0891B2 */
+--accent-cyan: 188 86% 53%;        /* Dark mode — #22D3EE */
 
 /* Destructive/Error - red */
 --destructive: 0.55 0.22 27;       /* Light mode - red */
 --destructive: 0.60 0.21 25;       /* Dark mode - red */
-
-/* Success/Info use neutral foreground */
-/* Teal used for emphasis and primary actions */
 ```
 
 ## Brand Title
@@ -224,7 +227,7 @@ className="bg-secondary text-foreground hover:bg-muted border border-border/50 t
 ```
 **Usage:** Non-critical actions, form buttons, secondary CTAs
 
-#### Primary (Teal Accent)
+#### Primary (Indigo Accent)
 ```tsx
 className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
 ```
@@ -266,7 +269,7 @@ size="icon"     // h-9 w-9 (square)
 ### Button Best Practices
 
 **DO:**
-- Use `variant="primary"` for primary CTAs (teal background)
+- Use `variant="primary"` for primary CTAs (indigo background)
 - Keep transitions to `transition-colors` only
 - Use clear typography hierarchy instead of effects
 - Maintain 32px minimum touch targets
@@ -274,12 +277,12 @@ size="icon"     // h-9 w-9 (square)
 **DON'T:**
 - Don't use transform effects (scale, translate, rotate)
 - Don't use shadows except on destructive in rare cases
-- Don't use colors beyond teal primary and cool neutrals
+- Don't use colors beyond indigo primary, teal accent, and cool neutrals
 - Don't add glow effects or decorative elements
 
 ## Focus States
 
-Use teal rings for focus states, no glow effects:
+Use indigo rings for focus states, no glow effects:
 
 ```tsx
 // Focus ring (for all interactive elements)
@@ -287,7 +290,7 @@ className="focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-of
 ```
 
 **Focus Ring Philosophy:**
-- Use teal `ring-primary` for accessibility and brand consistency
+- Use indigo `ring-primary` for accessibility and brand consistency
 - Never use box-shadow or glow effects
 - Ring offset of 2px for clear separation
 - Remove default outline with `outline-none`
@@ -428,27 +431,27 @@ Systematic border radius hierarchy for visual consistency:
 
 | Class | Size | Usage |
 |-------|------|-------|
-| `rounded-sm` | 8px | Selection items (sidebar items, list selections), small badges, minimal elements |
-| `rounded-md` | 10px | Badges, tags, tool indicators |
-| `rounded-lg` | 12px | Buttons, inputs, icon buttons, pills, chips, agent selection buttons |
-| `rounded-xl` | 16px | Cards, containers, modals, input areas |
-| `rounded-2xl` | 20px | Large containers, hero sections |
+| `rounded-sm` | 0px | Sidebar items, list selections — completely square edges |
+| `rounded-md` | 2px | Badges, tags, tool indicators — barely rounded |
+| `rounded-lg` | 4px | Buttons, inputs, icon buttons, pills, chips — crisp interactive elements |
+| `rounded-xl` | 8px | Cards, containers, modals, input areas — structured surfaces |
+| `rounded-2xl` | 12px | Large containers, hero sections — contained rounding |
 | `rounded-full` | 9999px | Avatars, status dots, circular pills |
 
 **Hierarchy Philosophy:**
-- Large containers (hero sections) = `rounded-2xl` (20px)
-- Standard containers (cards, modals) = `rounded-xl` (16px)
-- Interactive elements (buttons, inputs) = `rounded-lg` (12px)
-- Selection items (sidebar items, list selections) = `rounded-sm` (8px)
-- Smaller elements (pills, chips) = `rounded-lg` (12px)
-- Micro elements (badges, tags) = `rounded-md` (10px)
+- Large containers (hero sections) = `rounded-2xl` (12px)
+- Standard containers (cards, modals) = `rounded-xl` (8px)
+- Interactive elements (buttons, inputs) = `rounded-lg` (4px)
+- Selection items (sidebar items, list selections) = `rounded-sm` (0px)
+- Smaller elements (pills, chips) = `rounded-lg` (4px)
+- Micro elements (badges, tags) = `rounded-md` (2px)
 
-**Note:** Border radius values are calculated from `--radius: 0.75rem` (12px) base:
-- `rounded-sm` = `calc(var(--radius) - 4px)` = 8px
-- `rounded-md` = `calc(var(--radius) - 2px)` = 10px
-- `rounded-lg` = `var(--radius)` = 12px
-- `rounded-xl` = `calc(var(--radius) + 0.25rem)` = 16px
-- `rounded-2xl` = `calc(var(--radius) + 0.5rem)` = 20px
+**Note:** Border radius values are calculated from `--radius: 0.25rem` (4px) base:
+- `rounded-sm` = `calc(var(--radius) - 4px)` = 0px
+- `rounded-md` = `calc(var(--radius) - 2px)` = 2px
+- `rounded-lg` = `var(--radius)` = 4px
+- `rounded-xl` = `calc(var(--radius) + 0.25rem)` = 8px
+- `rounded-2xl` = `calc(var(--radius) + 0.5rem)` = 12px
 
 ```tsx
 // Example: Chat input container
@@ -602,8 +605,8 @@ className="transition-colors duration-150"
 
 **Minimal interaction philosophy:**
 - Hover: Background color change only (cool neutrals)
-- Active: Teal primary for high-emphasis states
-- Focus: Teal ring (via `ring-primary`)
+- Active: Indigo primary for high-emphasis states
+- Focus: Indigo ring (via `ring-primary`)
 - Loading: Simple opacity fade
 
 ## Touch Targets
@@ -694,16 +697,16 @@ className="font-medium text-foreground"
 ## Key Principles
 
 1. **Cool neutrals throughout** - Subtle blue-gray undertones (hue 230-250) create a modern, professional feel
-2. **Teal primary accent** - Vibrant teal (0.58 0.12 195 OKLCH) for emphasis and primary actions
+2. **Indigo primary accent** - Deep indigo (0.53 0.185 275 OKLCH) for interactive emphasis, teal for decorative accents
 3. **No decorative effects** - No shadows, glows, gradients, or transforms - maintain flat design
 4. **Borders for structure** - Never use shadows, always use subtle cool-toned borders
 5. **Semantic tokens only** - Never hardcode hex/rgb values in components
 6. **Consistent spacing** - Use Tailwind's spacing scale (p-4, p-6, gap-3, etc.)
 7. **Accessible** - 32px minimum touch targets, 12px minimum font size, WCAG AAA contrast
 8. **Color transitions only** - `transition-colors` for all interactions, no transforms
-9. **Teal focus rings** - Use `ring-2 ring-primary` for accessibility and brand consistency
-10. **Typography for hierarchy** - Use weight/size for distinction, strategic teal for emphasis
-11. **Border radius hierarchy** - xl (containers) > lg (buttons) > md (pills)
+9. **Indigo focus rings** - Use `ring-2 ring-primary` for accessibility and brand consistency
+10. **Typography for hierarchy** - Use weight/size for distinction, strategic indigo for emphasis
+11. **Border radius hierarchy** - xl (containers, 8px) > lg (buttons, 4px) > sm (sidebar items, 0px) — sharp and utilitarian
 12. **Minimal is better** - When in doubt, remove decoration
 13. **Cool aesthetic** - All neutrals have blue-gray undertones for cohesive modernity
 14. **Flat design** - Strictly 2D, no depth effects

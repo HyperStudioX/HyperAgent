@@ -357,7 +357,7 @@ export const MessageBubble = memo(function MessageBubble({
                     </div>
                     {userSkillId && SkillBadgeIcon && (
                         <div className="flex justify-end mt-1.5 mr-1">
-                            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70">
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground/70">
                                 <SkillBadgeIcon className="w-3 h-3" />
                                 {getTranslatedSkillName(userSkillId, userSkillId, tSkills)}
                             </span>
@@ -447,7 +447,7 @@ export const MessageBubble = memo(function MessageBubble({
                                     "transition-colors duration-150"
                                 )}>
                                     <span className={cn(
-                                        "text-xs font-medium text-white px-3 py-1.5 rounded-lg bg-foreground/60",
+                                        "text-xs font-medium text-background px-3 py-1.5 rounded-lg bg-foreground/60",
                                         "opacity-0 group-hover/img:opacity-100",
                                         "transition-opacity duration-150"
                                     )}>

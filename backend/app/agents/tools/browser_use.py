@@ -62,7 +62,7 @@ async def _get_browser_session(user_id: str | None, task_id: str | None):
     """
     from app.sandbox import get_desktop_sandbox_manager
 
-    manager = get_desktop_sandbox_manager()
+    manager = await get_desktop_sandbox_manager()
     session = await manager.get_session(user_id=user_id, task_id=task_id)
     return manager, session
 
@@ -183,7 +183,7 @@ async def browser_navigate(
     try:
         from app.sandbox import get_desktop_sandbox_manager
 
-        manager = get_desktop_sandbox_manager()
+        manager = await get_desktop_sandbox_manager()
         session_key = manager.make_session_key(user_id, task_id)
 
         # Get existing session - supervisor should have already created it

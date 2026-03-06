@@ -40,6 +40,8 @@ class ExecutionSandboxSession:
 
     executor: BaseCodeExecutor
     session_key: str
+    user_id: str = ""
+    task_id: str = ""
     created_at: datetime = field(default_factory=_utcnow)
     last_accessed: datetime = field(default_factory=_utcnow)
     timeout: timedelta = field(default_factory=get_default_execution_session_timeout)
@@ -73,14 +75,14 @@ class ExecutionSandboxManager:
     """
 
     _instance: "ExecutionSandboxManager | None" = None
-    _lock: "asyncio.Lock | None" = None
+    _instance_lock: "asyncio.Lock | None" = None
 
     @classmethod
-    def _get_lock(cls) -> asyncio.Lock:
+    def _get_instance_lock(cls) -> asyncio.Lock:
         """Lazily create the class-level lock to avoid binding to wrong event loop."""
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
-        return cls._lock
+        if cls._instance_lock is None:
+            cls._instance_lock = asyncio.Lock()
+        return cls._instance_lock
 
     def __init__(self) -> None:
         """Initialize the execution sandbox manager."""
@@ -94,10 +96,13 @@ class ExecutionSandboxManager:
         self._health_check_failures: int = 0
 
     @classmethod
-    def get_instance(cls) -> "ExecutionSandboxManager":
+    async def get_instance(cls) -> "ExecutionSandboxManager":
         """Get the singleton instance of ExecutionSandboxManager."""
-        if cls._instance is None:
-            cls._instance = ExecutionSandboxManager()
+        if cls._instance is not None:
+            return cls._instance
+        async with cls._get_instance_lock():
+            if cls._instance is None:
+                cls._instance = ExecutionSandboxManager()
         return cls._instance
 
     @staticmethod
@@ -144,23 +149,37 @@ class ExecutionSandboxManager:
         session_key = self.make_session_key(user_id, task_id)
         session_timeout = timeout or get_default_execution_session_timeout()
 
+        # Snapshot existing session under lock, then health-check outside lock
         async with self._session_lock:
-            # Check for existing valid session
-            if session_key in self._sessions:
-                session = self._sessions[session_key]
-                # Perform health check: not expired and sandbox still alive
-                if not session.is_expired and await self._is_sandbox_healthy(session):
-                    session.touch()
+            existing = self._sessions.get(session_key)
+
+        if existing and not existing.is_expired:
+            healthy = await self._is_sandbox_healthy(existing)
+            if healthy:
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is existing:
+                        existing.touch()
+                        self._total_reused += 1
+                        logger.info(
+                            "execution_sandbox_session_reused",
+                            session_key=session_key,
+                            sandbox_id=existing.sandbox_id,
+                        )
+                        return existing
+
+        # Need a new session - acquire lock
+        async with self._session_lock:
+            # Double-check: another coroutine may have created one
+            if session_key in self._sessions and self._sessions[session_key] is not existing:
+                fresh = self._sessions[session_key]
+                if not fresh.is_expired:
+                    fresh.touch()
                     self._total_reused += 1
-                    logger.info(
-                        "execution_sandbox_session_reused",
-                        session_key=session_key,
-                        sandbox_id=session.sandbox_id,
-                    )
-                    return session
-                else:
-                    # Clean up unhealthy or expired session
-                    await self._cleanup_session_internal(session_key)
+                    return fresh
+
+            # Clean up stale session if present
+            if session_key in self._sessions:
+                await self._cleanup_session_internal(session_key)
 
             # Create new session via provider factory
             from app.sandbox.provider import create_code_executor
@@ -171,6 +190,8 @@ class ExecutionSandboxManager:
             session = ExecutionSandboxSession(
                 executor=executor,
                 session_key=session_key,
+                user_id=user_id or "anonymous",
+                task_id=task_id or "default",
                 timeout=session_timeout,
             )
             self._sessions[session_key] = session
@@ -214,23 +235,37 @@ class ExecutionSandboxManager:
         session_key = self.make_session_key(user_id, task_id)
         session_timeout = timeout or get_default_execution_session_timeout()
 
+        # Snapshot existing session under lock, then health-check outside lock
         async with self._session_lock:
-            # Check for existing valid session
-            if session_key in self._sessions:
-                session = self._sessions[session_key]
-                if not session.is_expired and await self._is_sandbox_healthy(session):
-                    session.touch()
+            existing = self._sessions.get(session_key)
+
+        if existing and not existing.is_expired:
+            healthy = await self._is_sandbox_healthy(existing)
+            if healthy:
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is existing:
+                        existing.touch()
+                        self._total_reused += 1
+                        logger.info(
+                            "execution_sandbox_session_reused_with_runtime",
+                            session_key=session_key,
+                            sandbox_id=existing.sandbox_id,
+                        )
+                        return existing
+
+        # Need a new session - acquire lock
+        async with self._session_lock:
+            # Double-check: another coroutine may have created one
+            if session_key in self._sessions and self._sessions[session_key] is not existing:
+                fresh = self._sessions[session_key]
+                if not fresh.is_expired:
+                    fresh.touch()
                     self._total_reused += 1
-                    logger.info(
-                        "execution_sandbox_session_reused_with_runtime",
-                        session_key=session_key,
-                        sandbox_id=session.sandbox_id,
-                    )
-                    return session
-                else:
-                    # Remove stale session entry but don't kill the runtime
-                    # (it's owned by the unified manager)
-                    self._sessions.pop(session_key, None)
+                    return fresh
+
+            # Remove stale session entry but don't kill the runtime
+            # (it's owned by the unified manager)
+            self._sessions.pop(session_key, None)
 
             # Wrap the provided runtime in a code executor
             from app.sandbox.provider import create_code_executor
@@ -241,6 +276,8 @@ class ExecutionSandboxManager:
             session = ExecutionSandboxSession(
                 executor=executor,
                 session_key=session_key,
+                user_id=user_id or "anonymous",
+                task_id=task_id or "default",
                 timeout=session_timeout,
             )
             self._sessions[session_key] = session
@@ -273,10 +310,15 @@ class ExecutionSandboxManager:
 
         async with self._session_lock:
             session = self._sessions.get(session_key)
-            if session and not session.is_expired and await self._is_sandbox_healthy(session):
-                session.touch()
-                return session
-            return None
+
+        if session and not session.is_expired:
+            healthy = await self._is_sandbox_healthy(session)
+            if healthy:
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is session:
+                        session.touch()
+                        return session
+        return None
 
     async def _is_sandbox_healthy(self, session: ExecutionSandboxSession) -> bool:
         """Check if a sandbox session is still healthy and responsive.
@@ -424,17 +466,13 @@ class ExecutionSandboxManager:
         # Auto-snapshot before cleanup
         try:
             runtime = session.executor.get_runtime()
-            # Parse user_id and task_id from session key (format: "user_id:task_id")
-            parts = session_key.split(":", 1)
-            user_id = parts[0] if len(parts) > 0 else "anonymous"
-            task_id = parts[1] if len(parts) > 1 else "default"
 
             from app.services.snapshot_service import save_snapshot
 
             await save_snapshot(
                 runtime=runtime,
-                user_id=user_id,
-                task_id=task_id,
+                user_id=session.user_id or "anonymous",
+                task_id=session.task_id or "default",
                 sandbox_type="execution",
             )
         except Exception as e:
@@ -523,14 +561,35 @@ class ExecutionSandboxManager:
         Returns:
             Number of sessions cleaned up
         """
-        cleaned = 0
-
+        # Collect expired sessions under lock, remove from dict
         async with self._session_lock:
-            expired_keys = [key for key, session in self._sessions.items() if session.is_expired]
+            expired_items = [
+                (key, self._sessions.pop(key))
+                for key, session in list(self._sessions.items())
+                if session.is_expired
+            ]
 
-            for key in expired_keys:
-                if await self._cleanup_session_internal(key):
-                    cleaned += 1
+        # Perform I/O-heavy cleanup outside lock
+        cleaned = 0
+        for key, session in expired_items:
+            try:
+                await session.executor.cleanup()
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.info(
+                    "execution_sandbox_session_cleaned",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                )
+            except Exception as e:
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.error(
+                    "execution_sandbox_session_cleanup_failed_sandbox_may_be_leaked",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                    error=str(e),
+                )
 
         if cleaned > 0:
             logger.info("execution_expired_sessions_cleaned", count=cleaned)
@@ -621,10 +680,10 @@ class ExecutionSandboxManager:
 
 
 # Singleton accessor
-def get_execution_sandbox_manager() -> ExecutionSandboxManager:
+async def get_execution_sandbox_manager() -> ExecutionSandboxManager:
     """Get the global ExecutionSandboxManager instance.
 
     Returns:
         ExecutionSandboxManager singleton
     """
-    return ExecutionSandboxManager.get_instance()
+    return await ExecutionSandboxManager.get_instance()

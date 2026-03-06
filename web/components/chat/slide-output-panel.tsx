@@ -67,7 +67,7 @@ export function SlideOutputPanel({ output }: SlideOutputPanelProps) {
         <span
           className={cn(
             "inline-flex items-center px-2 py-0.5",
-            "text-[11px] font-medium rounded-full",
+            "text-xs font-medium rounded-full",
             "bg-muted text-muted-foreground"
           )}
         >
@@ -77,7 +77,7 @@ export function SlideOutputPanel({ output }: SlideOutputPanelProps) {
           <span
             className={cn(
               "inline-flex items-center px-2 py-0.5",
-              "text-[11px] font-medium rounded-full",
+              "text-xs font-medium rounded-full",
               "bg-primary/10 text-primary/80"
             )}
           >

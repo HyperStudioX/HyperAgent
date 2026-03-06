@@ -155,7 +155,7 @@ export function ComputerPanelHeader({
                 <span
                     className={cn(
                         "w-1.5 h-1.5 rounded-full shrink-0",
-                        activityLabel ? "bg-info animate-pulse" : "bg-muted-foreground/40"
+                        activityLabel ? "bg-primary animate-pulse" : "bg-muted-foreground/40"
                     )}
                 />
                 <span className="text-xs text-muted-foreground truncate font-mono">

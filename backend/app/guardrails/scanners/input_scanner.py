@@ -1,6 +1,7 @@
 """Input scanner for prompt injection and jailbreak detection."""
 
 import threading
+import unicodedata
 
 from app.config import settings
 from app.core.logging import get_logger
@@ -130,7 +131,9 @@ class InputScanner:
         Returns:
             Reason string if jailbreak detected, None otherwise
         """
-        content_lower = content.lower()
+        # Normalize Unicode to defeat homoglyph/variant bypasses (e.g., fullwidth chars)
+        content_normalized = unicodedata.normalize("NFKC", content)
+        content_lower = content_normalized.lower()
 
         # Common jailbreak patterns
         jailbreak_patterns = [

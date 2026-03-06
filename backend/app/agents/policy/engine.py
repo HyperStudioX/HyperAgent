@@ -40,6 +40,11 @@ class PolicyResult:
     risk_level: RiskLevel
 
 
+# Tools that are unconditionally denied (e.g., known-dangerous or deprecated tools).
+# Add tool names here to hard-block them regardless of approval or risk threshold.
+HARD_DENY_TOOLS: set[str] = set()
+
+
 class PolicyEngine:
     """Simple rule-based policy engine for runtime governance."""
 
@@ -77,6 +82,9 @@ class PolicyEngine:
         tool_name = policy_input.tool_name
         approved = set(policy_input.auto_approve_tools or [])
         risk = self.assess_risk(tool_name, policy_input.contract)
+
+        if tool_name in HARD_DENY_TOOLS:
+            return PolicyResult(PolicyDecision.DENY, "hard_deny_tool", risk)
 
         if not policy_input.hitl_enabled:
             return PolicyResult(PolicyDecision.ALLOW, "hitl_disabled", risk)

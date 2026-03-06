@@ -42,7 +42,10 @@ HEALTH_CHECK_SKIP_SECONDS = 30
 _PACKAGE_NAME_RE = re.compile(r'^(@[a-zA-Z0-9._-]+/)?[a-zA-Z0-9._-]+([<>=!~@]+[a-zA-Z0-9.*]+)?$')
 
 # Shell metacharacters that are not allowed in custom commands
-_SHELL_METACHARACTERS = set(';|&$`><(){}\n')
+_SHELL_METACHARACTERS = set(';|&$`><(){}\n\r\x00')
+
+# Default home directory in sandbox containers
+_DEFAULT_HOME = "/home/user"
 
 # Pre-cached template directory inside the custom app sandbox image
 TEMPLATE_CACHE_DIR = "/opt/templates"
@@ -125,7 +128,7 @@ class AppSandboxSession:
     sandbox: SandboxRuntime
     session_key: str
     template: str = "react"
-    project_dir: str = "/home/user/app"
+    project_dir: str = f"{_DEFAULT_HOME}/app"
     created_at: datetime = field(default_factory=_utcnow)
     last_accessed: datetime = field(default_factory=_utcnow)
     timeout: timedelta = field(default_factory=get_default_app_session_timeout)
@@ -164,14 +167,14 @@ class AppSandboxManager:
     """
 
     _instance: "AppSandboxManager | None" = None
-    _lock: "asyncio.Lock | None" = None
+    _instance_lock: "asyncio.Lock | None" = None
 
     @classmethod
-    def _get_lock(cls) -> asyncio.Lock:
+    def _get_instance_lock(cls) -> asyncio.Lock:
         """Lazily create the class-level lock to avoid binding to wrong event loop."""
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
-        return cls._lock
+        if cls._instance_lock is None:
+            cls._instance_lock = asyncio.Lock()
+        return cls._instance_lock
 
     def __init__(self) -> None:
         """Initialize the app sandbox manager."""
@@ -222,10 +225,13 @@ class AppSandboxManager:
         self._used_ports.discard(port)
 
     @classmethod
-    def get_instance(cls) -> "AppSandboxManager":
+    async def get_instance(cls) -> "AppSandboxManager":
         """Get the singleton instance of AppSandboxManager."""
-        if cls._instance is None:
-            cls._instance = AppSandboxManager()
+        if cls._instance is not None:
+            return cls._instance
+        async with cls._get_instance_lock():
+            if cls._instance is None:
+                cls._instance = AppSandboxManager()
         return cls._instance
 
     @staticmethod
@@ -279,23 +285,37 @@ class AppSandboxManager:
         session_key = self.make_session_key(user_id, task_id)
         session_timeout = timeout or get_default_app_session_timeout()
 
+        # Snapshot existing session under lock, then health-check outside lock
         async with self._session_lock:
-            # Check for existing valid session
-            if session_key in self._sessions:
-                session = self._sessions[session_key]
-                # Perform health check: not expired and sandbox still alive
-                if not session.is_expired and await self._is_sandbox_healthy(session):
-                    session.touch()
+            existing = self._sessions.get(session_key)
+
+        if existing and not existing.is_expired:
+            healthy = await self._is_sandbox_healthy(existing)
+            if healthy:
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is existing:
+                        existing.touch()
+                        self._total_reused += 1
+                        logger.info(
+                            "app_sandbox_session_reused",
+                            session_key=session_key,
+                            sandbox_id=existing.sandbox_id,
+                        )
+                        return existing
+
+        # Need a new session - acquire lock
+        async with self._session_lock:
+            # Double-check: another coroutine may have created one
+            if session_key in self._sessions and self._sessions[session_key] is not existing:
+                fresh = self._sessions[session_key]
+                if not fresh.is_expired:
+                    fresh.touch()
                     self._total_reused += 1
-                    logger.info(
-                        "app_sandbox_session_reused",
-                        session_key=session_key,
-                        sandbox_id=session.sandbox_id,
-                    )
-                    return session
-                else:
-                    # Clean up unhealthy or expired session
-                    await self._cleanup_session_internal(session_key)
+                    return fresh
+
+            # Clean up stale session if present
+            if session_key in self._sessions:
+                await self._cleanup_session_internal(session_key)
 
             # Create new sandbox via provider factory
             from app.config import settings
@@ -369,7 +389,7 @@ class AppSandboxManager:
 
             # Copy cached template to project directory
             result = await session.sandbox.run_command(
-                f"cp -a {TEMPLATE_CACHE_DIR}/{template} /home/user/app",
+                f"cp -a {TEMPLATE_CACHE_DIR}/{template} {_DEFAULT_HOME}/app",
                 timeout=30,
             )
             if result.exit_code != 0:
@@ -389,7 +409,7 @@ class AppSandboxManager:
             return {
                 "success": True,
                 "template": template,
-                "project_dir": "/home/user/app",
+                "project_dir": f"{_DEFAULT_HOME}/app",
                 "message": (
                     f"Project scaffolded from cache with"
                     f" {APP_TEMPLATES[template]['name']} template"
@@ -431,13 +451,13 @@ class AppSandboxManager:
 
         try:
             # Ensure project parent directory exists (may not exist in all images)
-            await session.sandbox.run_command("mkdir -p /home/user", timeout=10)
+            await session.sandbox.run_command(f"mkdir -p {_DEFAULT_HOME}", timeout=10)
 
             # Try fast path: copy from pre-cached template
             cached_result = await self._try_cached_scaffold(session, template)
             if cached_result is not None:
                 session.template = template
-                session.project_dir = "/home/user/app"
+                session.project_dir = f"{_DEFAULT_HOME}/app"
                 session.last_health_check = time.monotonic()
                 logger.info(
                     "app_scaffold_completed",
@@ -451,7 +471,7 @@ class AppSandboxManager:
             result = await session.sandbox.run_command(
                 template_config["scaffold_cmd"],
                 timeout=180,  # 3 minutes for scaffolding (budget: 180+120+60 < 600s skill limit)
-                cwd="/home/user",
+                cwd=_DEFAULT_HOME,
             )
 
             if result.exit_code != 0:
@@ -468,7 +488,7 @@ class AppSandboxManager:
                 }
 
             session.template = template
-            session.project_dir = "/home/user/app"
+            session.project_dir = f"{_DEFAULT_HOME}/app"
 
             logger.info(
                 "app_scaffold_completed",
@@ -554,9 +574,6 @@ class AppSandboxManager:
             else:
                 preview_url = raw_url
 
-            # User-friendly display URL (what the dev server looks like inside the sandbox)
-            display_url = f"http://localhost:{server_port}"
-
             # Start the dev server using E2B's background mode
             # The background=True flag runs the command asynchronously
             logger.info(
@@ -582,7 +599,7 @@ class AppSandboxManager:
             result = await session.sandbox.run_command(
                 background_cmd,
                 timeout=30,
-                cwd="/home/user",
+                cwd=_DEFAULT_HOME,
             )
 
             logger.info(
@@ -652,7 +669,7 @@ fi
                 check_result = await session.sandbox.run_command(
                     port_check_script,
                     timeout=10,
-                    cwd="/home/user",
+                    cwd=_DEFAULT_HOME,
                 )
 
                 if check_result.stdout and "PORT_OPEN" in check_result.stdout:
@@ -670,7 +687,7 @@ fi
                     log_result = await session.sandbox.run_command(
                         "tail -20 /tmp/dev_server.log 2>/dev/null || echo 'No log yet'",
                         timeout=5,
-                        cwd="/home/user",
+                        cwd=_DEFAULT_HOME,
                     )
                     logger.debug(
                         "app_dev_server_log_check",
@@ -685,7 +702,7 @@ fi
                 log_result = await session.sandbox.run_command(
                     "cat /tmp/dev_server.log 2>/dev/null || echo 'No log available'",
                     timeout=5,
-                    cwd="/home/user",
+                    cwd=_DEFAULT_HOME,
                 )
                 error_log = log_result.stdout[:2000] if log_result.stdout else "No log"
 
@@ -701,11 +718,10 @@ fi
                 return {
                     "success": True,  # Sandbox is running, just server might be slow
                     "preview_url": session.preview_url,
-                    "display_url": display_url,
                     "port": server_port,
                     "command": start_cmd,
                     "message": (
-                        f"Dev server starting at {display_url} "
+                        f"Dev server starting at {session.preview_url} "
                         "(may take a moment to be ready)"
                     ),
                     "warning": "Server port not yet responding. It may still be starting up.",
@@ -721,10 +737,9 @@ fi
             return {
                 "success": True,
                 "preview_url": session.preview_url,
-                "display_url": display_url,
                 "port": server_port,
                 "command": start_cmd,
-                "message": f"Dev server running at {display_url}",
+                "message": f"Dev server running at {session.preview_url}",
             }
 
         except Exception as e:
@@ -1054,10 +1069,15 @@ fi
 
         async with self._session_lock:
             session = self._sessions.get(session_key)
-            if session and not session.is_expired and await self._is_sandbox_healthy(session):
-                session.touch()
-                return session
-            return None
+
+        if session and not session.is_expired:
+            healthy = await self._is_sandbox_healthy(session)
+            if healthy:
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is session:
+                        session.touch()
+                        return session
+        return None
 
     async def _is_sandbox_healthy(self, session: AppSandboxSession) -> bool:
         """Check if a sandbox session is still healthy and responsive.
@@ -1255,14 +1275,39 @@ fi
         Returns:
             Number of sessions cleaned up
         """
-        cleaned = 0
-
+        # Collect expired sessions under lock, remove from dict
         async with self._session_lock:
-            expired_keys = [key for key, session in self._sessions.items() if session.is_expired]
+            expired_items = [
+                (key, self._sessions.pop(key))
+                for key, session in list(self._sessions.items())
+                if session.is_expired
+            ]
 
-            for key in expired_keys:
-                if await self._cleanup_session_internal(key):
-                    cleaned += 1
+        # Perform I/O-heavy cleanup outside lock
+        cleaned = 0
+        for key, session in expired_items:
+            # Reclaim port
+            if session.sandbox and hasattr(session.sandbox, '_port_map'):
+                for host_port in getattr(session.sandbox, '_port_map', {}).values():
+                    self._release_host_port(host_port)
+            try:
+                await session.sandbox.kill()
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.info(
+                    "app_sandbox_session_cleaned",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                )
+            except Exception as e:
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.error(
+                    "app_sandbox_session_cleanup_failed_sandbox_may_be_leaked",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                    error=str(e),
+                )
 
         if cleaned > 0:
             logger.info("app_expired_sessions_cleaned", count=cleaned)
@@ -1342,10 +1387,10 @@ fi
 
 
 # Singleton accessor
-def get_app_sandbox_manager() -> AppSandboxManager:
+async def get_app_sandbox_manager() -> AppSandboxManager:
     """Get the global AppSandboxManager instance.
 
     Returns:
         AppSandboxManager singleton
     """
-    return AppSandboxManager.get_instance()
+    return await AppSandboxManager.get_instance()

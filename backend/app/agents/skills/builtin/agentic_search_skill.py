@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
 from app.agents import events as agent_events
+from app.agents.skills.artifact_saver import save_skill_artifact
 from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 from app.agents.state import _override_reducer
 from app.ai.llm import extract_text_from_content, llm_service
@@ -120,6 +121,7 @@ CLASSIFY_PROMPT = (
 )
 
 
+# Note: {max_sub_queries} is interpolated via .replace() at usage site
 PLAN_PROMPT = (
     "You are a search strategist. Decompose the query into "
     "2-{max_sub_queries} focused sub-queries.\n\n"
@@ -261,6 +263,14 @@ class AgenticSearchSkill(Skill):
                 "contradictions": {"type": "array"},
                 "complexity": {"type": "string"},
                 "summary": {"type": "string"},
+                "download_url": {
+                    "type": "string",
+                    "description": "URL to download the generated research file",
+                },
+                "storage_key": {
+                    "type": "string",
+                    "description": "Storage key for the generated research file",
+                },
             },
         },
         required_tools=["web_search"],
@@ -819,29 +829,43 @@ class AgenticSearchSkill(Skill):
                 agent_events.stage("synthesizing", "Complete", "completed"),
             )
 
+            facts = synthesis.get("facts", [])
+            summary_text = synthesis.get("summary", "")
+            output_dict = {
+                "facts": facts,
+                "sources": source_list,
+                "overall_confidence": synthesis.get("confidence", overall_confidence),
+                "coverage": knowledge.get("coverage_scores", {}),
+                "unanswered": unanswered,
+                "contradictions": [
+                    {
+                        "claim_a": c.get("claim_a"),
+                        "claim_b": c.get("claim_b"),
+                        "source_a": c.get("source_a"),
+                        "source_b": c.get("source_b"),
+                    }
+                    for c in contradictions
+                ],
+                "complexity": complexity,
+                "summary": summary_text,
+                "sub_queries_count": len(sub_queries),
+                "sources_count": len(source_list),
+                "refinement_rounds": knowledge.get("refinement_round", 0),
+                "provider_usage": provider_usage,
+            }
+
+            # Save search results as downloadable markdown artifact
+            user_id = state.get("user_id")
+            research_md = _format_search_report(
+                facts, source_list, summary_text, unanswered, contradictions
+            )
+            artifact = await save_skill_artifact(research_md, user_id, "research")
+            if artifact:
+                output_dict["download_url"] = artifact["download_url"]
+                output_dict["storage_key"] = artifact["storage_key"]
+
             return {
-                "output": {
-                    "facts": synthesis.get("facts", []),
-                    "sources": source_list,
-                    "overall_confidence": synthesis.get("confidence", overall_confidence),
-                    "coverage": knowledge.get("coverage_scores", {}),
-                    "unanswered": unanswered,
-                    "contradictions": [
-                        {
-                            "claim_a": c.get("claim_a"),
-                            "claim_b": c.get("claim_b"),
-                            "source_a": c.get("source_a"),
-                            "source_b": c.get("source_b"),
-                        }
-                        for c in contradictions
-                    ],
-                    "complexity": complexity,
-                    "summary": synthesis.get("summary", ""),
-                    "sub_queries_count": len(sub_queries),
-                    "sources_count": len(source_list),
-                    "refinement_rounds": knowledge.get("refinement_round", 0),
-                    "provider_usage": provider_usage,
-                },
+                "output": output_dict,
                 "pending_events": pending_events,
             }
 
@@ -890,3 +914,63 @@ class AgenticSearchSkill(Skill):
         graph.add_edge("synthesize", END)
 
         return graph.compile()
+
+
+def _format_search_report(
+    facts: list[dict],
+    sources: list[dict],
+    summary: str,
+    unanswered: list[str],
+    contradictions: list[dict],
+) -> str:
+    """Format agentic search results as a Markdown document."""
+    lines: list[str] = []
+    lines.append("# Web Research Report")
+    lines.append("")
+
+    if summary:
+        lines.append("## Summary")
+        lines.append("")
+        lines.append(summary)
+        lines.append("")
+
+    if facts:
+        lines.append("## Key Facts")
+        lines.append("")
+        for fact in facts:
+            claim = fact.get("claim", "")
+            confidence = fact.get("confidence", 0)
+            fact_sources = fact.get("sources", [])
+            src_refs = ", ".join(fact_sources[:3]) if fact_sources else ""
+            lines.append(f"- {claim} (confidence: {confidence:.0%})")
+            if src_refs:
+                lines.append(f"  Sources: {src_refs}")
+        lines.append("")
+
+    if contradictions:
+        lines.append("## Contradictions")
+        lines.append("")
+        for c in contradictions:
+            lines.append(
+                f"- {c.get('claim_a', '')} vs {c.get('claim_b', '')} "
+                f"({c.get('source_a', '')} vs {c.get('source_b', '')})"
+            )
+        lines.append("")
+
+    if unanswered:
+        lines.append("## Unanswered Questions")
+        lines.append("")
+        for q in unanswered:
+            lines.append(f"- {q}")
+        lines.append("")
+
+    if sources:
+        lines.append("## Sources")
+        lines.append("")
+        for i, src in enumerate(sources, 1):
+            title = src.get("title", "Untitled")
+            url = src.get("url", "")
+            lines.append(f"{i}. [{title}]({url})")
+        lines.append("")
+
+    return "\n".join(lines)

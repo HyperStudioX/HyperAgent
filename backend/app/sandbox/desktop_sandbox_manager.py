@@ -115,14 +115,14 @@ class DesktopSandboxManager:
     """
 
     _instance: "DesktopSandboxManager | None" = None
-    _lock: "asyncio.Lock | None" = None
+    _instance_lock: "asyncio.Lock | None" = None
 
     @classmethod
-    def _get_lock(cls) -> asyncio.Lock:
+    def _get_instance_lock(cls) -> asyncio.Lock:
         """Lazily create the class-level lock to avoid binding to wrong event loop."""
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
-        return cls._lock
+        if cls._instance_lock is None:
+            cls._instance_lock = asyncio.Lock()
+        return cls._instance_lock
 
     def __init__(self) -> None:
         """Initialize the desktop sandbox manager."""
@@ -136,10 +136,13 @@ class DesktopSandboxManager:
         self._health_check_failures: int = 0
 
     @classmethod
-    def get_instance(cls) -> "DesktopSandboxManager":
+    async def get_instance(cls) -> "DesktopSandboxManager":
         """Get the singleton instance of DesktopSandboxManager."""
-        if cls._instance is None:
-            cls._instance = DesktopSandboxManager()
+        if cls._instance is not None:
+            return cls._instance
+        async with cls._get_instance_lock():
+            if cls._instance is None:
+                cls._instance = DesktopSandboxManager()
         return cls._instance
 
     @staticmethod
@@ -198,26 +201,40 @@ class DesktopSandboxManager:
         session_key = self.make_session_key(user_id, task_id)
         session_timeout = timeout or get_default_desktop_session_timeout()
 
+        # Snapshot existing session under lock, then health-check outside lock
         async with self._session_lock:
-            # Check for existing valid session
-            if session_key in self._sessions:
-                session = self._sessions[session_key]
-                # Perform health check: not expired and sandbox still alive
-                if not session.is_expired and await self._is_sandbox_healthy(session):
-                    session.touch()
-                    if launch_browser and not session.browser_launched:
-                        await session.executor.launch_browser(browser=browser)
+            existing = self._sessions.get(session_key)
+
+        if existing and not existing.is_expired:
+            healthy = await self._is_sandbox_healthy(existing)
+            if healthy:
+                if launch_browser and not existing.browser_launched:
+                    await existing.executor.launch_browser(browser=browser)
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is existing:
+                        existing.touch()
+                        self._total_reused += 1
+                        logger.info(
+                            "desktop_sandbox_session_reused",
+                            session_key=session_key,
+                            sandbox_id=existing.sandbox_id,
+                            browser_launched=existing.browser_launched,
+                        )
+                        return existing
+
+        # Need a new session - acquire lock
+        async with self._session_lock:
+            # Double-check: another coroutine may have created one
+            if session_key in self._sessions and self._sessions[session_key] is not existing:
+                fresh = self._sessions[session_key]
+                if not fresh.is_expired:
+                    fresh.touch()
                     self._total_reused += 1
-                    logger.info(
-                        "desktop_sandbox_session_reused",
-                        session_key=session_key,
-                        sandbox_id=session.sandbox_id,
-                        browser_launched=session.browser_launched,
-                    )
-                    return session
-                else:
-                    # Clean up unhealthy or expired session
-                    await self._cleanup_session_internal(session_key)
+                    return fresh
+
+            # Clean up stale session if present
+            if session_key in self._sessions:
+                await self._cleanup_session_internal(session_key)
 
             # Create new session via provider factory
             from app.sandbox.provider import create_desktop_executor
@@ -267,10 +284,15 @@ class DesktopSandboxManager:
 
         async with self._session_lock:
             session = self._sessions.get(session_key)
-            if session and not session.is_expired and await self._is_sandbox_healthy(session):
-                session.touch()
-                return session
-            return None
+
+        if session and not session.is_expired:
+            healthy = await self._is_sandbox_healthy(session)
+            if healthy:
+                async with self._session_lock:
+                    if self._sessions.get(session_key) is session:
+                        session.touch()
+                        return session
+        return None
 
     async def ensure_stream_ready(
         self,
@@ -456,14 +478,35 @@ class DesktopSandboxManager:
         Returns:
             Number of sessions cleaned up
         """
-        cleaned = 0
-
+        # Collect expired sessions under lock, remove from dict
         async with self._session_lock:
-            expired_keys = [key for key, session in self._sessions.items() if session.is_expired]
+            expired_items = [
+                (key, self._sessions.pop(key))
+                for key, session in list(self._sessions.items())
+                if session.is_expired
+            ]
 
-            for key in expired_keys:
-                if await self._cleanup_session_internal(key):
-                    cleaned += 1
+        # Perform I/O-heavy cleanup outside lock
+        cleaned = 0
+        for key, session in expired_items:
+            try:
+                await session.executor.cleanup()
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.info(
+                    "desktop_sandbox_session_cleaned",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                )
+            except Exception as e:
+                self._total_cleaned += 1
+                cleaned += 1
+                logger.error(
+                    "desktop_sandbox_session_cleanup_failed_sandbox_may_be_leaked",
+                    session_key=key,
+                    sandbox_id=session.sandbox_id,
+                    error=str(e),
+                )
 
         if cleaned > 0:
             logger.info("desktop_expired_sessions_cleaned", count=cleaned)
@@ -559,10 +602,10 @@ class DesktopSandboxManager:
 
 
 # Singleton accessor
-def get_desktop_sandbox_manager() -> DesktopSandboxManager:
+async def get_desktop_sandbox_manager() -> DesktopSandboxManager:
     """Get the global DesktopSandboxManager instance.
 
     Returns:
         DesktopSandboxManager singleton
     """
-    return DesktopSandboxManager.get_instance()
+    return await DesktopSandboxManager.get_instance()

@@ -53,7 +53,7 @@ export function ProjectCard({ project, index = 0 }: ProjectCardProps) {
 
       {/* Footer: unified item count */}
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border/30">
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Layers className="w-3 h-3" />
           <span>
             {t("itemCount", {

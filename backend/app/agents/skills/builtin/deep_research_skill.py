@@ -4,10 +4,10 @@ Replaces the standalone research agent. Uses a ReAct loop where the LLM
 decides when to search, browse, analyze, and write — instead of fixed stages.
 """
 
+import asyncio
 import hashlib
 import json
 import operator
-import threading
 from typing import Annotated, Any
 
 from langchain_core.messages import (
@@ -31,6 +31,7 @@ from app.agents.prompts import (
     get_report_prompt,
 )
 from app.agents.scenarios import get_scenario_config
+from app.agents.skills.artifact_saver import save_skill_artifact
 from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 from app.agents.state import _override_reducer
 from app.agents.tools import (
@@ -179,14 +180,22 @@ def finish_research_tool(
 # ---------------------------------------------------------------------------
 
 _cached_tools: list[BaseTool] | None = None
-_cache_lock = threading.Lock()
+_cache_lock: asyncio.Lock | None = None
 
 
-def _get_research_tools() -> list[BaseTool]:
-    """Get tools for the research skill, cached thread-safely."""
+def _get_cache_lock() -> asyncio.Lock:
+    """Get or create the asyncio lock for tool cache access."""
+    global _cache_lock
+    if _cache_lock is None:
+        _cache_lock = asyncio.Lock()
+    return _cache_lock
+
+
+async def _get_research_tools() -> list[BaseTool]:
+    """Get tools for the research skill, cached safely for async context."""
     global _cached_tools
     if _cached_tools is None:
-        with _cache_lock:
+        async with _get_cache_lock():
             if _cached_tools is None:
                 # Get research agent tools (search, browser, image, skill, hitl)
                 base_tools = get_tools_for_agent("research", include_handoffs=False)
@@ -204,10 +213,10 @@ def _get_research_tools() -> list[BaseTool]:
     return _cached_tools
 
 
-def _clear_tool_cache() -> None:
+async def _clear_tool_cache() -> None:
     """Clear the cached tool list. Useful for testing and hot-reload."""
     global _cached_tools
-    with _cache_lock:
+    async with _get_cache_lock():
         _cached_tools = None
 
 
@@ -421,6 +430,14 @@ class DeepResearchSkill(Skill):
                     },
                 },
                 "findings": {"type": "string", "description": "Key findings summary"},
+                "download_url": {
+                    "type": "string",
+                    "description": "URL to download the generated report file",
+                },
+                "storage_key": {
+                    "type": "string",
+                    "description": "Storage key for the generated report file",
+                },
             },
         },
         required_tools=["web_search"],
@@ -524,8 +541,8 @@ facts, statistics, and concrete evidence — not just high-level conclusions.
                     memory_text = get_memory_store().format_memories_for_prompt(user_id)
                     if memory_text:
                         lc_messages.append(SystemMessage(content=memory_text))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("memory_injection_failed", error=str(e))
 
             lc_messages.append(HumanMessage(content=f"Research topic: {query}"))
 
@@ -605,7 +622,7 @@ facts, statistics, and concrete evidence — not just high-level conclusions.
                 llm = llm_service.choose_llm_for_task(
                     "research", provider=provider, tier_override=tier, model_override=model_override
                 )
-                all_tools = _get_research_tools()
+                all_tools = await _get_research_tools()
                 _llm_cache["instance"] = llm.bind_tools(all_tools)
                 _llm_cache["key"] = cache_key
 
@@ -745,7 +762,7 @@ facts, statistics, and concrete evidence — not just high-level conclusions.
 
             pending_events = []
             new_sources = []  # Only new sources (delta) — operator.add handles accumulation
-            all_tools = _get_research_tools()
+            all_tools = await _get_research_tools()
             tool_map = {t.name: t for t in all_tools}
             react_config = get_react_config("research")
 
@@ -981,7 +998,13 @@ produce a professional, well-structured research report based on the provided fi
                 logger.info("deep_research_report_completed", query=query[:50])
             except Exception as e:
                 logger.error("deep_research_report_failed", error=str(e))
-                pending_events.append(agent_events.token(f"\n\nError generating report: {str(e)}"))
+                pending_events.append(
+                    agent_events.stage("write", "Report generation failed", "failed")
+                )
+                return {
+                    "error": f"Report generation failed: {e}",
+                    "pending_events": pending_events,
+                }
 
             # Apply output guardrails
             report_text = "".join(report_chunks)
@@ -992,17 +1015,32 @@ produce a professional, well-structured research report based on the provided fi
                     "I apologize, but the research report could not be delivered "
                     "due to content policy. Please try a different research topic."
                 )
+                # Replace raw token events with safe message
+                pending_events = [e for e in pending_events if e.get("type") != "token"]
+                pending_events.append(agent_events.token(report_text))
             elif scan_result.sanitized_content:
                 report_text = scan_result.sanitized_content
+                # Replace raw token events with sanitized content
+                pending_events = [e for e in pending_events if e.get("type") != "token"]
+                pending_events.append(agent_events.token(report_text))
 
             pending_events.append(agent_events.stage("write", "Report complete", "completed"))
 
+            output_dict: dict[str, Any] = {
+                "report": report_text,
+                "sources": sources,
+                "findings": findings,
+            }
+
+            # Save report as downloadable markdown artifact
+            user_id = state.get("user_id")
+            artifact = await save_skill_artifact(report_text, user_id, "report")
+            if artifact:
+                output_dict["download_url"] = artifact["download_url"]
+                output_dict["storage_key"] = artifact["storage_key"]
+
             return {
-                "output": {
-                    "report": report_text,
-                    "sources": sources,
-                    "findings": findings,
-                },
+                "output": output_dict,
                 "pending_events": pending_events,
             }
 

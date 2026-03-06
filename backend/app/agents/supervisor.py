@@ -38,6 +38,7 @@ DEFAULT_SUBGRAPH_TIMEOUT = 300  # 5 minutes
 # The code is still executed, and results are shown via "summarize" stage
 
 
+
 async def router_node(state: SupervisorState) -> RouterOutput:
     """Route the query to the appropriate agent.
 
@@ -84,7 +85,6 @@ async def router_node(state: SupervisorState) -> RouterOutput:
                 restored = await _restore_handoff_artifacts(state, handoff_artifacts)
                 if restored:
                     from app.sandbox.artifact_transfer import format_artifact_summary
-
                     artifact_summary = format_artifact_summary(handoff_artifacts)
                     logger.info(
                         "handoff_artifacts_restored",
@@ -158,10 +158,25 @@ async def task_node(state: SupervisorState, config: dict | None = None) -> TaskO
     try:
         from app.config import settings
 
+        # Skip parallel decomposition when explicit skills are selected
+        explicit_skills = state.get("skills") or []
+        skip_parallel_events: list[dict] = []
+        if explicit_skills and settings.parallel_executor_v1 and state.get("parallel_eligible"):
+            logger.info(
+                "parallel_skipped_explicit_skills",
+                skills=explicit_skills,
+            )
+            skip_parallel_events.append({
+                "type": "reasoning",
+                "thinking": f"Skipping parallel decomposition: explicit skill(s) selected ({', '.join(explicit_skills)})",
+                "context": "parallel_routing",
+            })
+
         if (
             settings.parallel_executor_v1
             and state.get("parallel_eligible")
             and (state.get("mode") in (None, "task"))
+            and not explicit_skills
         ):
             from app.agents.parallel import GeneralParallelExecutor
             from app.ai.model_tiers import get_quality_profile
@@ -181,17 +196,14 @@ async def task_node(state: SupervisorState, config: dict | None = None) -> TaskO
             )
             return TaskOutput(
                 response=result.synthesis,
-                events=parallel_events
-                + [
-                    {
-                        "type": "reasoning",
-                        "thinking": (
-                            f"Executed {result.successful_count + result.failed_count} sub-tasks in parallel; "
-                            f"{result.successful_count} succeeded, {result.failed_count} failed."
-                        ),
-                        "context": "parallel_execution",
-                    }
-                ],
+                events=parallel_events + [{
+                    "type": "reasoning",
+                    "thinking": (
+                        f"Executed {result.successful_count + result.failed_count} sub-tasks in parallel; "
+                        f"{result.successful_count} succeeded, {result.failed_count} failed."
+                    ),
+                    "context": "parallel_execution",
+                }],
             )
 
         # Build input state with handoff context if present
@@ -228,16 +240,10 @@ async def task_node(state: SupervisorState, config: dict | None = None) -> TaskO
 
         output: TaskOutput = {
             "response": result.get("response", ""),
-            "events": result.get("events", []),
+            "events": skip_parallel_events + result.get("events", []),
         }
 
-        handoff_updates = await _process_handoff(
-            state=state,
-            handoff=result.get("pending_handoff"),
-            agent_name="task",
-            current_response=output.get("response", ""),
-        )
-        output = {**output, **handoff_updates}
+        await _process_handoff(output, state, result.get("pending_handoff"), "task")
 
         return output
 
@@ -343,61 +349,50 @@ def _can_handoff(state: SupervisorState, target_agent: str) -> bool:
 
 
 async def _process_handoff(
+    output: dict,
     state: SupervisorState,
     handoff: dict | None,
     agent_name: str,
-    current_response: str = "",
-) -> dict:
-    """Validate handoff and return a dict of state updates.
+) -> None:
+    """Validate and apply handoff to output dict, or set fallback response.
 
     Collects sandbox artifacts from the source agent when a valid handoff
     is detected. Artifact transfer is best-effort; the handoff proceeds
     even if artifact collection fails.
 
-    Returns a dict of updates to merge into the caller's output. Returns
-    an empty dict when there is no handoff to process.
-
     Args:
+        output: Output dict to update in-place
         state: Current supervisor state
         handoff: Handoff info dict from agent result, or None
         agent_name: Name of the current agent (for logging)
-        current_response: The current response string (used to decide
-            whether to set a fallback response when handoff is blocked)
-
-    Returns:
-        Dict of output updates to merge into the caller's output
     """
     if not handoff:
-        return {}
+        return
 
     if _can_handoff(state, handoff.get("target_agent", "")):
         # Attempt to collect artifacts from the source agent's sandbox
         artifacts = await _collect_handoff_artifacts(state)
-        enriched_handoff = {**handoff, "handoff_artifacts": artifacts} if artifacts else handoff
+        if artifacts:
+            handoff["handoff_artifacts"] = artifacts
 
-        return {
-            "pending_handoff": enriched_handoff,
-            "handoff_count": state.get("handoff_count", 0) + 1,
-            "handoff_history": update_handoff_history(
-                history=list(state.get("handoff_history") or []),
-                source_agent=state.get("active_agent") or "task",
-                handoff=enriched_handoff,
-            ),
-        }
-
-    logger.warning(
-        "handoff_blocked",
-        agent_name=agent_name,
-        target=handoff.get("target_agent", ""),
-    )
-    if not current_response:
-        return {
-            "response": (
+        output["pending_handoff"] = handoff
+        output["handoff_count"] = state.get("handoff_count", 0) + 1
+        output["handoff_history"] = update_handoff_history(
+            history=list(state.get("handoff_history") or []),
+            source_agent=state.get("active_agent") or "task",
+            handoff=handoff,
+        )
+    else:
+        logger.warning(
+            "handoff_blocked",
+            agent_name=agent_name,
+            target=handoff.get("target_agent", ""),
+        )
+        if not output.get("response"):
+            output["response"] = (
                 "I couldn't hand off that request, so I'm continuing here. "
                 "Please share more details or rephrase."
-            ),
-        }
-    return {}
+            )
 
 
 async def _collect_handoff_artifacts(state: SupervisorState) -> list[dict]:
@@ -413,7 +408,7 @@ async def _collect_handoff_artifacts(state: SupervisorState) -> list[dict]:
         from app.sandbox import get_execution_sandbox_manager
         from app.sandbox.artifact_transfer import collect_artifacts
 
-        manager = get_execution_sandbox_manager()
+        manager = await get_execution_sandbox_manager()
         session = await manager.get_session(
             user_id=state.get("user_id"),
             task_id=state.get("task_id"),
@@ -447,7 +442,7 @@ async def _restore_handoff_artifacts(
         from app.sandbox import get_execution_sandbox_manager
         from app.sandbox.artifact_transfer import restore_artifacts
 
-        manager = get_execution_sandbox_manager()
+        manager = await get_execution_sandbox_manager()
         session = await manager.get_or_create_sandbox(
             user_id=state.get("user_id"),
             task_id=state.get("task_id"),
@@ -501,6 +496,7 @@ def create_supervisor_graph(checkpointer=None):
 # =============================================================================
 
 
+
 class AgentSupervisor:
     """High-level wrapper for the supervisor graph.
 
@@ -512,10 +508,22 @@ class AgentSupervisor:
         """Initialize the supervisor.
 
         Args:
-            checkpointer: Optional checkpointer for state persistence
+            checkpointer: Optional checkpointer for state persistence.
+                          If None, a fresh MemorySaver is created per request
+                          in run()/invoke() to avoid unbounded memory growth.
         """
-        self.checkpointer = checkpointer or MemorySaver()
-        self.graph = create_supervisor_graph(checkpointer=self.checkpointer)
+        self._checkpointer_factory = checkpointer
+        # Pre-compile the graph structure (without checkpointer) for reuse
+        self._graph_no_cp = create_supervisor_graph(checkpointer=None)
+
+    def _create_graph(self):
+        """Create a graph with a fresh checkpointer per request.
+
+        Using a fresh MemorySaver per request prevents unbounded memory
+        growth from accumulating checkpoint data across many requests.
+        """
+        cp = self._checkpointer_factory if self._checkpointer_factory else MemorySaver()
+        return create_supervisor_graph(checkpointer=cp)
 
     async def run(
         self,
@@ -649,12 +657,12 @@ class AgentSupervisor:
         budget_exhausted = False
 
         import time as _time
-
         _run_start = _time.monotonic()
 
         try:
             # Stream events from the graph
-            async for event in self.graph.astream_events(
+            graph = self._create_graph()
+            async for event in graph.astream_events(
                 initial_state,
                 config=config,
                 version="v2",
@@ -673,10 +681,7 @@ class AgentSupervisor:
                         tool_calls_count=tool_calls_count,
                         elapsed_seconds=elapsed_seconds,
                     )
-                    if (
-                        budget_state["pressure_ratio"] >= 0.8
-                        and budget_state["pressure_ratio"] < 1.0
-                    ):
+                    if budget_state["pressure_ratio"] >= 0.8 and budget_state["pressure_ratio"] < 1.0:
                         yield {
                             "type": "reasoning",
                             "thinking": "Budget pressure rising; execution may degrade depth or stop soon.",
@@ -725,21 +730,19 @@ class AgentSupervisor:
             logger.info("supervisor_run_completed", thread_id=thread_id)
 
             # Fire-and-forget: extract memories from this conversation
-            if user_id and messages:
+            memory_enabled = initial_state.get("memory_enabled", True)
+            if user_id and messages and memory_enabled:
                 # Collect episodic context from the run
                 _duration_s = round(_time.monotonic() - _run_start, 1)
-                _tools_used = sorted(
-                    {
-                        info.get("tool", "")
-                        for info in processor.pending_tool_calls.values()
-                        if info.get("tool")
-                    }
-                    | {
-                        info.get("tool", "")
-                        for info in getattr(processor, "_completed_tools", [])
-                        if info.get("tool")
-                    }
-                )
+                _tools_used = sorted({
+                    info.get("tool", "")
+                    for info in processor.pending_tool_calls.values()
+                    if info.get("tool")
+                } | {
+                    info.get("tool", "")
+                    for info in getattr(processor, "_completed_tools", [])
+                    if info.get("tool")
+                })
                 # Also collect from emitted_tool_call_ids tracking
                 _tool_names_from_calls = set()
                 for _tc_id, _tc_info in processor.pending_tool_calls.items():
@@ -833,14 +836,13 @@ class AgentSupervisor:
             "recursion_limit": settings.langgraph_recursion_limit,
         }
 
-        result = await self.graph.ainvoke(initial_state, config=config)
+        graph = self._create_graph()
+        result = await graph.ainvoke(initial_state, config=config)
         return result
 
 
 # Global instance for convenience
 agent_supervisor = AgentSupervisor()
-
-
 def _derive_budget_pressure_state(
     budget: dict[str, Any],
     usage_totals: dict[str, Any],
@@ -920,14 +922,11 @@ def _apply_budget_pressure_defaults(
             {
                 "reason": reason or "budget_pressure",
                 "applied_tier": target_tier,
-                "applied_depth": str(
-                    target_depth.value if hasattr(target_depth, "value") else target_depth
-                ),
+                "applied_depth": str(target_depth.value if hasattr(target_depth, "value") else target_depth),
                 "original_tier": normalized_tier,
-                "original_depth": str(depth.value if hasattr(depth, "value") else depth)
-                if depth
-                else None,
+                "original_depth": str(depth.value if hasattr(depth, "value") else depth) if depth else None,
             },
         )
 
-    return tier, depth, None
+    # Normalize tier to string for consistent return type
+    return normalized_tier, depth, None

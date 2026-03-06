@@ -40,7 +40,7 @@ from app.sandbox.file import (
 )
 
 
-def get_sandbox_metrics() -> dict[str, Any]:
+async def get_sandbox_metrics() -> dict[str, Any]:
     """Get unified metrics from all sandbox managers.
 
     Returns:
@@ -51,10 +51,10 @@ def get_sandbox_metrics() -> dict[str, Any]:
             - unified: Metrics from unified sandbox manager
             - totals: Aggregated totals across all managers
     """
-    execution_manager = get_execution_sandbox_manager()
-    desktop_manager = get_desktop_sandbox_manager()
-    app_manager = get_app_sandbox_manager()
-    unified_manager = get_unified_sandbox_manager()
+    execution_manager = await get_execution_sandbox_manager()
+    desktop_manager = await get_desktop_sandbox_manager()
+    app_manager = await get_app_sandbox_manager()
+    unified_manager = await get_unified_sandbox_manager()
 
     execution_metrics = execution_manager.get_metrics()
     desktop_metrics = desktop_manager.get_metrics()
@@ -199,7 +199,7 @@ async def cleanup_sandboxes_for_task(user_id: str, task_id: str) -> dict[str, bo
 
     # Cleanup unified sandbox first (it owns the shared runtime)
     try:
-        unified_manager = get_unified_sandbox_manager()
+        unified_manager = await get_unified_sandbox_manager()
         results["unified"] = await unified_manager.cleanup_session(
             user_id=user_id, task_id=task_id
         )
@@ -214,7 +214,7 @@ async def cleanup_sandboxes_for_task(user_id: str, task_id: str) -> dict[str, bo
 
     # Cleanup desktop sandbox
     try:
-        desktop_manager = get_desktop_sandbox_manager()
+        desktop_manager = await get_desktop_sandbox_manager()
         results["desktop"] = await desktop_manager.cleanup_session(user_id=user_id, task_id=task_id)
     except Exception as e:
         cleanup_errors["desktop"] = str(e)
@@ -227,7 +227,7 @@ async def cleanup_sandboxes_for_task(user_id: str, task_id: str) -> dict[str, bo
 
     # Cleanup execution sandbox
     try:
-        execution_manager = get_execution_sandbox_manager()
+        execution_manager = await get_execution_sandbox_manager()
         results["execution"] = await execution_manager.cleanup_session(
             user_id=user_id, task_id=task_id
         )
@@ -242,7 +242,7 @@ async def cleanup_sandboxes_for_task(user_id: str, task_id: str) -> dict[str, bo
 
     # Cleanup app sandbox
     try:
-        app_manager = get_app_sandbox_manager()
+        app_manager = await get_app_sandbox_manager()
         results["app"] = await app_manager.cleanup_session(user_id=user_id, task_id=task_id)
     except Exception as e:
         cleanup_errors["app"] = str(e)

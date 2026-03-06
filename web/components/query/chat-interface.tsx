@@ -4,16 +4,6 @@ import React, { useState, useRef, useEffect, useCallback, memo, useMemo } from "
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
-import {
-    Send,
-    Square,
-    Check,
-    Zap,
-    Layers,
-    ChevronDown,
-    Sparkles,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useAgentProgressStore } from "@/lib/stores/agent-progress-store";
@@ -21,11 +11,6 @@ import { useExecutionProgressStore } from "@/lib/stores/execution-progress-store
 import { useComputerStore } from "@/lib/stores/computer-store";
 
 import { MessageBubble } from "@/components/chat/message-bubble";
-import { FileUploadButton } from "@/components/chat/file-upload-button";
-import { AttachmentPreview } from "@/components/chat/attachment-preview";
-import { Button } from "@/components/ui/button";
-import { CostIndicator } from "@/components/ui/cost-indicator";
-import { SkillSelector } from "@/components/chat/skill-selector";
 import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { useGoogleDrivePicker } from "@/lib/hooks/use-google-drive-picker";
 import type {
@@ -35,34 +20,25 @@ import type {
     FileAttachment,
     Message,
     AgentEvent,
-    GeneratedImage,
     Source,
     InterruptEvent,
     InterruptResponse,
 } from "@/lib/types";
-import type { SlideOutput } from "@/components/chat/slide-output-panel";
 import { AskUserInput } from "@/components/hitl/ask-user-input";
 import type { TimestampedEvent } from "@/lib/stores/agent-progress-store";
 import {
-    type StreamEvent,
     createStreamingContext,
-    getEventKey,
-    createTimestampedEvent,
-    mergeTokenContent,
-    parseSourceFromEvent,
-    parseImageFromEvent,
-    filterEventsForSaving,
-    isSearchTool,
-    generatedImageToFileAttachment,
     fileAttachmentToExternalEntry,
 } from "@/lib/utils/streaming-helpers";
-import { reduceStreamEvent } from "@/lib/utils/stream-reducer";
-import type { ExternalFileEntry } from "@/lib/stores/computer-store";
-import { getTranslatedSkillName } from "@/lib/utils/skill-i18n";
+import { ChatInputBar } from "./chat-input-bar";
+import {
+    createStreamHandlers,
+    readSSEStream,
+    buildSavedMessageMetadata,
+} from "./use-stream-handler";
 
 const SCENARIO_KEYS: ResearchScenario[] = ["academic", "market", "technical", "news"];
 
-// Memoized message list to prevent re-renders on input changes
 interface MessageListProps {
     messages: Message[];
     streamingContent: string;
@@ -124,7 +100,6 @@ const MessageList = memo(function MessageList({
                     />
                 </div>
             )}
-            {/* Inline HITL Input */}
             {activeInterrupt && onInterruptRespond && onInterruptCancel && (
                 <div className="animate-fade-in px-4 py-2">
                     <AskUserInput
@@ -145,16 +120,14 @@ export function ChatInterface() {
     const searchParams = useSearchParams();
     const { status: sessionStatus } = useSession();
     const locale = useLocale();
-    const { provider: selectedProvider, tier, setTier } = useSettingsStore();
+    const { provider: selectedProvider, tier, setTier, memoryEnabled } = useSettingsStore();
     const tSettings = useTranslations("settings");
     const t = useTranslations("home");
-    const tAgents = useTranslations("agents");
     const tResearch = useTranslations("research");
     const tChat = useTranslations("chat");
     const tTools = useTranslations("chat.agent.tools");
     const tSkills = useTranslations("skills");
 
-    // Helper to get translated tool name — dynamic lookup with fallback
     const getTranslatedToolName = useCallback((toolName: string): string => {
         const toolKey = toolName.toLowerCase();
         try {
@@ -185,7 +158,6 @@ export function ChatInterface() {
     const streamingStartTimeRef = useRef<Date>(new Date());
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    // File upload hook
     const {
         attachments,
         isUploading,
@@ -195,59 +167,45 @@ export function ChatInterface() {
         getUploadedFileIds,
     } = useFileUpload({ maxFiles: 10 });
 
-    // Google Drive picker hook
     const { openPicker: openGoogleDrivePicker, error: googleDriveError } = useGoogleDrivePicker({
         onFilesSelected: (driveFiles) => {
-            // TODO: Download Google Drive files and convert to local files
-            // For now, just show a placeholder
             alert(tChat("googleDriveSoon", { count: driveFiles.length }));
         },
         multiSelect: true,
     });
 
-    // Handle attachment source selection
     const handleSourceSelect = (sourceId: string) => {
         if (sourceId === "google-drive") {
             openGoogleDrivePicker();
         }
     };
 
-    // Token batching for smoother rendering
     const tokenBatchRef = useRef<string[]>([]);
     const batchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const BATCH_INTERVAL_MS = 50; // Batch tokens every 50ms for smooth rendering
+    const BATCH_INTERVAL_MS = 50;
 
-    // Throttled streaming content update using requestAnimationFrame with batching
     const updateStreamingContent = useCallback((content: string) => {
-        // Only update if content actually changed
         if (streamingContentRef.current === content) return;
         streamingContentRef.current = content;
-        
-        // Cancel any pending update to prevent multiple queued updates
+
         if (updateScheduledRef.current) return;
-        
+
         updateScheduledRef.current = true;
-        // Use requestAnimationFrame for smooth updates
         requestAnimationFrame(() => {
             updateScheduledRef.current = false;
             const currentContent = streamingContentRef.current;
-            // Only set state if content actually changed to prevent unnecessary updates
             setStreamingContent(prev => {
-                // Prevent unnecessary updates that could cause loops
                 if (prev === currentContent) return prev;
                 return currentContent;
             });
         });
     }, []);
 
-    // Batch tokens and flush periodically for smoother rendering
     const appendTokenBatch = useCallback((token: string) => {
         tokenBatchRef.current.push(token);
 
-        // If no flush scheduled, schedule one
         if (!batchTimeoutRef.current) {
             batchTimeoutRef.current = setTimeout(() => {
-                // Flush all batched tokens at once
                 const batchedContent = tokenBatchRef.current.join("");
                 tokenBatchRef.current = [];
                 batchTimeoutRef.current = null;
@@ -260,7 +218,6 @@ export function ChatInterface() {
         }
     }, [updateStreamingContent]);
 
-    // Flush any remaining tokens immediately
     const flushTokenBatch = useCallback(() => {
         if (batchTimeoutRef.current) {
             clearTimeout(batchTimeoutRef.current);
@@ -274,7 +231,6 @@ export function ChatInterface() {
         }
     }, [updateStreamingContent]);
 
-    // Close model menu when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) {
@@ -285,7 +241,6 @@ export function ChatInterface() {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    // Check for scenario from URL query parameter (from sidebar menu)
     useEffect(() => {
         const scenarioParam = searchParams.get("scenario");
         if (scenarioParam && SCENARIO_KEYS.includes(scenarioParam as ResearchScenario)) {
@@ -308,7 +263,6 @@ export function ChatInterface() {
     const loadConversation = useChatStore((state) => state.loadConversation);
     const conversations = useChatStore((state) => state.conversations);
 
-    // Agent progress store - reactive state via selector, actions via getState()
     const activeProgress = useAgentProgressStore((state) => state.activeProgress);
     const {
         startProgress: startAgentProgress,
@@ -318,14 +272,12 @@ export function ChatInterface() {
         clearProgress: clearAgentProgress,
     } = useAgentProgressStore.getState();
 
-    // Execution progress store - plan-execution binding
     const {
         reset: resetExecutionProgress,
         setStreaming: setExecutionStreaming,
         addEvent: addExecutionEvent,
     } = useExecutionProgressStore.getState();
 
-    // Computer store - actions via getState() (stable references)
     const {
         addTerminalLine,
         setCurrentCommand,
@@ -340,7 +292,6 @@ export function ChatInterface() {
         getWorkspaceSandboxId,
     } = useComputerStore.getState();
 
-    // Computer store - for auto-opening generated images/slides in file browser
     const addExternalFile = useComputerStore((state) => state.addExternalFile);
     const openFileInBrowser = useComputerStore((state) => state.openFileInBrowser);
 
@@ -349,7 +300,6 @@ export function ChatInterface() {
         return id ? state.conversationStates[id]?.workspaceSandboxId ?? null : null;
     });
 
-    // Sync computer store's active conversation with chat store
     useEffect(() => {
         setComputerActiveConversation(activeConversationId);
     }, [activeConversationId, setComputerActiveConversation]);
@@ -357,12 +307,9 @@ export function ChatInterface() {
     const activeConversation = hasHydrated ? getActiveConversation() : undefined;
     const messages = activeConversation?.messages || [];
 
-    // Track which conversations have been loaded to prevent infinite loops when messages.length === 0
     const loadedConversationsRef = useRef<Set<string>>(new Set());
 
-    // Load conversation messages when switching conversations
     useEffect(() => {
-        // Don't load if session is still loading
         if (sessionStatus === "loading") {
             return;
         }
@@ -376,54 +323,43 @@ export function ChatInterface() {
                 return;
             }
 
-            // Only load if messages haven't been loaded yet and it's not a local conversation
             if (conversation && conversation.messages.length === 0) {
                 if (sessionStatus === "authenticated") {
                     loadedConversationsRef.current.add(activeConversationId);
                     loadConversation(activeConversationId).catch((error) => {
                         console.error("[UnifiedInterface] Failed to load conversation:", error);
-                        // Remove from set on error to allow retry
                         loadedConversationsRef.current.delete(activeConversationId);
                     });
                 }
             } else if (conversation) {
-                // If it already has messages, consider it loaded
                 loadedConversationsRef.current.add(activeConversationId);
             }
         }
     }, [activeConversationId, hasHydrated, getActiveConversation, loadConversation, sessionStatus]);
 
-    // Clear agent progress when switching to a different conversation or page
-    // This ensures the progress panel only shows progress for the current conversation
     useEffect(() => {
         if (!hasHydrated) return;
         if (!activeProgress) return;
 
-        // Check if the progress belongs to a different conversation
         const progressBelongsToDifferentConversation =
             activeProgress.conversationId !== null &&
             activeProgress.conversationId !== activeConversationId;
 
-        // Check if we navigated away from conversations entirely (no active conversation)
         const navigatedAwayFromConversations =
             !activeConversationId && activeProgress.conversationId !== null;
 
         if (progressBelongsToDifferentConversation || navigatedAwayFromConversations) {
-            // Only clear if the progress is completed (not currently streaming)
-            // If still streaming, the user might want to see it finish
             if (!activeProgress.isStreaming) {
                 clearAgentProgress();
             }
         }
     }, [activeConversationId, hasHydrated, activeProgress, clearAgentProgress]);
 
-    // Abort in-flight streaming and reset state when switching conversations
     useEffect(() => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
-        // Reset streaming UI state for the new conversation context
         flushTokenBatch();
         setStreamingContent("");
         streamingContentRef.current = "";
@@ -440,7 +376,6 @@ export function ChatInterface() {
 
     const scrollToBottomRef = useRef<number | null>(null);
     const scrollToBottom = useCallback(() => {
-        // Throttle scroll updates to avoid performance issues during streaming
         if (scrollToBottomRef.current) return;
         scrollToBottomRef.current = requestAnimationFrame(() => {
             scrollToBottomRef.current = null;
@@ -448,17 +383,14 @@ export function ChatInterface() {
         });
     }, []);
 
-    // Separate effect for messages to avoid re-running on every streamingContent change
     useEffect(() => {
         scrollToBottom();
     }, [messages, scrollToBottom]);
 
-    // Throttled scroll for streaming - only scroll occasionally during streaming
     const lastScrollTimeRef = useRef<number>(0);
     useEffect(() => {
         if (!streamingContent) return;
         const now = Date.now();
-        // Only scroll every 100ms during streaming to avoid performance issues
         if (now - lastScrollTimeRef.current > 100) {
             lastScrollTimeRef.current = now;
             scrollToBottom();
@@ -478,7 +410,6 @@ export function ChatInterface() {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
-        // Immediately reset UI state
         flushTokenBatch();
         const partialContent = streamingContentRef.current;
         setStreamingContent("");
@@ -491,7 +422,6 @@ export function ChatInterface() {
         endAgentProgress();
         setExecutionStreaming(false);
 
-        // Add cancelled message to conversation
         if (activeConversationId) {
             const cancelledMessage = partialContent
                 ? `${partialContent}\n\n---\n\n*${tChat("requestCancelled")}*`
@@ -503,17 +433,120 @@ export function ChatInterface() {
         }
     }, [flushTokenBatch, setLoading, setStreaming, endAgentProgress, setExecutionStreaming, activeConversationId, addMessage, tChat]);
 
+    const runStream = async (
+        conversationId: string,
+        requestBody: Record<string, unknown>,
+        agentType: AgentType,
+    ) => {
+        setLoading(true);
+        setStreaming(true);
+        streamingStartTimeRef.current = new Date();
+
+        startAgentProgress(conversationId, agentType);
+        resetExecutionProgress();
+        setExecutionStreaming(true);
+        resetComputerUserSelectedMode();
+
+        const hasOpenedTerminalRef = { current: false };
+
+        const thinkingEvent: AgentEvent = {
+            type: "stage",
+            name: "thinking",
+            description: tChat("agent.thinking"),
+            status: "running",
+        };
+        addAgentEvent(thinkingEvent);
+
+        const ctx = createStreamingContext(thinkingEvent);
+
+        const streamHandlers = createStreamHandlers({
+            ctx,
+            updateStreamingContent,
+            flushTokenBatch,
+            updateAgentStage,
+            addAgentEvent,
+            addExecutionEvent,
+            setStreamingEvents,
+            setStreamingSources,
+            setActiveInterrupt,
+            setCurrentCommand,
+            addTerminalLine,
+            smartOpenComputer,
+            setWorkspaceContext,
+            handleWorkspaceUpdate,
+            refreshFiles,
+            openFileInBrowser,
+            workspaceSandboxId,
+            conversationId,
+            hasOpenedTerminalRef,
+            tChat,
+            tSkills,
+            getTranslatedToolName,
+        });
+
+        try {
+            abortControllerRef.current = new AbortController();
+
+            const response = await fetch("/api/v1/query/stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: 'include',
+                signal: abortControllerRef.current.signal,
+                body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error("No response body");
+
+            await readSSEStream(reader, streamHandlers);
+
+            if (ctx.fullContent || ctx.collectedImages.length > 0) {
+                flushTokenBatch();
+                setStreamingContent("");
+                streamingContentRef.current = "";
+                setStreamingEvents([]);
+                setStreamingSources([]);
+                setLoading(false);
+
+                const metadata = buildSavedMessageMetadata(ctx);
+                await addMessage(conversationId, {
+                    role: "assistant",
+                    content: ctx.fullContent,
+                    metadata,
+                });
+            }
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                // Request cancelled by user
+            } else {
+                console.error("Stream error:", error);
+                await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
+            }
+        } finally {
+            abortControllerRef.current = null;
+            flushTokenBatch();
+            setStreamingContent("");
+            streamingContentRef.current = "";
+            setStreamingEvents([]);
+            setStreamingSources([]);
+            setLoading(false);
+            setStreaming(false);
+            endAgentProgress();
+            setExecutionStreaming(false);
+        }
+    };
+
     const handleSubmit = async () => {
         if (!input.trim() || isLoading || isUploading) return;
 
         const userMessage = input.trim();
         const attachmentIds = getUploadedFileIds();
         const messageAttachments = attachments.filter(a => a.status === 'uploaded');
-        // Add uploaded files to external files in file browser
         for (const att of messageAttachments) {
             addExternalFile(fileAttachmentToExternalEntry(att, "upload"));
         }
-        // Capture skill before clearing input state
         const skillToUse = selectedSkill;
         setInput("");
         clearAttachments();
@@ -524,43 +557,17 @@ export function ChatInterface() {
             setSelectedScenario(null);
         } else if (selectedAgent === "data" || selectedAgent === "app" || selectedAgent === "image" || selectedAgent === "slide") {
             await handleAgentTask(userMessage, selectedAgent, attachmentIds, messageAttachments);
-            // Clear agent selection after first message - let conversation type take over
             setSelectedAgent(null);
         } else if (!selectedAgent && activeConversation?.type === "research") {
-            await handleAgentTask(
-                userMessage,
-                "research",
-                attachmentIds,
-                messageAttachments
-            );
+            await handleAgentTask(userMessage, "research", attachmentIds, messageAttachments);
         } else if (!selectedAgent && activeConversation?.type === "data") {
-            await handleAgentTask(
-                userMessage,
-                activeConversation.type as AgentType,
-                attachmentIds,
-                messageAttachments
-            );
+            await handleAgentTask(userMessage, activeConversation.type as AgentType, attachmentIds, messageAttachments);
         } else if (!selectedAgent && activeConversation?.type === "app") {
-            await handleAgentTask(
-                userMessage,
-                activeConversation.type as AgentType,
-                attachmentIds,
-                messageAttachments
-            );
+            await handleAgentTask(userMessage, activeConversation.type as AgentType, attachmentIds, messageAttachments);
         } else if (!selectedAgent && activeConversation?.type === "image") {
-            await handleAgentTask(
-                userMessage,
-                activeConversation.type as AgentType,
-                attachmentIds,
-                messageAttachments
-            );
+            await handleAgentTask(userMessage, activeConversation.type as AgentType, attachmentIds, messageAttachments);
         } else if (!selectedAgent && activeConversation?.type === "slide") {
-            await handleAgentTask(
-                userMessage,
-                activeConversation.type as AgentType,
-                attachmentIds,
-                messageAttachments
-            );
+            await handleAgentTask(userMessage, activeConversation.type as AgentType, attachmentIds, messageAttachments);
         } else {
             await handleChat(userMessage, false, attachmentIds, messageAttachments, skillToUse);
         }
@@ -576,7 +583,6 @@ export function ChatInterface() {
         setStreamingContent("");
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
-        // Clear inline streaming state
         setStreamingEvents([]);
         setStreamingSources([]);
         setStreamingAgentType("task");
@@ -586,9 +592,6 @@ export function ChatInterface() {
             conversationId = await createConversation("task");
         }
 
-        // Get conversation messages for context BEFORE adding the new message
-        // The backend will add the current message separately
-        // Use getActiveConversation() to get fresh state, not cached activeConversation
         const conversationForHistory =
             conversations.find((conversation) => conversation.id === conversationId) || getActiveConversation();
         const conversationMessages = conversationForHistory?.messages || [];
@@ -599,7 +602,6 @@ export function ChatInterface() {
                 content: msg.content,
                 metadata: msg.metadata || null,
             }));
-
 
         const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
         const combinedAttachmentIds = Array.from(new Set([...historyAttachmentIds, ...attachmentIds]));
@@ -613,308 +615,18 @@ export function ChatInterface() {
             });
         }
 
-        setLoading(true);
-        setStreaming(true);
-        streamingStartTimeRef.current = new Date();
-
-        // Start agent progress for sidebar visibility
-        startAgentProgress(conversationId, "task");
-
-        // Initialize execution progress tracking
-        resetExecutionProgress();
-        setExecutionStreaming(true);
-
-        // Reset manual tab selection so view follows agent for this new query
-        resetComputerUserSelectedMode();
-
-        // Track whether terminal panel has been opened this stream
-        let hasOpenedTerminal = false;
-
-        // Add initial thinking event immediately for instant feedback
-        const thinkingEvent: AgentEvent = {
-            type: "stage",
-            name: "thinking",
-            description: tChat("agent.thinking"),
-            status: "running",
-        };
-        addAgentEvent(thinkingEvent);
-
-        // Initialize streaming context for tracking collected data
-        const ctx = createStreamingContext(thinkingEvent);
-
-        // Helper to merge token content and update UI
-        const handleTokenContent = (tokenContent: string): void => {
-            ctx.fullContent = mergeTokenContent(ctx.fullContent, tokenContent);
-            updateStreamingContent(ctx.fullContent);
-        };
-
-        // Helper to add event and update streaming state (with deduplication)
-        const addStreamingEvent = (event: AgentEvent): void => {
-            const eventKey = getEventKey(event);
-            if (ctx.seenEventKeys.has(eventKey)) return;
-            ctx.seenEventKeys.add(eventKey);
-
-            addAgentEvent(event);
-            addExecutionEvent(event);
-            setStreamingEvents(prev => [...prev, createTimestampedEvent(event)]);
-            ctx.collectedEvents.push(event);
-        };
-
-        // Helper to add source and update streaming state
-        const addStreamingSource = (source: Source): void => {
-            ctx.collectedSources.push(source);
-            setStreamingSources(prev => [...prev, source]);
-        };
-
-        try {
-            // Create new abort controller for this request
-            abortControllerRef.current = new AbortController();
-
-            const response = await fetch("/api/v1/query/stream", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: 'include',
-                signal: abortControllerRef.current.signal,
-                body: JSON.stringify({
-                    message: userMessage,
-                    mode: "task",
-                    ...(selectedProvider !== "auto" && { provider: selectedProvider }),
-                    tier,
-                    ...((explicitSkill || selectedSkill) && { skills: [explicitSkill || selectedSkill] }),
-                    attachment_ids: combinedAttachmentIds,
-                    // Always send conversation_id (even for local conversations) to enable sandbox reuse
-                    // Backend uses it as task_id for e2b sandbox session management
-                    conversation_id: conversationId,
-                    history: history,
-                    locale: locale,
-                }),
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error("No response body");
-
-            const decoder = new TextDecoder();
-            let buffer = "";
-            let streamComplete = false;
-
-            const streamHandlers = {
-                onToken: (token: string) => handleTokenContent(token),
-                onStage: (event: StreamEvent) => {
-                    flushTokenBatch();
-                    const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
-                    const stageDescription = event.description || eventData?.description || null;
-                    updateAgentStage(stageDescription);
-                    addStreamingEvent(event);
-                },
-                onToolCall: (event: StreamEvent) => {
-                    const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
-                    const toolName = event.tool || eventData?.tool || "web";
-                    const args = event.args || eventData?.args || {};
-                    const rawQuery = typeof args === "object" && args !== null ? (args as Record<string, unknown>).query : undefined;
-                    const queryArg = typeof rawQuery === "string" ? rawQuery : "web";
-                    if (isSearchTool(toolName)) {
-                        updateAgentStage(tChat("agent.searching", { query: queryArg }));
-                    } else {
-                        updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
-                    }
-                    addStreamingEvent(event);
-                },
-                onToolResult: (event: StreamEvent) => addStreamingEvent(event),
-                onRouting: (event: StreamEvent) => addStreamingEvent(event),
-                onHandoff: (event: StreamEvent) => {
-                    const target = event.target || "";
-                    updateAgentStage(tChat("agent.handoffTo", { target }));
-                    addStreamingEvent(event);
-                },
-                onSource: (event: StreamEvent) => {
-                    addStreamingEvent(event);
-                    const newSource = parseSourceFromEvent(event, ctx.collectedSources.length);
-                    if (newSource) addStreamingSource(newSource);
-                },
-                onCodeResult: (event: StreamEvent) => addStreamingEvent(event),
-                onImage: (event: StreamEvent) => {
-                    const imageData = parseImageFromEvent(event, ctx.collectedImages.length);
-                    if (imageData) {
-                        const isDuplicate = ctx.collectedImages.some((img) => img.index === imageData.index);
-                        if (!isDuplicate) {
-                            ctx.collectedImages.push(imageData);
-                            ctx.collectedEvents.push(event);
-                            const previewFile = generatedImageToFileAttachment(imageData);
-                            if (previewFile) {
-                                const entry = fileAttachmentToExternalEntry(previewFile, "generated-image");
-                                if (previewFile.previewUrl?.startsWith("data:")) {
-                                    entry.base64Data = previewFile.previewUrl;
-                                }
-                                openFileInBrowser(entry);
-                            }
-                        }
-                    }
-                },
-                onBrowserStream: (event: StreamEvent) => addStreamingEvent(event),
-                onBrowserActionStage: (event: AgentEvent) => addStreamingEvent(event),
-                onTerminalCommand: (event: StreamEvent) => {
-                    const command = event.command as string;
-                    const cwd = event.cwd as string | undefined;
-                    if (command) {
-                        setCurrentCommand(command, cwd);
-                        addTerminalLine({ type: "command", content: command, cwd });
-                        if (!hasOpenedTerminal) {
-                            smartOpenComputer("terminal", false);
-                            hasOpenedTerminal = true;
-                        }
-                        addAgentEvent(event);
-                    }
-                },
-                onTerminalOutput: (event: StreamEvent) => {
-                    const output = (event.content || event.data) as string;
-                    if (output) addTerminalLine({ type: "output", content: output });
-                },
-                onTerminalError: (event: StreamEvent) => {
-                    const errorOutput = (event.content || event.data) as string;
-                    if (errorOutput) addTerminalLine({ type: "error", content: errorOutput });
-                },
-                onTerminalComplete: (event: StreamEvent) => {
-                    const exitCode = event.exit_code as number | undefined;
-                    setCurrentCommand(null);
-                    if (exitCode !== undefined && exitCode !== 0) {
-                        addTerminalLine({ type: "error", content: `Exit code: ${exitCode}` });
-                    }
-                    addAgentEvent(event);
-                },
-                onSkillOutput: (event: StreamEvent) => {
-                    const skillId = event.skill_id as string;
-                    addStreamingEvent(event);
-                    updateAgentStage(tChat("agent.skillCompleted", { skill: getTranslatedSkillName(skillId, skillId, tSkills) }));
-                    if (skillId === "slide_generation" && event.output) {
-                        const slideData = event.output as unknown as SlideOutput;
-                        if (slideData.download_url) {
-                            const slideEntry: ExternalFileEntry = {
-                                id: `slide-${Date.now()}`,
-                                name: slideData.title || "Presentation.pptx",
-                                source: "generated-slide",
-                                contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                                fileSize: 0,
-                                downloadUrl: slideData.download_url,
-                                slideOutput: slideData,
-                                timestamp: Date.now(),
-                            };
-                            openFileInBrowser(slideEntry);
-                        }
-                    }
-                },
-                onWorkspaceUpdate: (event: StreamEvent) => {
-                    const workspaceEvent = {
-                        type: "workspace_update" as const,
-                        operation: event.operation as "create" | "modify" | "delete",
-                        path: event.path as string,
-                        name: event.name as string,
-                        is_directory: event.is_directory as boolean,
-                        size: event.size as number | undefined,
-                        sandbox_type: event.sandbox_type as "execution" | "app",
-                        sandbox_id: event.sandbox_id as string,
-                        timestamp: event.timestamp as number | undefined,
-                    };
-                    if (!workspaceSandboxId) {
-                        setWorkspaceContext(workspaceEvent.sandbox_type, workspaceEvent.sandbox_id, conversationId);
-                    }
-                    handleWorkspaceUpdate(workspaceEvent);
-                    refreshFiles([workspaceEvent.path]);
-                    if (
-                        (workspaceEvent.operation === "create" || workspaceEvent.operation === "modify")
-                        && workspaceEvent.sandbox_type === "app"
-                    ) {
-                        smartOpenComputer("file", false);
-                    }
-                },
-                onInterrupt: (interruptEvent: InterruptEvent, rawEvent: StreamEvent) => {
-                    setActiveInterrupt(interruptEvent);
-                    addStreamingEvent(rawEvent);
-                },
-                onUsage: (event: StreamEvent) => addStreamingEvent(event),
-                onError: (event: StreamEvent) => {
-                    const errorData = typeof event.data === "string" ? event.data : "Unknown error";
-                    ctx.fullContent = tChat("agent.error", { error: errorData });
-                    updateStreamingContent(ctx.fullContent);
-                },
-            };
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                    // Skip empty lines
-                    if (!line.trim()) continue;
-
-                    // Handle SSE format: "data: {...}" or "event: message\ndata: {...}"
-                    if (line.startsWith("data: ")) {
-                        const jsonStr = line.slice(6).trim();
-                        if (jsonStr === "[DONE]" || !jsonStr) continue;
-
-                        try {
-                            const event = JSON.parse(jsonStr) as StreamEvent;
-                            const reduced = reduceStreamEvent(event, streamHandlers);
-                            if (reduced.shouldBreak) {
-                                streamComplete = true;
-                                break;
-                            }
-                        } catch (e) {
-                            console.error("[SSE Parse Error]", e, "Line:", line);
-                        }
-                    } else if (line.startsWith("event: ")) {
-                        // SSE event type line, can be ignored as we parse data lines
-                        continue;
-                    }
-                }
-                if (streamComplete) break;
-            }
-
-            if (ctx.fullContent || ctx.collectedImages.length > 0) {
-                // Clear streaming state BEFORE saving to prevent duplicate rendering
-                flushTokenBatch();
-                setStreamingContent("");
-                streamingContentRef.current = "";
-                setStreamingEvents([]);
-                setStreamingSources([]);
-                setLoading(false);
-
-                const savedEvents = filterEventsForSaving(ctx.collectedEvents);
-
-                await addMessage(conversationId, {
-                    role: "assistant",
-                    content: ctx.fullContent,
-                    metadata: {
-                        ...(ctx.collectedImages.length ? { images: ctx.collectedImages } : {}),
-                        ...(savedEvents.length ? { agentEvents: savedEvents } : {}),
-                    },
-                });
-            }
-        } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
-                // Chat request cancelled by user - no action needed
-            } else {
-                console.error("Chat error:", error);
-                await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
-            }
-        } finally {
-            // Ensure cleanup in case of early exit
-            abortControllerRef.current = null;
-            flushTokenBatch();
-            setStreamingContent("");
-            streamingContentRef.current = "";
-            setStreamingEvents([]);
-            setStreamingSources([]);
-            setLoading(false);
-            setStreaming(false);
-            endAgentProgress();
-        setExecutionStreaming(false);
-        }
+        await runStream(conversationId, {
+            message: userMessage,
+            mode: "task",
+            ...(selectedProvider !== "auto" && { provider: selectedProvider }),
+            tier,
+            memory_enabled: memoryEnabled,
+            ...((explicitSkill || selectedSkill) && { skills: [explicitSkill || selectedSkill] }),
+            attachment_ids: combinedAttachmentIds,
+            conversation_id: conversationId,
+            history,
+            locale,
+        }, "task");
     };
 
     const handleAgentTask = async (
@@ -926,17 +638,12 @@ export function ChatInterface() {
         setStreamingContent("");
         streamingContentRef.current = "";
         tokenBatchRef.current = [];
-        // Clear inline streaming state
         setStreamingEvents([]);
         setStreamingSources([]);
         setStreamingAgentType(agentType);
 
-        // Determine the conversation type based on agent
         const conversationType = agentType === "research" ? "research" : agentType;
 
-        // Always create a new conversation if:
-        // 1. No active conversation exists
-        // 2. Active conversation type doesn't match the selected agent type
         let conversationId = activeConversationId;
         const needsNewConversation = !conversationId ||
             !activeConversation ||
@@ -950,9 +657,6 @@ export function ChatInterface() {
             throw new Error("Failed to get conversation ID");
         }
 
-        // Get conversation messages for context BEFORE adding the new message
-        // The backend will add the current message separately
-        // Use getActiveConversation() to get fresh state, not cached activeConversation
         const conversationForHistory =
             conversations.find((conversation) => conversation.id === conversationId) || getActiveConversation();
         const conversationMessages = conversationForHistory?.messages || [];
@@ -964,7 +668,6 @@ export function ChatInterface() {
                 metadata: msg.metadata || null,
             }));
 
-
         const historyAttachmentIds = getConversationAttachmentIds(conversationMessages);
         const combinedAttachmentIds = agentType === "research"
             ? attachmentIds
@@ -975,313 +678,23 @@ export function ChatInterface() {
             content: userMessage,
             attachments: messageAttachments
         });
-        setLoading(true);
-        setStreaming(true);
-        streamingStartTimeRef.current = new Date();
 
-        // Start agent progress for sidebar visibility
-        startAgentProgress(conversationId, agentType);
-
-        // Initialize execution progress tracking
-        resetExecutionProgress();
-        setExecutionStreaming(true);
-
-        // Reset manual tab selection so view follows agent for this new query
-        resetComputerUserSelectedMode();
-
-        // Track whether terminal panel has been opened this stream
-        let hasOpenedTerminal = false;
-
-        // Add initial thinking event immediately for instant feedback
-        const thinkingEvent: AgentEvent = {
-            type: "stage",
-            name: "thinking",
-            description: tChat("agent.thinking"),
-            status: "running",
-        };
-        addAgentEvent(thinkingEvent);
-
-        // Initialize streaming context for tracking collected data
-        const ctx = createStreamingContext(thinkingEvent);
-
-        // Helper to merge token content and update UI
-        const handleTokenContent = (tokenContent: string): void => {
-            ctx.fullContent = mergeTokenContent(ctx.fullContent, tokenContent);
-            updateStreamingContent(ctx.fullContent);
-        };
-
-        // Helper to add event and update streaming state (with deduplication)
-        const addStreamingEvent = (event: AgentEvent): void => {
-            const eventKey = getEventKey(event);
-            if (ctx.seenEventKeys.has(eventKey)) return;
-            ctx.seenEventKeys.add(eventKey);
-
-            addAgentEvent(event);
-            addExecutionEvent(event);
-            setStreamingEvents(prev => [...prev, createTimestampedEvent(event)]);
-            ctx.collectedEvents.push(event);
-        };
-
-        // Helper to add source and update streaming state
-        const addStreamingSource = (source: Source): void => {
-            ctx.collectedSources.push(source);
-            setStreamingSources(prev => [...prev, source]);
-        };
-
-        try {
-            // Create new abort controller for this request
-            abortControllerRef.current = new AbortController();
-
-            const response = await fetch("/api/v1/query/stream", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: 'include',
-                signal: abortControllerRef.current.signal,
-                body: JSON.stringify({
-                    message: userMessage,
-                    mode: agentType,
-                    ...(selectedProvider !== "auto" && { provider: selectedProvider }),
-                    tier,
-                    ...(selectedSkill && { skills: [selectedSkill] }),
-                    ...(agentType === "research" && selectedScenario && { scenario: selectedScenario }),
-                    ...(agentType === "research" && { depth: selectedDepth }),
-                    attachment_ids: combinedAttachmentIds,
-                    // Always send conversation_id (even for local conversations) to enable sandbox reuse
-                    // Backend uses it as task_id for e2b sandbox session management
-                    conversation_id: conversationId,
-                    history: history,
-                    locale: locale,
-                }),
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error("No response body");
-
-            const decoder = new TextDecoder();
-            let buffer = "";
-            let streamComplete = false;
-
-            const streamHandlers = {
-                onToken: (token: string) => handleTokenContent(token),
-                onStage: (event: StreamEvent) => {
-                    flushTokenBatch();
-                    const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
-                    const stageDescription = event.description || eventData?.description || null;
-                    updateAgentStage(stageDescription);
-                    addStreamingEvent(event);
-                },
-                onToolCall: (event: StreamEvent) => {
-                    const eventData = typeof event.data === "object" && event.data !== null ? event.data : null;
-                    const toolName = event.tool || eventData?.tool || "tool";
-                    const args = event.args || eventData?.args || {};
-                    const rawQuery = typeof args === "object" && args !== null ? (args as Record<string, unknown>).query : undefined;
-                    const queryArg = typeof rawQuery === "string" ? rawQuery : "web";
-                    if (isSearchTool(toolName)) {
-                        updateAgentStage(tChat("agent.searching", { query: queryArg }));
-                    } else {
-                        updateAgentStage(tChat("agent.executing", { tool: getTranslatedToolName(toolName) }));
-                    }
-                    addStreamingEvent(event);
-                },
-                onToolResult: (event: StreamEvent) => addStreamingEvent(event),
-                onRouting: (event: StreamEvent) => addStreamingEvent(event),
-                onHandoff: (event: StreamEvent) => {
-                    const target = event.target || "";
-                    updateAgentStage(tChat("agent.handoffTo", { target }));
-                    addStreamingEvent(event);
-                },
-                onSource: (event: StreamEvent) => {
-                    addStreamingEvent(event);
-                    const newSource = parseSourceFromEvent(event, ctx.collectedSources.length);
-                    if (newSource) addStreamingSource(newSource);
-                },
-                onCodeResult: (event: StreamEvent) => addStreamingEvent(event),
-                onImage: (event: StreamEvent) => {
-                    const imageData = parseImageFromEvent(event, ctx.collectedImages.length);
-                    if (imageData) {
-                        const isDuplicate = ctx.collectedImages.some((img) => img.index === imageData.index);
-                        if (!isDuplicate) {
-                            ctx.collectedImages.push(imageData);
-                            ctx.collectedEvents.push(event);
-                            const previewFile = generatedImageToFileAttachment(imageData);
-                            if (previewFile) {
-                                const entry = fileAttachmentToExternalEntry(previewFile, "generated-image");
-                                if (previewFile.previewUrl?.startsWith("data:")) {
-                                    entry.base64Data = previewFile.previewUrl;
-                                }
-                                openFileInBrowser(entry);
-                            }
-                        }
-                    }
-                },
-                onBrowserStream: (event: StreamEvent) => addStreamingEvent(event),
-                onBrowserActionStage: (event: AgentEvent) => addStreamingEvent(event),
-                onTerminalCommand: (event: StreamEvent) => {
-                    const command = event.command as string;
-                    const cwd = event.cwd as string | undefined;
-                    if (command) {
-                        setCurrentCommand(command, cwd);
-                        addTerminalLine({ type: "command", content: command, cwd });
-                        if (!hasOpenedTerminal) {
-                            smartOpenComputer("terminal", false);
-                            hasOpenedTerminal = true;
-                        }
-                        addAgentEvent(event);
-                    }
-                },
-                onTerminalOutput: (event: StreamEvent) => {
-                    const output = (event.content || event.data) as string;
-                    if (output) addTerminalLine({ type: "output", content: output });
-                },
-                onTerminalError: (event: StreamEvent) => {
-                    const errorOutput = (event.content || event.data) as string;
-                    if (errorOutput) addTerminalLine({ type: "error", content: errorOutput });
-                },
-                onTerminalComplete: (event: StreamEvent) => {
-                    const exitCode = event.exit_code as number | undefined;
-                    setCurrentCommand(null);
-                    if (exitCode !== undefined && exitCode !== 0) {
-                        addTerminalLine({ type: "error", content: `Exit code: ${exitCode}` });
-                    }
-                    addAgentEvent(event);
-                },
-                onSkillOutput: (event: StreamEvent) => {
-                    const skillId = event.skill_id as string;
-                    addStreamingEvent(event);
-                    updateAgentStage(tChat("agent.skillCompleted", { skill: getTranslatedSkillName(skillId, skillId, tSkills) }));
-                    if (skillId === "slide_generation" && event.output) {
-                        const slideData = event.output as unknown as SlideOutput;
-                        if (slideData.download_url) {
-                            const slideEntry: ExternalFileEntry = {
-                                id: `slide-${Date.now()}`,
-                                name: slideData.title || "Presentation.pptx",
-                                source: "generated-slide",
-                                contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                                fileSize: 0,
-                                downloadUrl: slideData.download_url,
-                                slideOutput: slideData,
-                                timestamp: Date.now(),
-                            };
-                            openFileInBrowser(slideEntry);
-                        }
-                    }
-                },
-                onWorkspaceUpdate: (event: StreamEvent) => {
-                    const workspaceEvent = {
-                        type: "workspace_update" as const,
-                        operation: event.operation as "create" | "modify" | "delete",
-                        path: event.path as string,
-                        name: event.name as string,
-                        is_directory: event.is_directory as boolean,
-                        size: event.size as number | undefined,
-                        sandbox_type: event.sandbox_type as "execution" | "app",
-                        sandbox_id: event.sandbox_id as string,
-                        timestamp: event.timestamp as number | undefined,
-                    };
-                    if (!workspaceSandboxId) {
-                        setWorkspaceContext(workspaceEvent.sandbox_type, workspaceEvent.sandbox_id, conversationId);
-                    }
-                    handleWorkspaceUpdate(workspaceEvent);
-                    refreshFiles([workspaceEvent.path]);
-                    if (
-                        (workspaceEvent.operation === "create" || workspaceEvent.operation === "modify")
-                        && workspaceEvent.sandbox_type === "app"
-                    ) {
-                        smartOpenComputer("file", false);
-                    }
-                },
-                onInterrupt: (interruptEvent: InterruptEvent, rawEvent: StreamEvent) => {
-                    setActiveInterrupt(interruptEvent);
-                    addStreamingEvent(rawEvent);
-                },
-                onUsage: (event: StreamEvent) => addStreamingEvent(event),
-                onError: (event: StreamEvent) => {
-                    const errorData = typeof event.data === "string" ? event.data : "Unknown error";
-                    ctx.fullContent = tChat("agent.error", { error: errorData });
-                    updateStreamingContent(ctx.fullContent);
-                    addAgentEvent(event);
-                },
-            };
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                    // Skip empty lines
-                    if (!line.trim()) continue;
-
-                    // Handle SSE format: "data: {...}" or "event: message\ndata: {...}"
-                    if (line.startsWith("data: ")) {
-                        const jsonStr = line.slice(6).trim();
-                        if (jsonStr === "[DONE]" || !jsonStr) continue;
-
-                        try {
-                            const event = JSON.parse(jsonStr) as StreamEvent;
-                            const reduced = reduceStreamEvent(event, streamHandlers);
-                            if (reduced.shouldBreak) {
-                                streamComplete = true;
-                                break;
-                            }
-                        } catch (e) {
-                            console.error("[SSE Parse Error]", e, "Line:", line);
-                        }
-                    } else if (line.startsWith("event: ")) {
-                        continue;
-                    }
-                }
-                if (streamComplete) break;
-            }
-
-            if (ctx.fullContent || ctx.collectedImages.length > 0) {
-                // Clear streaming state BEFORE saving to prevent duplicate rendering
-                flushTokenBatch();
-                setStreamingContent("");
-                streamingContentRef.current = "";
-                setStreamingEvents([]);
-                setStreamingSources([]);
-                setLoading(false);
-
-                const savedEvents = filterEventsForSaving(ctx.collectedEvents);
-
-                await addMessage(conversationId, {
-                    role: "assistant",
-                    content: ctx.fullContent,
-                    metadata: {
-                        ...(ctx.collectedImages.length ? { images: ctx.collectedImages } : {}),
-                        ...(savedEvents.length ? { agentEvents: savedEvents } : {}),
-                    },
-                });
-            }
-        } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
-                // Agent task cancelled by user - no action needed
-            } else {
-                console.error("Agent task error:", error);
-                await addMessage(conversationId, { role: "assistant", content: tChat("connectionError") });
-            }
-        } finally {
-            // Ensure cleanup in case of early exit
-            abortControllerRef.current = null;
-            flushTokenBatch();
-            setStreamingContent("");
-            streamingContentRef.current = "";
-            setStreamingEvents([]);
-            setStreamingSources([]);
-            setLoading(false);
-            setStreaming(false);
-            endAgentProgress();
-        setExecutionStreaming(false);
-        }
+        await runStream(conversationId, {
+            message: userMessage,
+            mode: agentType,
+            ...(selectedProvider !== "auto" && { provider: selectedProvider }),
+            tier,
+            memory_enabled: memoryEnabled,
+            ...(selectedSkill && { skills: [selectedSkill] }),
+            ...(agentType === "research" && selectedScenario && { scenario: selectedScenario }),
+            ...(agentType === "research" && { depth: selectedDepth }),
+            attachment_ids: combinedAttachmentIds,
+            conversation_id: conversationId,
+            history,
+            locale,
+        }, agentType);
     };
 
-    // Use ref for stable callback reference
     const handleRegenerateRef = useRef<(messageId: string) => Promise<void>>();
     handleRegenerateRef.current = async (messageId: string) => {
         if (!activeConversationId || isLoading) return;
@@ -1302,13 +715,10 @@ export function ChatInterface() {
         const attachmentIds = userMessageAttachments.filter(a => a.status === 'uploaded').map(a => a.id);
         removeMessage(activeConversationId, messageId);
 
-        // Check conversation type and call the appropriate handler
         const conversationType = activeConversation?.type;
         if (conversationType === "research" || conversationType === "data" || conversationType === "image" || conversationType === "app" || conversationType === "slide") {
-            // For specialized agent types, use handleAgentTask to maintain conversation type
             await handleAgentTask(userMessage, conversationType as AgentType, attachmentIds, userMessageAttachments);
         } else {
-            // For chat type, use handleChat
             await handleChat(userMessage, true, attachmentIds, userMessageAttachments);
         }
     };
@@ -1317,21 +727,17 @@ export function ChatInterface() {
         handleRegenerateRef.current?.(messageId);
     }, []);
 
-    // Handle interrupt response (HITL)
     const handleInterruptResponse = useCallback(async (response: InterruptResponse) => {
         if (!activeInterrupt) {
             console.warn("[HITL] No active interrupt to respond to");
             return;
         }
 
-        // Store the interrupt ID we're responding to
         const respondingToInterruptId = response.interrupt_id;
 
         try {
-            // Get the thread ID - use task_id or conversation_id
             const threadId = activeConversationId || "default";
 
-            // Submit response to backend
             const res = await fetch(`/api/v1/hitl/respond/${threadId}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -1347,8 +753,6 @@ export function ChatInterface() {
         } catch (error) {
             console.error("[HITL] Failed to submit response:", error);
         } finally {
-            // Only clear if we're still showing the SAME interrupt we responded to
-            // A new interrupt may have arrived while we were submitting the response
             setActiveInterrupt((current) => {
                 if (current?.interrupt_id === respondingToInterruptId) {
                     return null;
@@ -1358,11 +762,9 @@ export function ChatInterface() {
         }
     }, [activeInterrupt, activeConversationId]);
 
-    // Handle interrupt cancellation
     const handleInterruptCancel = useCallback(() => {
         if (!activeInterrupt) return;
 
-        // Submit cancel response
         handleInterruptResponse({
             interrupt_id: activeInterrupt.interrupt_id,
             action: "cancel",
@@ -1372,7 +774,6 @@ export function ChatInterface() {
     const isProcessing = isLoading;
     const hasMessages = messages.length > 0 || streamingContent || isLoading;
 
-    // Collect all usage events from assistant messages in the current conversation
     const allUsageEvents = useMemo(() => {
         const events: AgentEvent[] = [];
         for (const msg of messages) {
@@ -1398,9 +799,17 @@ export function ChatInterface() {
         return t("inputPlaceholder");
     };
 
+    const handleTierChange = useCallback((newTier: "max" | "pro" | "lite") => {
+        setTier(newTier);
+        setShowModelMenu(false);
+    }, [setTier]);
+
+    const handleToggleModelMenu = useCallback(() => {
+        setShowModelMenu(prev => !prev);
+    }, []);
+
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Messages area */}
             {hasMessages && (
                 <div className="flex-1 overflow-y-auto">
                     <div className="max-w-4xl mx-auto px-4 md:px-6 py-4 md:py-6">
@@ -1422,189 +831,33 @@ export function ChatInterface() {
                 </div>
             )}
 
-            {/* Input area */}
-            <div
-                className={cn(
-                    "flex flex-col",
-                    hasMessages ? "bg-background/80 pb-2" : "flex-1 items-center justify-center"
-                )}
-            >
-                <div
-                    className={cn(
-                        "w-full",
-                        hasMessages ? "max-w-4xl mx-auto px-4 md:px-6 py-3 md:py-4" : "max-w-2xl px-6 md:px-8"
-                    )}
-                >
-                    {/* Welcome section - clean and minimal */}
-                    {!hasMessages && (
-                        <div className="text-center mb-12">
-                            <h1 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight leading-[1.15]">
-                                {t("welcomeTitle")}
-                            </h1>
-                            <p className="mt-3 text-muted-foreground text-sm md:text-base leading-relaxed max-w-md mx-auto">
-                                {t("welcomeSubtitle")}
-                            </p>
-                        </div>
-                    )}
-
-                    {/* Input - clean and focused */}
-                    <div className="relative">
-                        <div className={cn(
-                            "relative flex flex-col bg-card rounded-2xl border transition-colors",
-                            hasMessages
-                                ? "border-border focus-within:border-foreground/15"
-                                : "border-border/50 shadow-sm focus-within:shadow-md focus-within:border-foreground/20"
-                        )}>
-                            {/* Attachment preview */}
-                            <AttachmentPreview
-                                attachments={attachments}
-                                onRemove={removeAttachment}
-                            />
-
-                            {/* Main input row */}
-                            <div className="flex items-end">
-                                {/* Textarea */}
-                                <textarea
-                                    ref={inputRef}
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    placeholder={getPlaceholder()}
-                                    className={cn(
-                                        "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none leading-relaxed textarea-auto-resize resize-none",
-                                        hasMessages
-                                            ? "min-h-[48px] max-h-[140px] px-4 py-3 text-sm"
-                                            : "min-h-[72px] md:min-h-[88px] max-h-[180px] px-5 py-4 md:py-5 text-base tracking-[-0.01em]"
-                                    )}
-                                    rows={hasMessages ? 2 : 3}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                                            e.preventDefault();
-                                            handleSubmit();
-                                        }
-                                    }}
-                                />
-                            </div>
-
-                            {/* Bottom bar with plus button, model selector, hint and send button */}
-                            <div className="flex items-center justify-between px-3 md:px-4 pb-3 pt-1.5 border-t border-border/30">
-                                <div className="flex items-center gap-2">
-                                    <FileUploadButton
-                                        onFilesSelected={addFiles}
-                                        onSourceSelect={handleSourceSelect}
-                                        disabled={isProcessing || isUploading}
-                                    />
-
-                                    {/* Model tier selector */}
-                                    <div ref={modelMenuRef} className="relative">
-                                        <button
-                                            onClick={() => setShowModelMenu(!showModelMenu)}
-                                            className={cn(
-                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-full",
-                                                "text-xs font-semibold tracking-wide transition-all duration-150",
-                                                "cursor-pointer active:scale-[0.97]",
-                                                {
-                                                    max: "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/15 dark:hover:bg-amber-500/20",
-                                                    pro: "bg-primary/10 text-primary hover:bg-primary/15",
-                                                    lite: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/20",
-                                                }[tier]
-                                            )}
-                                        >
-                                            <Layers className="w-3 h-3" />
-                                            <span>{tier.charAt(0).toUpperCase() + tier.slice(1)}</span>
-                                            <ChevronDown className={cn("w-3 h-3 opacity-60 transition-transform duration-200", showModelMenu && "rotate-180")} />
-                                        </button>
-
-                                        {showModelMenu && (
-                                            <div className={cn(
-                                                "absolute bottom-full left-0 mb-2 z-50",
-                                                "w-[340px] rounded-xl overflow-hidden",
-                                                "bg-popover border border-border/80 shadow-xl shadow-black/8 dark:shadow-black/25",
-                                                "animate-in fade-in-0 slide-in-from-bottom-2 duration-150"
-                                            )}>
-                                                <div className="p-2 grid grid-cols-2 gap-1">
-                                                    {([
-                                                        { key: "max" as const, icon: Sparkles, bg: "bg-amber-500/10 dark:bg-amber-400/10", text: "text-amber-600 dark:text-amber-400", activeBg: "bg-amber-500/12", activeText: "text-amber-600 dark:text-amber-400" },
-                                                        { key: "pro" as const, icon: Layers, bg: "bg-primary/10", text: "text-primary", activeBg: "bg-primary/12", activeText: "text-primary" },
-                                                        { key: "lite" as const, icon: Zap, bg: "bg-emerald-500/10 dark:bg-emerald-400/10", text: "text-emerald-600 dark:text-emerald-400", activeBg: "bg-emerald-500/12", activeText: "text-emerald-600 dark:text-emerald-400" },
-                                                    ]).map(({ key: tierOption, icon: TierIcon, bg, text, activeBg, activeText }) => {
-                                                        const isSelected = tier === tierOption;
-                                                        return (
-                                                            <button
-                                                                key={tierOption}
-                                                                onClick={() => {
-                                                                    setTier(tierOption);
-                                                                    setShowModelMenu(false);
-                                                                }}
-                                                                className={cn(
-                                                                    "flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-left transition-colors",
-                                                                    "cursor-pointer hover:bg-accent/60",
-                                                                    isSelected && "bg-primary/[0.06] dark:bg-primary/[0.08] ring-1 ring-primary/15"
-                                                                )}
-                                                            >
-                                                                <div className={cn(
-                                                                    "flex items-center justify-center w-7 h-7 rounded-md shrink-0",
-                                                                    isSelected ? cn(activeBg, activeText) : cn(bg, text)
-                                                                )}>
-                                                                    <TierIcon className="w-3.5 h-3.5" />
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <span className="text-[13px] font-medium text-foreground block truncate">
-                                                                        {tierOption.charAt(0).toUpperCase() + tierOption.slice(1)}
-                                                                    </span>
-                                                                    <span className="text-[11px] text-muted-foreground block truncate leading-tight mt-0.5">
-                                                                        {tSettings(`tierDescription.${tierOption}`)}
-                                                                    </span>
-                                                                </div>
-                                                                {isSelected && (
-                                                                    <Check className="w-3.5 h-3.5 text-primary shrink-0" />
-                                                                )}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <span className="w-px h-4 bg-border/50" />
-
-                                    <SkillSelector
-                                        value={selectedSkill}
-                                        onChange={setSelectedSkill}
-                                        disabled={isProcessing}
-                                    />
-
-                                    <span className="w-px h-4 bg-border/50 hidden md:block" />
-
-                                    {allUsageEvents.length > 0 && hasMessages ? (
-                                        <CostIndicator events={allUsageEvents} />
-                                    ) : (
-                                        <p className="text-xs text-muted-foreground/50 tracking-wide hidden md:block">
-                                            {attachments.length > 0
-                                                ? tChat("filesAttached", { count: attachments.length })
-                                                : tChat("pressEnterToSend")}
-                                        </p>
-                                    )}
-                                </div>
-                                <Button
-                                    onClick={isProcessing ? handleStop : handleSubmit}
-                                    disabled={isUploading || (!isProcessing && !input.trim())}
-                                    variant={isProcessing ? "destructive" : (input.trim() && !isUploading ? "primary" : "ghost")}
-                                    size="icon"
-                                    className="rounded-full h-8 w-8"
-                                >
-                                    {isProcessing ? (
-                                        <Square className="w-3.5 h-3.5 fill-current" />
-                                    ) : (
-                                        <Send className="w-3.5 h-3.5" />
-                                    )}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
+            <ChatInputBar
+                hasMessages={!!hasMessages}
+                input={input}
+                onInputChange={setInput}
+                onSubmit={handleSubmit}
+                onStop={handleStop}
+                isProcessing={isProcessing}
+                isUploading={isUploading}
+                inputRef={inputRef}
+                placeholder={getPlaceholder()}
+                attachments={attachments}
+                onRemoveAttachment={removeAttachment}
+                onFilesSelected={addFiles}
+                onSourceSelect={handleSourceSelect}
+                tier={tier}
+                onTierChange={handleTierChange}
+                showModelMenu={showModelMenu}
+                onToggleModelMenu={handleToggleModelMenu}
+                modelMenuRef={modelMenuRef}
+                selectedSkill={selectedSkill}
+                onSkillChange={setSelectedSkill}
+                allUsageEvents={allUsageEvents}
+                welcomeTitle={t("welcomeTitle")}
+                welcomeSubtitle={t("welcomeSubtitle")}
+                tSettings={tSettings}
+                tChat={tChat}
+            />
 
         </div>
     );

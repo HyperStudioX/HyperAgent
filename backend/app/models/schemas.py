@@ -171,13 +171,17 @@ class UnifiedQueryRequest(BaseModel):
     tier: ModelTier | None = None  # Optional tier override
     history: list[ChatMessage] = Field(default_factory=list)
     attachment_ids: list[str] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list, description="Optional skill IDs to guide agent execution")
+    skills: list[str] = Field(
+        default_factory=list,
+        description="Optional single skill ID to guide agent execution",
+    )
     locale: str = Field(default="en", description="User's preferred language (e.g., 'en', 'zh-CN')")
     budget: dict[str, Any] | None = Field(
         default=None,
         description="Optional run budget controls (tokens, cost, tool_calls, wall_clock_seconds)",
     )
     execution_mode: Literal["auto", "guided", "strict", "codeact"] = Field(default="auto")
+    memory_enabled: bool = Field(default=True, description="Whether to load/save user memories for this request")
     run_labels: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("provider")
@@ -196,6 +200,11 @@ class UnifiedQueryRequest(BaseModel):
     def check_skills(cls, v: list[str]) -> list[str]:
         if not v:
             return v
+        if len(v) > 1:
+            raise ValueError(
+                "Only one skill can be selected per request. "
+                "Submit a single skill ID in the skills list."
+            )
         from app.services.skill_registry import skill_registry
 
         available = {s.id for s in skill_registry.list_skills(enabled_only=True)}

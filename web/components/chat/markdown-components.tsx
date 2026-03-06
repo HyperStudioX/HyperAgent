@@ -37,7 +37,7 @@ function isValidImageSrc(src: string | undefined): boolean {
  */
 export const markdownComponents: Components = {
     p: ({ children }) => (
-        <p className="mb-5 last:mb-0 text-[15px] leading-[1.75] text-foreground/90 tracking-[-0.01em]">
+        <p className="mb-5 last:mb-0 text-base leading-[1.75] text-foreground/90 tracking-[-0.01em]">
             {children}
         </p>
     ),
@@ -50,7 +50,7 @@ export const markdownComponents: Components = {
         </ol>
     ),
     li: ({ children }) => (
-        <li className="relative pl-6 text-[15px] leading-[1.7] text-foreground/90 [counter-increment:list-counter]">
+        <li className="relative pl-6 text-base leading-[1.7] text-foreground/90 [counter-increment:list-counter]">
             <span
                 className={cn(
                     "absolute left-0 top-0 select-none",
@@ -145,7 +145,7 @@ export const markdownComponents: Components = {
                 "bg-secondary/30 dark:bg-secondary/20",
                 "rounded-r-lg",
                 "text-foreground/80 italic",
-                "[&>p]:mb-0 [&>p]:text-[15px]"
+                "[&>p]:mb-0 [&>p]:text-base"
             )}
         >
             {children}

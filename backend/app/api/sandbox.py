@@ -98,9 +98,9 @@ async def list_sandbox_files(
     try:
         # Get the appropriate sandbox manager
         if sandbox_type == "execution":
-            manager = get_execution_sandbox_manager()
+            manager = await get_execution_sandbox_manager()
         else:
-            manager = get_app_sandbox_manager()
+            manager = await get_app_sandbox_manager()
 
         # Get the existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -197,9 +197,9 @@ async def read_sandbox_file(
     try:
         # Get the appropriate sandbox manager
         if sandbox_type == "execution":
-            manager = get_execution_sandbox_manager()
+            manager = await get_execution_sandbox_manager()
         else:
-            manager = get_app_sandbox_manager()
+            manager = await get_app_sandbox_manager()
 
         # Get the existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)

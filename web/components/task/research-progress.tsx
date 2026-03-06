@@ -252,6 +252,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
     const t = useTranslations("task");
     const tResearch = useTranslations("research");
     const tChat = useTranslations("chat");
+    const tSidebar = useTranslations("sidebar");
 
     // Use selective store subscriptions to avoid unnecessary re-renders
     const hasHydrated = useTaskStore((state) => state.hasHydrated);
@@ -666,7 +667,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                         <div className="flex items-center justify-between px-3 h-10 border-b border-border/30 shrink-0">
                             <div className="flex items-center gap-2 min-w-0">
                                 <Monitor className="w-4 h-4 text-foreground flex-shrink-0" />
-                                <span className="text-sm font-medium truncate">Live Browser</span>
+                                <span className="text-sm font-medium truncate">{tSidebar("progress.liveBrowser")}</span>
                                 <span className="text-xs text-muted-foreground/60">
                                     {browserStream.sandboxId.slice(0, 8)}...
                                 </span>

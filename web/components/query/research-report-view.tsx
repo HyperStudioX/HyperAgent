@@ -6,10 +6,9 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { BookOpen, List, ChevronRight } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { CodeBlock } from "@/components/chat/code-block";
 
 interface ResearchResultViewProps {
     content: string;
@@ -189,7 +188,7 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                                             );
                                         },
                                         p: ({ children }) => (
-                                            <p className="mb-6 last:mb-0 text-[15px] md:text-base leading-[1.8] text-foreground/85 tracking-[-0.01em]">
+                                            <p className="mb-6 last:mb-0 text-base md:text-base leading-[1.8] text-foreground/85 tracking-[-0.01em]">
                                                 {children}
                                             </p>
                                         ),
@@ -211,7 +210,7 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                                             return (
                                                 <li className={cn(
                                                     "relative pl-7",
-                                                    "text-[15px] md:text-base leading-[1.75]",
+                                                    "text-base md:text-base leading-[1.75]",
                                                     "text-foreground/85",
                                                     isOrdered && "[counter-increment:report-counter]"
                                                 )}>
@@ -229,8 +228,8 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                                         blockquote: ({ children }) => (
                                             <blockquote className={cn(
                                                 "my-8 py-5 px-6",
-                                                "border-l-[3px] border-accent-cyan/50",
-                                                "bg-secondary/20 dark:bg-secondary/10",
+                                                "border-l-[3px] border-accent-cyan/40",
+                                                "bg-secondary/30 dark:bg-secondary/20",
                                                 "rounded-r-xl",
                                                 "[&>p]:mb-0 [&>p]:text-foreground/75 [&>p]:italic [&>p]:text-base"
                                             )}>
@@ -245,10 +244,10 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                                                 return (
                                                     <code className={cn(
                                                         "px-1.5 py-0.5 mx-0.5",
-                                                        "font-mono text-[0.85em] font-medium",
-                                                        "bg-secondary/60 dark:bg-secondary/40",
+                                                        "font-mono text-[0.875em]",
+                                                        "bg-secondary/80 dark:bg-secondary",
                                                         "text-foreground/90",
-                                                        "rounded-md border border-border/50"
+                                                        "rounded-md border border-border/40"
                                                     )}>
                                                         {children}
                                                     </code>
@@ -276,7 +275,7 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
                                             </div>
                                         ),
                                         thead: ({ children }) => (
-                                            <thead className="bg-secondary/40 dark:bg-secondary/20">{children}</thead>
+                                            <thead className="bg-secondary/60 dark:bg-secondary/40">{children}</thead>
                                         ),
                                         tbody: ({ children }) => (
                                             <tbody className="divide-y divide-border/40">{children}</tbody>
@@ -360,88 +359,3 @@ export function ResearchResultView({ content, isStreaming = false, title }: Rese
     );
 }
 
-interface CodeBlockProps {
-    language: string;
-    children: string;
-}
-
-// Language display names - using semantic colors from design system
-const LANGUAGE_CONFIG: Record<string, { name: string }> = {
-    javascript: { name: "JavaScript" },
-    js: { name: "JavaScript" },
-    typescript: { name: "TypeScript" },
-    ts: { name: "TypeScript" },
-    python: { name: "Python" },
-    py: { name: "Python" },
-    rust: { name: "Rust" },
-    go: { name: "Go" },
-    java: { name: "Java" },
-    cpp: { name: "C++" },
-    c: { name: "C" },
-    html: { name: "HTML" },
-    css: { name: "CSS" },
-    json: { name: "JSON" },
-    yaml: { name: "YAML" },
-    bash: { name: "Bash" },
-    shell: { name: "Shell" },
-    sql: { name: "SQL" },
-    markdown: { name: "Markdown" },
-    md: { name: "Markdown" },
-    jsx: { name: "JSX" },
-    tsx: { name: "TSX" },
-};
-
-function CodeBlock({ language, children }: CodeBlockProps) {
-    const t = useTranslations("report");
-    const langConfig = LANGUAGE_CONFIG[language?.toLowerCase()] || { name: language || t("code") };
-    const lineCount = children.split('\n').length;
-
-    return (
-        <div className={cn(
-            "group my-8 rounded-xl overflow-hidden",
-            "border border-border/60 hover:border-border",
-            "bg-secondary/30 dark:bg-secondary/20",
-            "transition-colors duration-150"
-        )}>
-            {/* Header with language indicator */}
-            <div className={cn(
-                "flex items-center justify-between",
-                "px-5 py-3",
-                "border-b border-border/40",
-                "bg-secondary/50 dark:bg-secondary/30"
-            )}>
-                <div className="flex items-center gap-3">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-primary/60" />
-                    <span className="text-xs font-medium text-muted-foreground tracking-wide">
-                        {langConfig.name}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                        {lineCount} {lineCount === 1 ? 'line' : 'lines'}
-                    </span>
-                </div>
-            </div>
-
-            {/* Code content */}
-            <div className="relative overflow-x-auto">
-                <SyntaxHighlighter
-                    language={language || "text"}
-                    style={vscDarkPlus}
-                    customStyle={{
-                        margin: 0,
-                        padding: "1.25rem",
-                        fontSize: "13px",
-                        lineHeight: "1.65",
-                        background: "transparent",
-                    }}
-                    codeTagProps={{
-                        style: {
-                            fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                        }
-                    }}
-                >
-                    {children}
-                </SyntaxHighlighter>
-            </div>
-        </div>
-    );
-}

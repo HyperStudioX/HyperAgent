@@ -132,6 +132,8 @@ async def run_research_task(
                 async for event in agent_supervisor.run(
                     query=query,
                     mode="research",
+                    task_id=task_id,
+                    user_id=user_id,
                     depth=ResearchDepth(depth),
                     scenario=ResearchScenario(scenario),
                     locale=locale,

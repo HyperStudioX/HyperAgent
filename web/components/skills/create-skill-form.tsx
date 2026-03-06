@@ -21,6 +21,13 @@ import {
   FileText,
   CheckCircle2,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { SkillCodeEditor } from "@/components/editor";
@@ -249,17 +256,21 @@ export function CreateSkillForm() {
                       placeholder={t("paramName")}
                       className="flex-1 h-8 text-sm"
                     />
-                    <select
+                    <Select
                       value={param.type}
-                      onChange={(e) => updateParameter(i, "type", e.target.value)}
-                      className="h-8 px-2 rounded-lg border border-border bg-transparent text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      onValueChange={(value) => updateParameter(i, "type", value)}
                     >
-                      {PARAM_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-8 w-[120px] text-sm cursor-pointer">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PARAM_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <button
                       type="button"
                       onClick={() => removeParameter(i)}
@@ -322,7 +333,7 @@ export function CreateSkillForm() {
                         {t(`templates.${template.id}.name`)}
                       </span>
                       {isSelected && (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-success" />
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">

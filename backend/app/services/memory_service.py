@@ -147,6 +147,27 @@ class InMemoryStore:
         self._memories[user_id] = [e for e in entries if e.id != memory_id]
         return len(self._memories[user_id]) < original_len
 
+    def update_memory(self, user_id: str, memory_id: str, content: str) -> MemoryEntry | None:
+        entries = self._memories.get(user_id, [])
+        for entry in entries:
+            if entry.id == memory_id:
+                updated = MemoryEntry(
+                    id=entry.id,
+                    user_id=entry.user_id,
+                    memory_type=entry.memory_type,
+                    content=content,
+                    metadata=entry.metadata,
+                    source_conversation_id=entry.source_conversation_id,
+                    created_at=entry.created_at,
+                    last_accessed=time.time(),
+                    access_count=entry.access_count,
+                )
+                self._memories[user_id] = [
+                    updated if e.id == memory_id else e for e in entries
+                ]
+                return updated
+        return None
+
     def clear_memories(self, user_id: str) -> None:
         self._memories.pop(user_id, None)
 
@@ -358,6 +379,46 @@ class PersistentMemoryStore:
         except Exception as e:
             logger.warning("memory_delete_db_failed_using_fallback", error=str(e))
             return self._fallback.delete_memory(user_id, memory_id)
+
+    async def update_memory_async(
+        self, user_id: str, memory_id: str, content: str
+    ) -> MemoryEntry | None:
+        """Update a memory's content in DB."""
+        session = await self._get_session()
+        if session is None:
+            return self._fallback.update_memory(user_id, memory_id, content)
+
+        try:
+            from datetime import datetime, timezone
+
+            from sqlalchemy import select
+
+            from app.db.models import Memory
+
+            async with session:
+                stmt = (
+                    select(Memory)
+                    .where(Memory.id == memory_id)
+                    .where(Memory.user_id == user_id)
+                )
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+
+                if row is None:
+                    return None
+
+                row.content = content
+                row.last_accessed = datetime.now(timezone.utc)
+                await session.commit()
+                await session.refresh(row)
+
+                # Also update fallback
+                self._fallback.update_memory(user_id, memory_id, content)
+                return self._row_to_entry(row)
+
+        except Exception as e:
+            logger.warning("memory_update_db_failed_using_fallback", error=str(e))
+            return self._fallback.update_memory(user_id, memory_id, content)
 
     def clear_memories(self, user_id: str) -> None:
         """Synchronous clear - delegates to fallback."""

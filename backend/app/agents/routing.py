@@ -1,18 +1,15 @@
-"""Routing logic for the multi-agent system.
-
-Note: LLM-based routing has been replaced with deterministic passthrough
-since all routes currently map to the TASK agent. The LLM router prompt
-and response parsing infrastructure is retained for future expansion.
-"""
+"""LLM-based routing logic for the multi-agent system."""
 
 import json
 from dataclasses import dataclass
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents import events
 from app.agents.parallel import is_parallelizable_query
 from app.agents.state import AgentType, SupervisorState
+from app.ai.llm import llm_service
+from app.ai.model_tiers import ModelTier
 from app.config import settings
 from app.core.logging import get_logger
 
@@ -138,7 +135,10 @@ def parse_router_response_json(response: str) -> RoutingResult | None:
         if clean_response.startswith("```"):
             # Remove code block markers
             lines = clean_response.split("\n")
-            clean_response = "\n".join(line for line in lines if not line.startswith("```")).strip()
+            clean_response = "\n".join(
+                line for line in lines
+                if not line.startswith("```")
+            ).strip()
 
         data = json.loads(clean_response)
 
@@ -215,9 +215,8 @@ def parse_router_response(response: str) -> RoutingResult:
 async def route_query(state: SupervisorState) -> dict:
     """Route a query to the appropriate agent.
 
-    All queries are routed deterministically to the TASK agent.
-    If an explicit mode is provided in the state, it is acknowledged
-    but still routes to TASK (all modes map to TASK currently).
+    If an explicit mode is provided in the state, use that directly.
+    Otherwise, use LLM-based routing to determine the best agent.
 
     Args:
         state: Current supervisor state with query and optional mode
@@ -256,7 +255,6 @@ async def route_query(state: SupervisorState) -> dict:
         }
 
     # Honor explicit mode if provided and valid
-    explicit_mode = state.get("mode")
     if explicit_mode:
         # Normalize mode string
         mode_lower = explicit_mode.lower().strip()
@@ -284,32 +282,102 @@ async def route_query(state: SupervisorState) -> dict:
                 ],
             }
 
-    # Deterministic passthrough: all queries route to TASK agent.
-    # Previously this path used an LLM (LITE tier) to route, but the prompt
-    # and every example already mapped every query to "task". Calling the LLM
-    # added latency and cost with no routing benefit. The LLM router
-    # infrastructure (ROUTER_PROMPT, parse_router_response, etc.) is retained
-    # for future use if distinct agent routing is reintroduced.
-    reason = "Deterministic passthrough routing"
+    # All queries currently route to task agent — passthrough without LLM call
     routing_event = {
         "type": "routing",
         "agent": AgentType.TASK.value,
-        "reason": reason,
+        "reason": "Deterministic passthrough routing",
         "confidence": 1.0,
     }
     if is_parallelizable_query(query):
         routing_event["parallel_eligible"] = True
     return {
         "selected_agent": AgentType.TASK.value,
-        "routing_reason": reason,
+        "routing_reason": "Deterministic passthrough routing",
         "routing_confidence": 1.0,
         "parallel_eligible": bool(routing_event.get("parallel_eligible", False)),
         "events": [
             routing_event,
             events.reasoning(
-                thinking=f"Routing to task: {reason}",
+                thinking="All queries route to task agent (passthrough)",
                 confidence=1.0,
                 context="routing",
             ),
         ],
     }
+
+    # LLM-based routing (currently unused — kept for future multi-agent routing)
+    provider = state.get("provider")
+    llm = llm_service.get_llm_for_tier(ModelTier.LITE, provider=provider)
+
+    try:
+        response = await llm.ainvoke(
+            [
+                ROUTER_SYSTEM_MESSAGE,
+                HumanMessage(content=f"Query: {query}"),
+            ]
+        )
+        result = parse_router_response(response.content)
+
+        # Log with confidence level
+        log_method = logger.warning if result.is_low_confidence else logger.info
+        log_method(
+            "routing_llm",
+            query=query[:50],
+            agent=result.agent.value,
+            reason=result.reason,
+            confidence=result.confidence,
+            is_low_confidence=result.is_low_confidence,
+        )
+
+        # Build routing event with confidence info
+        routing_event = {
+            "type": "routing",
+            "agent": result.agent.value,
+            "reason": result.reason,
+            "confidence": result.confidence,
+        }
+
+        # Add low confidence warning to event if applicable
+        if result.is_low_confidence:
+            routing_event["low_confidence"] = True
+            routing_event["message"] = (
+                f"Low confidence ({result.confidence:.0%}) routing to {result.agent.value}. "
+                "If the response doesn't match your intent, try rephrasing your query."
+            )
+
+        # Check if this query would benefit from parallel execution.
+        if is_parallelizable_query(query):
+            routing_event["parallel_eligible"] = True
+
+        # Emit reasoning event alongside routing decision
+        reasoning_event = events.reasoning(
+            thinking=f"Routing to {result.agent.value}: {result.reason}",
+            confidence=result.confidence,
+            context="routing",
+        )
+
+        return {
+            "selected_agent": result.agent.value,
+            "routing_reason": result.reason,
+            "routing_confidence": result.confidence,
+            "parallel_eligible": bool(routing_event.get("parallel_eligible", False)),
+            "events": [routing_event, reasoning_event],
+        }
+    except Exception as e:
+        logger.error("routing_failed", error=str(e), query=query[:50])
+        # Default to task on routing failure -- do not expose internal error
+        # details in the response sent to clients.
+        return {
+            "selected_agent": AgentType.TASK.value,
+            "routing_reason": "Default (routing error)",
+            "routing_confidence": 0.0,
+            "events": [
+                {
+                    "type": "routing",
+                    "agent": AgentType.TASK.value,
+                    "reason": "Default due to routing error",
+                    "confidence": 0.0,
+                }
+            ],
+        }

@@ -10,7 +10,7 @@ import json
 from difflib import SequenceMatcher
 
 from langchain_core.tools import BaseTool, tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.logging import get_logger
 
@@ -125,8 +125,9 @@ class SearchToolsInput(BaseModel):
         ),
     )
 
-    class Config:
-        json_schema_extra = {"examples": [{"query": "file read write"}]}
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"query": "file read write"}]},
+    )
 
 
 @tool(args_schema=SearchToolsInput)

@@ -8,12 +8,15 @@
 
 import warnings
 
+# Only warn once per process to avoid noise in logs
 warnings.warn(
     "app.sandbox.code_executor is deprecated. "
     "Import from app.sandbox.e2b.code_executor or use the provider factory instead.",
     DeprecationWarning,
     stacklevel=2,
 )
+# Prevent repeated warnings from subsequent imports
+warnings.filterwarnings("ignore", message="app.sandbox.code_executor is deprecated", category=DeprecationWarning)
 
 from app.sandbox.e2b.code_executor import (
     E2BSandboxExecutor,

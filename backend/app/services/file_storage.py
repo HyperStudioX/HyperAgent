@@ -353,8 +353,15 @@ class FileStorageService:
             "image/gif": ".gif",
             "image/webp": ".webp",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+            "text/markdown": ".md",
+            "text/plain": ".txt",
+            "text/x-python": ".py",
+            "text/javascript": ".js",
+            "application/typescript": ".ts",
+            "text/html": ".html",
+            "text/css": ".css",
         }
-        ext = ext_map.get(content_type, ".png")
+        ext = ext_map.get(content_type, ".bin")
 
         # Storage key: generated/{user_id}/{file_hash}{ext}
         # Use 'generated' prefix to distinguish from user uploads

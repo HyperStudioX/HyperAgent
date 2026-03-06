@@ -160,7 +160,7 @@ async def create_app_project(
     )
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get or create sandbox session
         session = await manager.get_or_create_sandbox(
@@ -242,7 +242,7 @@ async def app_write_file(
         }
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session; require create_app_project to be called first
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -311,7 +311,7 @@ async def app_read_file(
     )
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -363,7 +363,7 @@ async def app_list_files(
     )
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -417,7 +417,7 @@ async def app_install_packages(
     )
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -491,7 +491,7 @@ async def app_start_server(
     )
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -509,19 +509,17 @@ async def app_start_server(
         start_cmd = custom_command or APP_TEMPLATES.get(template, APP_TEMPLATES["react"])["start_cmd"]
 
         if result["success"]:
-            display_url = result.get("display_url", f"http://localhost:{result['port']}")
             terminal_events = _create_terminal_events(
                 command=start_cmd,
-                output=f"Server started at {display_url}",
+                output=f"Server started at {result['preview_url']}",
                 exit_code=0,
                 cwd="/home/user/app",
             )
             return {
                 "success": True,
                 "preview_url": result["preview_url"],
-                "display_url": display_url,
                 "port": result["port"],
-                "message": f"App is running! View it at: {display_url}",
+                "message": f"App is running! View it at: {result['preview_url']}",
                 "terminal_events": terminal_events,
             }
 
@@ -566,7 +564,7 @@ async def app_stop_server(
     logger.info("app_stop_server_called")
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -645,7 +643,7 @@ async def app_run_command(
         }
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
@@ -706,7 +704,7 @@ async def app_get_preview_url(
     logger.info("app_get_preview_url_called")
 
     try:
-        manager = get_app_sandbox_manager()
+        manager = await get_app_sandbox_manager()
 
         # Get existing session
         session = await manager.get_session(user_id=user_id, task_id=task_id)
