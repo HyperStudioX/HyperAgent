@@ -25,7 +25,7 @@ from app.core.auth import CurrentUser, get_current_user
 from app.core.logging import get_logger
 from app.db.base import get_db
 from app.db.models import ResearchTask
-from app.models.schemas import ResearchDepth, ResearchScenario
+from app.models.schemas import ResearchDepth
 from app.repository import deep_research_repository
 from app.workers.task_queue import task_queue
 
@@ -41,7 +41,6 @@ class SubmitResearchRequest(BaseModel):
     """Request to submit a research task."""
 
     query: str = Field(..., min_length=1, max_length=5000)
-    scenario: ResearchScenario = ResearchScenario.ACADEMIC
     depth: ResearchDepth = ResearchDepth.FAST
 
 
@@ -52,7 +51,6 @@ class TaskStatusResponse(BaseModel):
     status: str
     progress: int
     query: str
-    scenario: str
     depth: str
     created_at: datetime
     started_at: datetime | None = None
@@ -76,7 +74,6 @@ class TaskListItem(BaseModel):
     query: str
     status: str
     progress: int
-    scenario: str
     created_at: str
 
 
@@ -112,7 +109,7 @@ async def submit_research_task(
         task_id=task_id,
         query=request.query,
         depth=request.depth.value,
-        scenario=request.scenario.value,
+
         user_id=current_user.id,
     )
 
@@ -125,7 +122,7 @@ async def submit_research_task(
         task_id=task_id,
         query=request.query,
         depth=request.depth.value,
-        scenario=request.scenario.value,
+
         user_id=current_user.id,
     )
 
@@ -164,7 +161,6 @@ async def get_task_status(
         status=task.status,
         progress=task.progress,
         query=task.query,
-        scenario=task.scenario,
         depth=task.depth,
         created_at=task.created_at,
         started_at=task.started_at,
@@ -314,7 +310,6 @@ async def list_tasks(
                 query=t.query,
                 status=t.status,
                 progress=t.progress,
-                scenario=t.scenario,
                 created_at=t.created_at.isoformat(),
             )
             for t in tasks

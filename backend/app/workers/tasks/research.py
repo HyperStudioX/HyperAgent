@@ -10,7 +10,7 @@ from app.agents import agent_supervisor
 from app.config import settings
 from app.core.logging import get_logger
 from app.db.base import async_session_maker
-from app.models.schemas import ResearchDepth, ResearchScenario
+from app.models.schemas import ResearchDepth
 from app.repository import deep_research_repository
 from app.workers.progress import ProgressReporter
 
@@ -33,7 +33,6 @@ async def run_research_task(
     task_id: str,
     query: str,
     depth: str,
-    scenario: str,
     user_id: str,
     locale: str = "en",
 ) -> dict[str, Any]:
@@ -48,7 +47,6 @@ async def run_research_task(
         task_id: Unique task identifier
         query: Research query string
         depth: Research depth (quick, standard, deep)
-        scenario: Research scenario (academic, market, technical, news)
         user_id: User ID for task ownership (required)
         locale: User's preferred language (e.g., 'en', 'zh-CN')
 
@@ -65,7 +63,6 @@ async def run_research_task(
         job_id=job_id,
         query=query[:50],
         depth=depth,
-        scenario=scenario,
     )
 
     # Initialize progress reporter for real-time updates
@@ -135,7 +132,6 @@ async def run_research_task(
                     task_id=task_id,
                     user_id=user_id,
                     depth=ResearchDepth(depth),
-                    scenario=ResearchScenario(scenario),
                     locale=locale,
                 ):
                     # Handle stage events (supervisor uses "stage", not "step")

@@ -6,6 +6,7 @@ from typing import Any, AsyncGenerator
 from app.agents import events as agent_events
 from app.core.logging import get_logger
 from app.sandbox import get_desktop_sandbox_manager, is_desktop_sandbox_available
+from app.sandbox.base_desktop_executor import get_screenshot_as_base64
 
 logger = get_logger(__name__)
 
@@ -251,9 +252,11 @@ class StreamProcessor:
     def _should_emit_subevent(self, e: dict, node_name: str) -> bool:
         event_type = e.get("type")
 
-        # Token deduplication
+        # Token deduplication — skip if tokens were already streamed,
+        # UNLESS this is a guardrail replacement (censored/sanitized content)
         if event_type == "token" and self.streamed_tokens:
-            return False
+            if not e.get("guardrail_replacement"):
+                return False
 
         # Stage deduplication
         if event_type == "stage":
@@ -325,7 +328,7 @@ class StreamProcessor:
             elif event_type == "workspace_update":
                 key = f"ws:{e.get('operation', '')}:{e.get('path', '')}"
             elif event_type == "browser_stream":
-                key = f"bs:{e.get('stream_url', '')}"
+                key = f"bs:{e.get('sandbox_id', '')}:{e.get('stream_url', '')}"
             else:
                 key = ""
 
@@ -571,13 +574,31 @@ class StreamProcessor:
                     auth_key=auth_key,
                 )
             else:
-                # Provider doesn't support live streaming (e.g., BoxLite)
-                # Still emit event so frontend opens the virtual computer panel
+                # Provider doesn't support live streaming
+                # Capture a screenshot so the frontend has something to display
+                screenshot_b64 = None
+                try:
+                    screenshot_bytes = await session.executor.screenshot()
+                    screenshot_data = get_screenshot_as_base64(screenshot_bytes)
+                    screenshot_b64 = screenshot_data["data"]
+                except Exception as ss_err:
+                    logger.warning("browser_screenshot_capture_failed", error=str(ss_err))
+
                 yield agent_events.browser_stream(
                     sandbox_id=session.sandbox_id,
+                    screenshot=screenshot_b64,
                 )
         except Exception as e:
-            logger.warning("browser_stream_emit_failed", error=str(e))
+            logger.error(
+                "browser_stream_emit_failed",
+                error=str(e),
+                user_id=uid,
+                task_id=tid,
+            )
+            # Emit an error-indicating event so the frontend knows something went wrong
+            yield agent_events.browser_stream(
+                sandbox_id="error",
+            )
 
     @staticmethod
     def _extract_tool_output_str(output: Any) -> str:

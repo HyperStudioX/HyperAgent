@@ -70,7 +70,7 @@
         "welcomeTitle": "有什么我可以帮助您的？",
         "welcomeSubtitle": "随时提问或选择专业模式完成任务",
         "inputPlaceholder": "随便问...",
-        "researchPlaceholder": "研究：{scenario}...",
+        "researchPlaceholder": "您想研究什么？",
         "dataPlaceholder": "描述您需要的数据分析...",
         "appPlaceholder": "描述您想要构建的应用...",
         "imagePlaceholder": "描述您想要创建的图片...",
@@ -105,23 +105,6 @@
         }
     },
     "research": {
-        "selectScenario": "选择研究类型",
-        "academic": {
-            "name": "学术研究",
-            "description": "文献综述、引用查找、学术资源"
-        },
-        "market": {
-            "name": "市场分析",
-            "description": "行业趋势、竞争分析、市场数据"
-        },
-        "technical": {
-            "name": "技术调研",
-            "description": "代码分析、API文档、技术深度探索"
-        },
-        "news": {
-            "name": "新闻资讯",
-            "description": "最新新闻、趋势分析、时间线追踪"
-        },
         "depth": {
             "label": "深度",
             "fast": {

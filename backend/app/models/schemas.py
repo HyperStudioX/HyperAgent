@@ -28,13 +28,6 @@ class QueryMode(str, Enum):
     SLIDE = "slide"
 
 
-class ResearchScenario(str, Enum):
-    ACADEMIC = "academic"
-    MARKET_ANALYSIS = "market"
-    TECHNICAL = "technical"
-    NEWS = "news"
-
-
 # Chat Schemas
 class ChatMessage(BaseModel):
     """A single chat message."""
@@ -93,7 +86,7 @@ class ResearchRequest(BaseModel):
 
     query: str
     depth: ResearchDepth = ResearchDepth.FAST
-    scenario: ResearchScenario = ResearchScenario.ACADEMIC
+
     conversation_id: str | None = None
 
 
@@ -162,7 +155,6 @@ class UnifiedQueryRequest(BaseModel):
 
     message: str
     mode: QueryMode = QueryMode.TASK
-    scenario: ResearchScenario | None = None
     depth: ResearchDepth = ResearchDepth.FAST
     conversation_id: str | None = None
     task_id: str | None = None  # Optional task ID for research mode (frontend-generated)

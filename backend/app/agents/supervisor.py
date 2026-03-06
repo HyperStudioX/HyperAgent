@@ -25,7 +25,7 @@ from app.agents.tools.handoff import (
     update_handoff_history,
 )
 from app.core.logging import get_logger
-from app.models.schemas import ResearchDepth, ResearchScenario
+from app.models.schemas import ResearchDepth
 from app.services.usage_tracker import create_usage_tracker
 
 logger = get_logger(__name__)
@@ -223,7 +223,6 @@ async def task_node(state: SupervisorState, config: dict | None = None) -> TaskO
             "shared_memory": state.get("shared_memory") or {},
             "locale": state.get("locale", "en"),
             "skills": state.get("skills") or [],
-            "scenario": state.get("scenario"),
             "depth": state.get("depth"),
             "hitl_enabled": state.get("hitl_enabled", settings.hitl_enabled),
         }
@@ -588,7 +587,7 @@ class AgentSupervisor:
             "hitl_enabled": settings.hitl_enabled,
         }
 
-        # Add any extra kwargs (like depth, scenario for research)
+        # Add any extra kwargs (like depth for research)
         for key, value in kwargs.items():
             if key in {"tier", "depth", "budget"}:
                 continue
@@ -623,7 +622,6 @@ class AgentSupervisor:
             thread_id=thread_id,
             run_id=effective_run_id,
             depth=initial_state.get("depth"),
-            scenario=initial_state.get("scenario"),
         )
 
         # Emit initial thinking stage

@@ -6,10 +6,9 @@ from dataclasses import dataclass
 
 from tavily import AsyncTavilyClient
 
-from app.agents.scenarios import get_scenario_config
 from app.config import settings
 from app.core.logging import get_logger
-from app.models.schemas import ResearchDepth, ResearchScenario
+from app.models.schemas import ResearchDepth
 from app.middleware.circuit_breaker import CircuitBreakerOpen, get_tavily_breaker
 
 logger = get_logger(__name__)
@@ -239,44 +238,32 @@ class SearchService:
         self,
         query: str,
         depth: ResearchDepth = ResearchDepth.FAST,
-        scenario: ResearchScenario = ResearchScenario.ACADEMIC,
     ) -> list[SearchResult]:
         """Perform a search using Tavily API.
 
         Args:
             query: Search query
             depth: Research depth affecting number of results
-            scenario: Research scenario affecting search focus
 
         Returns:
             List of search results
         """
         client = self._get_client()
         config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG[ResearchDepth.FAST])
-        scenario_config = get_scenario_config(scenario)
-
-        # Enhance query with scenario-specific focus
-        search_focus = scenario_config.get("search_focus", [])
-        enhanced_query = query
-        if search_focus:
-            # Add the primary focus term to help target results
-            enhanced_query = f"{query} {search_focus[0]}"
 
         breaker = get_tavily_breaker()
 
         logger.info(
             "search_started",
             query=query,
-            enhanced_query=enhanced_query,
             depth=depth.value,
-            scenario=scenario.value,
             max_results=config["max_results"],
         )
 
         try:
             async with breaker.call():
                 response = await client.search(
-                    query=enhanced_query,
+                    query=query,
                     max_results=config["max_results"],
                     search_depth=config["search_depth"],
                     include_raw_content=depth == ResearchDepth.DEEP,

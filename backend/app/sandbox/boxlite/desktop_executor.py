@@ -3,9 +3,9 @@
 Local Docker-based implementation of the desktop/browser sandbox executor.
 Uses boxlite.ComputerBox for browser automation in a local container.
 
-Note: BoxLite does not support live WebRTC streaming. The get_stream_url()
-method raises NotImplementedError; callers should fall back to screenshot-based
-viewing.
+The ComputerBox image (linuxserver/webtop) exposes a web-based desktop GUI
+on an HTTP port (default 3000). get_stream_url() returns this URL for
+iframe-based live streaming in the frontend.
 """
 
 import asyncio
@@ -47,6 +47,9 @@ class BoxLiteDesktopExecutor(BaseDesktopExecutor):
         self._box: "boxlite.ComputerBox | None" = None
         self._browser_launched: bool = False
         self._sandbox_id: str | None = None
+        self._gui_http_port: int = settings.boxlite_desktop_gui_port
+        self._stream_url: str | None = None
+        self._stream_started: bool = False
 
     @property
     def sandbox_id(self) -> str | None:
@@ -65,6 +68,7 @@ class BoxLiteDesktopExecutor(BaseDesktopExecutor):
             boxlite.ComputerBox,
             cpu=settings.boxlite_cpus,
             memory=settings.boxlite_memory_mib,
+            gui_http_port=self._gui_http_port,
         )
 
         # Start the container, then wait for the desktop environment to be ready
@@ -80,6 +84,30 @@ class BoxLiteDesktopExecutor(BaseDesktopExecutor):
             image=self._image,
         )
         return self._sandbox_id
+
+    async def get_stream_url(self, require_auth: bool = True) -> tuple[str, str | None]:
+        """Return the web desktop GUI URL for iframe embedding.
+
+        The ComputerBox image (linuxserver/webtop) serves a web-based desktop
+        on the configured HTTP port. No separate VNC/noVNC setup is needed.
+        """
+        if not self._box:
+            raise RuntimeError("Sandbox not created. Call create_sandbox() first.")
+
+        if not self._stream_url:
+            self._stream_url = f"http://localhost:{self._gui_http_port}"
+            self._stream_started = True
+            logger.info(
+                "boxlite_stream_url_ready",
+                sandbox_id=self._sandbox_id,
+                stream_url=self._stream_url,
+            )
+
+        return self._stream_url, None  # No auth key needed for local desktop
+
+    @property
+    def stream_started(self) -> bool:
+        return self._stream_started
 
     # Browser executable names to try, in order of preference
     _BROWSER_FALLBACKS = ["chromium-browser", "chromium", "google-chrome", "firefox"]
@@ -339,6 +367,8 @@ except Exception as e:
             finally:
                 self._box = None
                 self._browser_launched = False
+                self._stream_url = None
+                self._stream_started = False
 
 
 __all__ = [

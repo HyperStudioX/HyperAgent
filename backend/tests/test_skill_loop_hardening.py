@@ -108,7 +108,6 @@ async def test_run_research_task_passes_user_and_task_identity_to_supervisor():
             task_id="task-1",
             query="Investigate market trends",
             depth="fast",
-            scenario="market",
             user_id="user-1",
         )
 

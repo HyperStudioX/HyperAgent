@@ -102,7 +102,6 @@ async def query(
                 provider=request.provider,
                 model=request.model,
                 memory_enabled=request.memory_enabled,
-                scenario=request.scenario,
                 depth=request.depth,
             )
 
@@ -383,7 +382,6 @@ async def stream_query(
                     execution_mode=request.execution_mode,
                     memory_enabled=request.memory_enabled,
                     skills=request.skills,
-                    scenario=request.scenario,
                     depth=request.depth,
                 ):
                     event_type = event["type"]

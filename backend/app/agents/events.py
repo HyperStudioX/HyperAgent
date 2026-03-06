@@ -227,7 +227,6 @@ class ConfigEvent(BaseModel):
 
     type: Literal["config"] = "config"
     depth: str | None = Field(default=None, description="Research depth")
-    scenario: str | None = Field(default=None, description="Research scenario")
 
 
 class BrowserStreamEvent(BaseModel):
@@ -745,18 +744,16 @@ def code_result(
 
 def config(
     depth: str | None = None,
-    scenario: str | None = None,
 ) -> dict[str, Any]:
     """Create a config event dictionary.
 
     Args:
         depth: Research depth
-        scenario: Research scenario
 
     Returns:
         Config event dictionary
     """
-    return ConfigEvent(depth=depth, scenario=scenario).model_dump()
+    return ConfigEvent(depth=depth).model_dump()
 
 
 def browser_stream(

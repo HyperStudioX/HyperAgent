@@ -36,7 +36,6 @@ class TaskQueueService:
         task_id: str,
         query: str,
         depth: str,
-        scenario: str,
         user_id: str,
         locale: str = "en",
         priority: int = 0,
@@ -49,7 +48,6 @@ class TaskQueueService:
             task_id: Database task ID (should already exist in DB)
             query: Research query
             depth: Research depth level
-            scenario: Research scenario type
             user_id: User ID (required)
             locale: User's preferred language (e.g., 'en', 'zh-CN')
             priority: Job priority (higher = more urgent)
@@ -65,7 +63,6 @@ class TaskQueueService:
             task_id=task_id,
             query=query,
             depth=depth,
-            scenario=scenario,
             user_id=user_id,
             locale=locale,
             _defer_by=delay,

@@ -26,7 +26,6 @@ from app.agents.context_policy import apply_context_policy
 from app.agents.prompts import (
     get_report_prompt,
 )
-from app.agents.scenarios import get_scenario_config
 from app.agents.skills.artifact_saver import save_skill_artifact
 from app.agents.skills.skill_base import Skill, SkillMetadata, SkillParameter, SkillState
 from app.agents.state import _override_reducer
@@ -42,7 +41,6 @@ from app.agents.tools.tool_pipeline import (
 from app.ai.llm import extract_text_from_content, llm_service
 from app.core.logging import get_logger
 from app.guardrails.scanners.output_scanner import output_scanner
-from app.models.schemas import ResearchScenario
 
 logger = get_logger(__name__)
 
@@ -79,7 +77,6 @@ class DeepResearchSkillState(SkillState, total=False):
 
     # Research config
     query: str
-    scenario: str
     depth: str
     depth_config: dict
     system_prompt: str
@@ -396,13 +393,6 @@ class DeepResearchSkill(Skill):
                 required=True,
             ),
             SkillParameter(
-                name="scenario",
-                type="string",
-                description="Research scenario: academic, market, technical, news",
-                required=False,
-                default="academic",
-            ),
-            SkillParameter(
                 name="depth",
                 type="string",
                 description="Research depth: fast or deep",
@@ -458,7 +448,6 @@ class DeepResearchSkill(Skill):
         async def init_config(state: DeepResearchSkillState) -> dict:
             params = state.get("input_params", {})
             query = params.get("query", "")
-            scenario_str = params.get("scenario", "academic")
             depth_str = params.get("depth", "deep")
             locale = params.get("locale", state.get("locale", "en"))
             provider = params.get("provider", state.get("provider"))
@@ -466,16 +455,6 @@ class DeepResearchSkill(Skill):
             tier = params.get("tier", state.get("tier"))
             messages_from_params = params.get("messages", [])
 
-            # Map scenario string to enum
-            scenario_map = {
-                "academic": ResearchScenario.ACADEMIC,
-                "market": ResearchScenario.MARKET_ANALYSIS,
-                "technical": ResearchScenario.TECHNICAL,
-                "news": ResearchScenario.NEWS,
-            }
-            scenario_enum = scenario_map.get(scenario_str, ResearchScenario.ACADEMIC)
-
-            config = get_scenario_config(scenario_enum)
             depth_cfg = dict(DEPTH_CONFIG.get(depth_str, DEPTH_CONFIG["deep"]))
 
             # Override max_iterations from tier quality profile
@@ -488,9 +467,13 @@ class DeepResearchSkill(Skill):
                 depth_cfg["max_iterations"] = profile.deep_research_max_iters_deep
 
             # Build system prompt for the ReAct loop
-            system_content = f"""You are a deep research agent conducting {config["name"]}.
+            system_content = f"""You are a deep research agent conducting comprehensive research.
 
-{config["system_prompt"]}
+Your role is to:
+1. Search broadly for relevant information across multiple sources
+2. Analyze and cross-reference findings for accuracy
+3. Synthesize information into well-structured, evidence-based conclusions
+4. Provide proper citations and references
 
 ## Research Guidelines
 - {depth_cfg["system_guidance"]}
@@ -543,24 +526,28 @@ facts, statistics, and concrete evidence — not just high-level conclusions.
             lc_messages.append(HumanMessage(content=f"Research topic: {query}"))
 
             pending_events = [
-                agent_events.config(depth=depth_str, scenario=scenario_str),
+                agent_events.config(depth=depth_str),
                 agent_events.stage("search", "Starting research...", "running"),
             ]
 
             logger.info(
                 "deep_research_skill_init",
                 query=query[:80],
-                scenario=scenario_str,
                 depth=depth_str,
             )
 
             return {
                 "query": query,
-                "scenario": scenario_str,
                 "depth": depth_str,
                 "depth_config": depth_cfg,
-                "system_prompt": config["system_prompt"],
-                "report_structure": config["report_structure"],
+                "report_structure": [
+                    "Executive Summary",
+                    "Key Findings",
+                    "Detailed Analysis",
+                    "Discussion",
+                    "Conclusions",
+                    "References",
+                ],
                 "lc_messages": lc_messages,
                 "sources": [],
                 "tool_iterations": 0,
@@ -909,7 +896,6 @@ facts, statistics, and concrete evidence — not just high-level conclusions.
             query = state.get("query", "")
             findings = state.get("findings", "")
             sources = state.get("sources") or []
-            scenario_prompt = state.get("system_prompt", "")
             report_structure = state.get("report_structure") or []
             depth_cfg = state.get("depth_config") or {}
             locale = state.get("locale", "en")
@@ -935,12 +921,8 @@ facts, statistics, and concrete evidence — not just high-level conclusions.
                 research_context=research_context,
             )
 
-            # Dedicated report-writing system prompt (replaces the scenario research prompt)
             report_system_prompt = f"""You are an expert research report writer. Your task is to \
 produce a professional, well-structured research report based on the provided findings and sources.
-
-## Research Context
-{scenario_prompt}
 
 ## Report Writing Guidelines
 - Write in a clear, authoritative, and analytical tone

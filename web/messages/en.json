@@ -70,7 +70,7 @@
         "welcomeTitle": "What can I help you with?",
         "welcomeSubtitle": "Ask anything or select a specialized mode for your task",
         "inputPlaceholder": "Ask anything...",
-        "researchPlaceholder": "Research: {scenario}...",
+        "researchPlaceholder": "What would you like to research?",
         "dataPlaceholder": "Describe the data analysis you need...",
         "appPlaceholder": "Describe the app you want to build...",
         "imagePlaceholder": "Describe the image you want to create...",
@@ -105,23 +105,6 @@
         }
     },
     "research": {
-        "selectScenario": "Select Research Type",
-        "academic": {
-            "name": "Academic Research",
-            "description": "Literature review, citations, scholarly sources"
-        },
-        "market": {
-            "name": "Market Analysis",
-            "description": "Industry trends, competitor analysis, market data"
-        },
-        "technical": {
-            "name": "Technical Investigation",
-            "description": "Code analysis, API docs, technical deep-dives"
-        },
-        "news": {
-            "name": "News & Current Events",
-            "description": "Latest news, trend analysis, timeline tracking"
-        },
         "depth": {
             "label": "Depth",
             "fast": {

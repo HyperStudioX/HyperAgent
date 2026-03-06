@@ -8,7 +8,7 @@ from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from app.models.schemas import ModelTier, ResearchDepth, ResearchScenario
+from app.models.schemas import ModelTier, ResearchDepth
 from app.services.search import SearchResult
 
 
@@ -169,7 +169,6 @@ class ResearchState(SupervisorState, total=False):
 
     # Research configuration
     depth: ResearchDepth
-    scenario: ResearchScenario
     system_prompt: str
     report_structure: list[str]
     depth_config: dict[str, Any]

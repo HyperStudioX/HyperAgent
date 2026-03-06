@@ -15,7 +15,6 @@ import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { useGoogleDrivePicker } from "@/lib/hooks/use-google-drive-picker";
 import type {
     AgentType,
-    ResearchScenario,
     ResearchDepth,
     FileAttachment,
     Message,
@@ -36,8 +35,6 @@ import {
     readSSEStream,
     buildSavedMessageMetadata,
 } from "./use-stream-handler";
-
-const SCENARIO_KEYS: ResearchScenario[] = ["academic", "market", "technical", "news"];
 
 interface MessageListProps {
     messages: Message[];
@@ -141,7 +138,6 @@ export function ChatInterface() {
     }, [tTools]);
     const [input, setInput] = useState("");
     const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null);
-    const [selectedScenario, setSelectedScenario] = useState<ResearchScenario | null>(null);
     const [selectedDepth, setSelectedDepth] = useState<ResearchDepth>("fast");
     const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
     const [showModelMenu, setShowModelMenu] = useState(false);
@@ -241,15 +237,6 @@ export function ChatInterface() {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    useEffect(() => {
-        const scenarioParam = searchParams.get("scenario");
-        if (scenarioParam && SCENARIO_KEYS.includes(scenarioParam as ResearchScenario)) {
-            setSelectedAgent("research");
-            setSelectedScenario(scenarioParam as ResearchScenario);
-            router.replace("/", { scroll: false });
-            setTimeout(() => inputRef.current?.focus(), 100);
-        }
-    }, [searchParams, router]);
 
     const activeConversationId = useChatStore((state) => state.activeConversationId);
     const isLoading = useChatStore((state) => state.isLoading);
@@ -551,10 +538,9 @@ export function ChatInterface() {
         setInput("");
         clearAttachments();
 
-        if (selectedAgent === "research" && selectedScenario) {
+        if (selectedAgent === "research") {
             await handleAgentTask(userMessage, "research", attachmentIds, messageAttachments);
             setSelectedAgent(null);
-            setSelectedScenario(null);
         } else if (selectedAgent === "data" || selectedAgent === "app" || selectedAgent === "image" || selectedAgent === "slide") {
             await handleAgentTask(userMessage, selectedAgent, attachmentIds, messageAttachments);
             setSelectedAgent(null);
@@ -686,7 +672,6 @@ export function ChatInterface() {
             tier,
             memory_enabled: memoryEnabled,
             ...(selectedSkill && { skills: [selectedSkill] }),
-            ...(agentType === "research" && selectedScenario && { scenario: selectedScenario }),
             ...(agentType === "research" && { depth: selectedDepth }),
             attachment_ids: combinedAttachmentIds,
             conversation_id: conversationId,
@@ -789,8 +774,8 @@ export function ChatInterface() {
     }, [messages]);
 
     const getPlaceholder = () => {
-        if (selectedAgent === "research" && selectedScenario) {
-            return t("researchPlaceholder", { scenario: tResearch(`${selectedScenario}.name`) });
+        if (selectedAgent === "research") {
+            return t("researchPlaceholder");
         }
         if (selectedAgent === "data") return t("dataPlaceholder");
         if (selectedAgent === "app") return t("appPlaceholder");

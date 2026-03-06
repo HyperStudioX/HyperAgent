@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     boxlite_code_timeout: int = 300
     boxlite_desktop_timeout: int = 900
     boxlite_desktop_default_browser: str = "chromium-browser"
+    boxlite_desktop_gui_port: int = 3000  # Host port for ComputerBox web desktop GUI
     boxlite_auto_remove: bool = True
     boxlite_app_host_port_start: int = 10000
 

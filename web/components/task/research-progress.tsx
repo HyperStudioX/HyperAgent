@@ -5,10 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
 import {
     Loader2,
-    GraduationCap,
-    TrendingUp,
-    Code2,
-    Newspaper,
+    Search,
     Share2,
     ArrowLeft,
     AlertCircle,
@@ -22,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { TaskProgressPanel } from "@/components/ui/task-progress-panel";
 import { useTaskStore } from "@/lib/stores/task-store";
 import { useAgentProgressStore, type ComputerStreamInfo, type TimestampedEvent } from "@/lib/stores/agent-progress-store";
-import type { ResearchStep, Source, ResearchScenario, AgentEvent } from "@/lib/types";
+import type { ResearchStep, Source, AgentEvent } from "@/lib/types";
 import type { ResearchTask } from "@/lib/stores/task-store";
 
 // Status types for type safety
@@ -199,13 +196,6 @@ const createEventHandlers = (): Map<string, EventHandler> => {
 // Create handlers once at module level
 const EVENT_HANDLERS = createEventHandlers();
 
-const SCENARIO_ICONS: Record<ResearchScenario, React.ReactNode> = {
-    academic: <GraduationCap className="w-4 h-4" />,
-    market: <TrendingUp className="w-4 h-4" />,
-    technical: <Code2 className="w-4 h-4" />,
-    news: <Newspaper className="w-4 h-4" />,
-};
-
 // Define all research steps upfront
 const INITIAL_STEPS: ResearchStep[] = [
     { id: "1", type: "thinking", description: "Thinking", status: "pending" },
@@ -217,7 +207,6 @@ const INITIAL_STEPS: ResearchStep[] = [
 
 interface TaskInfo {
     query: string;
-    scenario: ResearchScenario;
     depth: string;
 }
 
@@ -318,7 +307,7 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
                     // Also initialize in task store if hydrated
                     if (hasHydrated) {
-                        createTask(taskId, info.query, info.scenario, info.depth);
+                        createTask(taskId, info.query, info.depth);
                         setActiveTask(taskId);
                     }
                     return; // Successfully initialized new task, skip API fetch
@@ -336,7 +325,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                 } else {
                     setTaskInfo({
                         query: existingTask.query,
-                        scenario: existingTask.scenario,
                         depth: existingTask.depth,
                     });
                     setResearchResult(existingTask.result);
@@ -366,7 +354,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
 
                     setTaskInfo({
                         query: data.query,
-                        scenario: data.scenario,
                         depth: data.depth,
                     });
 
@@ -485,7 +472,6 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                 body: JSON.stringify({
                     message: info.query,
                     mode: "research",
-                    scenario: info.scenario,
                     depth: info.depth,
                     task_id: taskId,
                     locale: locale,
@@ -636,9 +622,9 @@ export function ResearchProgress({ taskId }: ResearchProgressProps) {
                             </button>
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                    {SCENARIO_ICONS[taskInfo.scenario]}
+                                    <Search className="w-4 h-4" />
                                     <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                                        {tResearch(`${taskInfo.scenario}.name`)}
+                                        {t("deepResearch")}
                                     </span>
                                 </div>
                                 <h2 className="text-base md:text-lg font-semibold text-foreground truncate">{taskInfo.query}</h2>

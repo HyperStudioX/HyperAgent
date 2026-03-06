@@ -376,9 +376,8 @@ def _build_skill_invocation(
         if history:
             skill_params["messages"] = history[-6:]
 
-    # Pass scenario, depth, and context for deep_research skill
+    # Pass depth and context for deep_research skill
     if skill_id == "deep_research":
-        skill_params["scenario"] = state.get("scenario", "academic")
         depth = state.get("depth")
         if depth:
             skill_params["depth"] = depth.value if hasattr(depth, "value") else depth
@@ -458,6 +457,43 @@ async def _apply_compression_if_needed(
     if new_summary:
         logger.info("context_compressed", summary_length=len(new_summary))
     return updated_messages, new_summary, context_events
+
+
+async def _invoke_llm_streaming(llm_with_tools, messages: list) -> AIMessage:
+    """Invoke the LLM using streaming so on_chat_model_stream events propagate.
+
+    Using astream instead of ainvoke ensures that LangGraph's astream_events
+    captures token chunks in real-time, giving the frontend immediate feedback
+    instead of waiting for the full response.
+
+    Falls back to ainvoke if streaming fails (e.g., thinking-mode providers).
+    """
+    try:
+        ai_message = None
+        async for chunk in llm_with_tools.astream(messages):
+            if ai_message is None:
+                ai_message = chunk
+            else:
+                ai_message = ai_message + chunk
+        if ai_message is None:
+            # Fallback: empty stream, use ainvoke
+            ai_message = await llm_with_tools.ainvoke(messages)
+        return ai_message
+    except Exception as stream_err:
+        # Providers with "thinking" mode (e.g. DeepSeek, Kimi) may fail
+        # on streaming. Detect and retry with ainvoke.
+        if "reasoning_content" in str(stream_err):
+            logger.info("thinking_mode_detected_enabling_patch")
+            inner_llm = getattr(llm_with_tools, "bound", llm_with_tools)
+            if hasattr(inner_llm, "thinking_mode"):
+                inner_llm.thinking_mode = True
+            return await llm_with_tools.ainvoke(messages)
+        # For other streaming failures, fall back to ainvoke
+        logger.warning(
+            "llm_streaming_failed_falling_back",
+            error=str(stream_err),
+        )
+        return await llm_with_tools.ainvoke(messages)
 
 
 async def reason_node(state: TaskState) -> dict:
@@ -622,29 +658,13 @@ async def reason_node(state: TaskState) -> dict:
         logger.debug("active_todo_injected")
 
     try:
-        # Get AI response (may include tool calls)
-        try:
-            ai_message = await llm_with_tools.ainvoke(messages_for_llm)
-        except Exception as invoke_err:
-            # Providers with "thinking" mode (e.g. DeepSeek, Kimi) require
-            # reasoning_content on every assistant message with tool_calls.
-            # ChatOpenAI silently drops this field from responses, so the
-            # ThinkingAwareChatOpenAI subclass patches the payload. If the
-            # flag wasn't set upfront (e.g. enable_thinking not configured),
-            # detect it here and enable the patch for all future calls.
-            if "reasoning_content" in str(invoke_err):
-                logger.info("thinking_mode_detected_enabling_patch")
-                # Enable the payload-level patch on the underlying LLM client
-                inner_llm = getattr(llm_with_tools, "bound", llm_with_tools)
-                if hasattr(inner_llm, "thinking_mode"):
-                    inner_llm.thinking_mode = True
-                ai_message = await llm_with_tools.ainvoke(messages_for_llm)
-            else:
-                raise
+        # Get AI response using streaming so tokens propagate in real-time
+        # through LangGraph's astream_events to the frontend.
+        ai_message = await _invoke_llm_streaming(llm_with_tools, messages_for_llm)
 
         lc_messages.append(ai_message)
 
-        # Stream tokens if no tool calls
+        # Emit final response token if no tool calls
         if not ai_message.tool_calls:
             response_text = extract_text_from_content(ai_message.content)
             if response_text:
@@ -660,11 +680,17 @@ async def reason_node(state: TaskState) -> dict:
                         "I apologize, but I cannot provide that response. "
                         "Please ask a different question."
                     )
+                    # Mark as guardrail replacement so stream_processor
+                    # allows it through even if tokens were already streamed
+                    guardrail_token = events.token(response_text)
+                    guardrail_token["guardrail_replacement"] = True
+                    event_list.append(guardrail_token)
                 elif scan_result.sanitized_content:
                     logger.info("output_guardrail_sanitized")
                     response_text = scan_result.sanitized_content
-
-                event_list.append(events.token(response_text))
+                    guardrail_token = events.token(response_text)
+                    guardrail_token["guardrail_replacement"] = True
+                    event_list.append(guardrail_token)
 
         result = {
             "lc_messages": lc_messages,

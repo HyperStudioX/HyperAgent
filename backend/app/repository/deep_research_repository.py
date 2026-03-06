@@ -22,7 +22,6 @@ class DeepResearchRepository:
         task_id: str,
         query: str,
         depth: str,
-        scenario: str,
         user_id: str,
     ) -> ResearchTask:
         """Create a new research task.
@@ -32,7 +31,6 @@ class DeepResearchRepository:
             task_id: Unique task identifier
             query: Research query
             depth: Research depth level
-            scenario: Research scenario type
             user_id: User identifier (required)
 
         Returns:
@@ -42,7 +40,6 @@ class DeepResearchRepository:
             id=task_id,
             query=query,
             depth=depth,
-            scenario=scenario,
             status="pending",
             user_id=user_id,
         )
